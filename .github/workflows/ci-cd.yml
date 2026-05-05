@@ -1,0 +1,544 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================================================
+  # Version Detection & Planning
+  # ============================================================================
+  version:
+    name: Detect Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_main: ${{ steps.check_branch.outputs.is_main }}
+      is_prerelease: ${{ steps.check_branch.outputs.is_prerelease }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check branch
+        id: check_branch
+        run: |
+          IS_MAIN=$([[ "$GITHUB_REF" == "refs/heads/main" ]] && echo "true" || echo "false")
+          IS_PRERELEASE=$([[ "$GITHUB_REF" != "refs/heads/main" && ! "$GITHUB_REF" =~ ^refs/tags ]] && echo "true" || echo "false")
+          echo "is_main=${IS_MAIN}" >> $GITHUB_OUTPUT
+          echo "is_prerelease=${IS_PRERELEASE}" >> $GITHUB_OUTPUT
+
+      - name: Detect version from tag or generate
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" =~ ^refs/tags/v ]]; then
+            # Version from git tag
+            VERSION=${GITHUB_REF#refs/tags/}
+          elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            # Main branch: generate version from commit count
+            VERSION="v0.$(git rev-list --count HEAD).0"
+          else
+            # Feature branch: version with branch name and commit
+            BRANCH=$(echo "$GITHUB_REF" | sed 's/refs\/heads\///' | sed 's/\//-/g')
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            VERSION="v0.0.0-${BRANCH}.${SHORT_SHA}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+  # ============================================================================
+  # Lint & Format Checks
+  # ============================================================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+  # ============================================================================
+  # Unit & Integration Tests
+  # ============================================================================
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: version
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: mysecretpassword
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://postgres:mysecretpassword@localhost:5432/postgres
+      AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
+      AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+
+      #- name: Install diesel-cli
+      #  run: cargo install diesel_cli --no-default-features --features postgres --locked
+
+      #- name: Run migrations
+      #  run: diesel migration run
+
+      - name: Run unit tests
+        run: cargo test --lib --verbose
+
+      - name: Run integration tests
+        run: cargo test --test api --verbose
+        timeout-minutes: 30
+
+  # ============================================================================
+  # Build: Linux x86_64
+  # ============================================================================
+  build-linux-x86:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+    needs: [version, lint, tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-x86-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/x86_64-unknown-linux-gnu/release/tcc_server artifacts/tcc_server-${{ needs.version.outputs.version }}-linux-x86_64
+          chmod +x artifacts/tcc_server-${{ needs.version.outputs.version }}-linux-x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-x86_64
+          path: artifacts/
+
+  # ============================================================================
+  # Build: Linux ARM64
+  # ============================================================================
+  build-linux-arm:
+    name: Build Linux ARM64
+    runs-on: ubuntu-latest
+    needs: [version, lint, tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install ARM tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-arm-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/aarch64-unknown-linux-gnu/release/tcc_server artifacts/tcc_server-${{ needs.version.outputs.version }}-linux-arm64
+          chmod +x artifacts/tcc_server-${{ needs.version.outputs.version }}-linux-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-arm64
+          path: artifacts/
+
+  # ============================================================================
+  # Build: macOS x86_64
+  # ============================================================================
+  build-macos-x86:
+    name: Build macOS x86_64
+    runs-on: macos-latest
+    needs: [version, lint, tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-x86-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/x86_64-apple-darwin/release/tcc_server artifacts/tcc_server-${{ needs.version.outputs.version }}-macos-x86_64
+          chmod +x artifacts/tcc_server-${{ needs.version.outputs.version }}-macos-x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-x86_64
+          path: artifacts/
+
+  # ============================================================================
+  # Build: macOS ARM64
+  # ============================================================================
+  build-macos-arm:
+    name: Build macOS ARM64
+    runs-on: macos-latest
+    needs: [version, lint, tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-arm-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/aarch64-apple-darwin/release/tcc_server artifacts/tcc_server-${{ needs.version.outputs.version }}-macos-arm64
+          chmod +x artifacts/tcc_server-${{ needs.version.outputs.version }}-macos-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-arm64
+          path: artifacts/
+
+  # ============================================================================
+  # Build: Windows x86_64
+  # ============================================================================
+  build-windows-x86:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+    needs: [version, lint, tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Prepare artifact
+        run: |
+          mkdir artifacts
+          copy target\x86_64-pc-windows-msvc\release\tcc_server.exe artifacts\tcc_server-${{ needs.version.outputs.version }}-windows-x86_64.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-x86_64
+          path: artifacts/
+
+  # ============================================================================
+  # Build: Docker Image
+  # ============================================================================
+  build-docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [version, lint, tests]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.version }}
+            type=ref,event=branch
+            type=sha
+
+      - name: Build and push (main branch)
+        if: needs.version.outputs.is_main == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+      - name: Build and push (feature branch - pre-release)
+        if: needs.version.outputs.is_prerelease == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # ============================================================================
+  # Create Release (Main Branch Only)
+  # ============================================================================
+  release:
+    name: Create Release
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [version, build-linux-x86, build-linux-arm, build-macos-x86, build-macos-arm, build-windows-x86, build-docker]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: release-artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find release-artifacts -type f -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.version.outputs.version }}
+          name: Release ${{ needs.version.outputs.version }}
+          body: |
+            ## Release ${{ needs.version.outputs.version }}
+            
+            ### Artifacts Included
+            - Linux x86_64 binary
+            - Linux ARM64 binary
+            - macOS x86_64 binary
+            - macOS ARM64 binary
+            - Windows x86_64 binary (.exe)
+            - Docker image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}`
+            
+            ### Installation
+            Download the binary for your platform and run it directly, or use the Docker image:
+            
+            ```bash
+            docker run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}
+            ```
+            
+            ### Environment Variables
+            - `DATABASE_URL` - PostgreSQL connection string
+            - `AUTH0_DOMAIN` - Auth0 tenant domain
+            - `AUTH0_AUDIENCE` - Auth0 audience identifier
+          files: release-assets/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # Create Pre-Release (Feature Branch)
+  # ============================================================================
+  pre-release:
+    name: Create Pre-Release
+    if: github.event_name == 'push' && !contains(github.ref, 'refs/heads/main')
+    runs-on: ubuntu-latest
+    needs: [version, build-linux-x86, build-linux-arm, build-macos-x86, build-macos-arm, build-windows-x86, build-docker]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: release-artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find release-artifacts -type f -exec cp {} release-assets/ \;
+
+      - name: Create Pre-Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.version.outputs.version }}
+          name: Pre-Release ${{ needs.version.outputs.version }}
+          body: |
+            ## Pre-Release ${{ needs.version.outputs.version }}
+            
+            This is a pre-release build from branch `${{ github.ref_name }}`.
+            
+            ### Artifacts Included
+            - Linux x86_64 binary
+            - Linux ARM64 binary
+            - macOS x86_64 binary
+            - macOS ARM64 binary
+            - Windows x86_64 binary (.exe)
+            - Docker image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}`
+            
+            ### Installation
+            ```bash
+            docker run ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}
+            ```
+          files: release-assets/*
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # Final Status
+  # ============================================================================
+  status:
+    name: Pipeline Status
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [version, lint, tests, build-linux-x86, build-linux-arm, build-macos-x86, build-macos-arm, build-windows-x86, build-docker]
+    steps:
+      - name: Check pipeline status
+        run: |
+          echo "Version: ${{ needs.version.outputs.version }}"
+          echo "Is Main: ${{ needs.version.outputs.is_main }}"
+          echo "Is Pre-Release: ${{ needs.version.outputs.is_prerelease }}"
+          echo "Pipeline completed successfully!"
