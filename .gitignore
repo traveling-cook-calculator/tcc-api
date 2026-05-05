@@ -1,0 +1,73 @@
+# ------------------------------------------------------------------------------
+# Rust Standard (Applies to both /client and /server)
+# ------------------------------------------------------------------------------
+# Build directory (where compiled binaries are stored)
+# Covers target/ in root as well as in subdirectories
+target/
+
+# Backup files from rustfmt
+**/*.rs.bk
+
+# ------------------------------------------------------------------------------
+# Dioxus & WebAssembly (Specific to /client)
+# ------------------------------------------------------------------------------
+# Output directory for web builds (dx build / trunk build)
+dist/
+
+# Internal Dioxus cache/config folders
+.dioxus/
+
+# Wasm Pack and Bindgen artifacts
+pkg/
+
+# Node Modules (if Tailwind or JS tools are used in the Dioxus client)
+node_modules/
+
+# ------------------------------------------------------------------------------
+# Environment Variables & Secrets (CRITICAL for the server)
+# ------------------------------------------------------------------------------
+# Never commit .env files as they contain API keys or DB passwords!
+*.env
+
+# ------------------------------------------------------------------------------
+# IDE & Editor Configurations
+# ------------------------------------------------------------------------------
+# VS Code (Ignore User Settings, Workspace Settings are often okay to keep)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains (IntelliJ, RustRover, CLion)
+.idea/
+*.iml
+
+# Other Editors
+.history/
+
+# ------------------------------------------------------------------------------
+# Operating Systems (OS)
+# ------------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ------------------------------------------------------------------------------
+# Logs & Databases (Local)
+# ------------------------------------------------------------------------------
+*.log
