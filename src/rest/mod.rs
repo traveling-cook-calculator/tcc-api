@@ -5,6 +5,7 @@ use crate::AppState;
 pub mod auth;
 mod cook_and_run;
 mod course;
+mod health;
 mod models;
 mod note;
 mod plan;
@@ -22,6 +23,7 @@ impl Rest {
 
 pub fn get_routes(app_state: AppState) -> Router<AppState> {
     axum::Router::new()
+        .merge(health::routes(app_state.clone()))
         .merge(cook_and_run::routes(app_state.clone()))
         .merge(course::routes(app_state.clone()))
         .merge(team::routes(app_state.clone()))

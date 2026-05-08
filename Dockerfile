@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binary from builder
-COPY --from=builder /build/target/release/tcc_server /app/tcc_server
+COPY --from=builder /build/target/release/tcc_api /app/tcc_api
 
 # Copy migrations
 COPY migrations /app/migrations
@@ -54,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 3000
 
 # Run application
-CMD ["/app/tcc_server"]
+CMD ["/app/tcc_api"]

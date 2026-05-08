@@ -72,11 +72,11 @@ ADDR=0.0.0.0:3000
 ## Artifacts & Releases
 
 ### Binary Artifacts (created for all branches)
-- `tcc_server-{version}-linux-x86_64` - Linux x86_64
-- `tcc_server-{version}-linux-arm64` - Linux ARM64
-- `tcc_server-{version}-macos-x86_64` - macOS x86_64
-- `tcc_server-{version}-macos-arm64` - macOS ARM64
-- `tcc_server-{version}-windows-x86_64.exe` - Windows x86_64
+- `tcc_api-{version}-linux-x86_64` - Linux x86_64
+- `tcc_api-{version}-linux-arm64` - Linux ARM64
+- `tcc_api-{version}-macos-x86_64` - macOS x86_64
+- `tcc_api-{version}-macos-arm64` - macOS ARM64
+- `tcc_api-{version}-windows-x86_64.exe` - Windows x86_64
 
 ### Docker Images
 

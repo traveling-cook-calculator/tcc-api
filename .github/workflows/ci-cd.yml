@@ -11,11 +11,18 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
 
 jobs:
   # ============================================================================
@@ -36,25 +43,36 @@ jobs:
 
       - name: Check branch
         id: check_branch
+        shell: bash
         run: |
-          IS_MAIN=$([[ "$GITHUB_REF" == "refs/heads/main" ]] && echo "true" || echo "false")
-          IS_PRERELEASE=$([[ "$GITHUB_REF" != "refs/heads/main" && ! "$GITHUB_REF" =~ ^refs/tags ]] && echo "true" || echo "false")
-          echo "is_main=${IS_MAIN}" >> $GITHUB_OUTPUT
-          echo "is_prerelease=${IS_PRERELEASE}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "is_main=true" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "is_main=false" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_main=false" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Detect version from tag or generate
         id: version
+        shell: bash
         run: |
-          if [[ "$GITHUB_REF" =~ ^refs/tags/v ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-          elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
             VERSION="v0.$(git rev-list --count HEAD).0"
           else
-            BRANCH=$(echo "$GITHUB_REF" | sed 's/refs\/heads\///' | sed 's/\//-/g')
-            SHORT_SHA=$(git rev-parse --short HEAD)
+            BRANCH="$(echo "${GITHUB_REF}" | sed 's#refs/heads/##' | sed 's#/#-#g')"
+            SHORT_SHA="$(git rev-parse --short HEAD)"
             VERSION="v0.0.0-${BRANCH}.${SHORT_SHA}"
           fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Version: ${VERSION}"
 
   # ============================================================================
@@ -76,10 +94,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
   # ============================================================================
   # Unit & Integration Tests
@@ -106,8 +124,10 @@ jobs:
       DATABASE_URL: postgresql://postgres:mysecretpassword@localhost:5432/postgres
       AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
       AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
-      # Füge hier ggf. den Port für deinen Service hinzu
-      PORT: 8080 
+      APP_ENV: test
+      HOST: 127.0.0.1
+      PORT: 8080
+      RUST_LOG: info
 
     steps:
       - name: Checkout code
@@ -120,25 +140,49 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Service
-        # Wir bauen den Service zuerst, damit das Hochfahren danach schnell geht
-        run: cargo build
+        run: cargo build --locked --all-targets --all-features
 
-      - name: Start Service (incl. DB Migration)
+      - name: Start Service
+        shell: bash
         run: |
-          # Startet den Service im Hintergrund. Der Service übernimmt dabei die DB-Migration[cite: 1].
-          cargo run &
-          
-          # Warte, bis der Service erreichbar ist (Passe die URL ggf. an deinen Health-Check an)
-          echo "Warte auf den Start des Services und die Datenbankmigration..."
-          timeout 30 bash -c 'until curl -s http://localhost:8080/ > /dev/null || curl -s http://localhost:8080/health > /dev/null; do sleep 1; done'
-          echo "Service ist online!"
+          set -euo pipefail
+
+          cargo run --locked --all-features > app.log 2>&1 &
+          echo $! > /tmp/app.pid
+
+          echo "Waiting for application to become ready..."
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1 || \
+               curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then
+              echo "Application is ready."
+              exit 0
+            fi
+            if ! kill -0 "$(cat /tmp/app.pid)" 2>/dev/null; then
+              echo "Application exited before it became ready."
+              cat app.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "Timed out waiting for application startup."
+          cat app.log
+          exit 1
 
       - name: Run integration tests
-        run: cargo test --test api --verbose
+        run: cargo test --locked --test api -- --nocapture
         timeout-minutes: 30
 
+      - name: Stop Service
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f /tmp/app.pid ]]; then
+            kill "$(cat /tmp/app.pid)" 2>/dev/null || true
+          fi
+
   # ============================================================================
-  # Build Jobs (Gekürzt für die Übersicht - passe die Cache/Upload Actions analog an)
+  # Build Jobs
   # ============================================================================
   build-linux-x86:
     name: Build Linux x86_64
@@ -157,21 +201,21 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build release
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+        run: cargo build --locked --release --target x86_64-unknown-linux-gnu
 
       - name: Prepare artifact
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p artifacts
-          cp target/x86_64-unknown-linux-gnu/release/tcc_server artifacts/tcc_server-${{ needs.version.outputs.version }}-linux-x86_64
-          chmod +x artifacts/tcc_server-${{ needs.version.outputs.version }}-linux-x86_64
+          cp target/x86_64-unknown-linux-gnu/release/tcc_api "artifacts/tcc_api-${{ needs.version.outputs.version }}-linux-x86_64"
+          chmod +x "artifacts/tcc_api-${{ needs.version.outputs.version }}-linux-x86_64"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
           path: artifacts/
-
-  # (Wiederhole das Schema mit actions/upload-artifact@v4 und Swatinem/rust-cache@v2 für alle anderen Build-Jobs...)
 
   # ============================================================================
   # Build: Docker Image
@@ -216,8 +260,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ============================================================================
   # Releases
@@ -226,7 +270,6 @@ jobs:
     name: Create Release
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    # Stelle sicher, dass hier alle OS-Builds in den "needs" stehen
     needs: [version, build-linux-x86, build-docker]
     permissions:
       contents: write

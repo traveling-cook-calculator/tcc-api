@@ -3292,7 +3292,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tcc_server"
+name = "tcc_api"
 version = "0.1.0"
 dependencies = [
  "anyhow",

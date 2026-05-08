@@ -159,6 +159,34 @@ impl AuthState {
         Ok(token_data.claims)
     }
 
+    pub async fn health_check(&self) -> Result<(), AppError> {
+        let jwks_url = format!("https://{}/.well-known/jwks.json", self.auth0_domain);
+        let jwks: Jwks = reqwest::get(&jwks_url)
+            .await
+            .map_err(|e| {
+                AppError::AuthorizationError(format!(
+                    "Error while requesting JWKS for health check: {}",
+                    e.to_string()
+                ))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                AppError::AuthorizationError(format!(
+                    "Error while parsing JWKS response for health check: {}",
+                    e.to_string()
+                ))
+            })?;
+
+        if jwks.keys.is_empty() {
+            return Err(AppError::AuthorizationError(
+                "Auth server returned no JWKS keys".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     pub fn has_permission(&self, claims: &Claims, required_permission: &str) -> bool {
         debug!(
             user = %claims.sub,
