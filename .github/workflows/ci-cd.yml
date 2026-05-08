@@ -129,6 +129,7 @@ jobs:
       AUTH0_CLIENT_ID_2: ${{ secrets.AUTH0_CLIENT_ID_2 }}
       AUTH0_CLIENT_SECRET_2: ${{ secrets.AUTH0_CLIENT_SECRET_2 }}
       DISABLE_RATE_LIMIT: true
+      RUST_BACKTRACE: 1
 
     steps:
       - name: Checkout code
