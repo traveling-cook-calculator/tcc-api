@@ -5,6 +5,7 @@ use crate::{auth::get_auth0_1, cook_and_run::post_test::get_cook_and_run_create_
 mod auth;
 mod cook_and_run;
 mod course;
+mod health;
 mod plan;
 mod plan_config;
 mod sharing;

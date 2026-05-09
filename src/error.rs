@@ -82,9 +82,9 @@ pub enum AppError {
     InternalError(anyhow::Error),
 }
 
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        match &self {
+impl AppError {
+    pub(crate) fn log(&self) {
+        match self {
             AppError::AddressNotFound(id) => {
                 tracing::warn!(address.id = %id, "Address not found");
             }
@@ -155,7 +155,12 @@ impl IntoResponse for AppError {
                 tracing::warn!(error = %auth_error, "Authorization error occurred");
             }
         }
+    }
+}
 
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        self.log();
         let status = match self {
             AppError::DeadlineExceeded(_, _)
             | AppError::NeedLoginToCreateTeam(_)

@@ -154,8 +154,7 @@ jobs:
 
           echo "Waiting for application to become ready..."
           for _ in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1 || \
-               curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+            if curl -H "x-forwarded-for: 127.0.0.1" -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
               echo "Application is ready."
               exit 0
             fi

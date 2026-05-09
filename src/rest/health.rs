@@ -13,23 +13,17 @@ struct HealthResponse {
 struct HealthCheckResult {
     name: &'static str,
     status: &'static str,
-    details: Option<String>,
 }
 
 impl HealthCheckResult {
     fn up(name: &'static str) -> Self {
-        Self {
-            name,
-            status: "UP",
-            details: None,
-        }
+        Self { name, status: "UP" }
     }
 
-    fn down(name: &'static str, details: String) -> Self {
+    fn down(name: &'static str) -> Self {
         Self {
             name,
             status: "DOWN",
-            details: Some(details),
         }
     }
 }
@@ -51,6 +45,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 }
 
 async fn liveness() -> impl IntoResponse {
+    tracing::debug!("Performing liveness check");
     let response = HealthResponse {
         status: "UP",
         checks: vec![HealthCheckResult::up("liveness")],
@@ -59,6 +54,7 @@ async fn liveness() -> impl IntoResponse {
 }
 
 async fn readiness(State(mut state): State<AppState>) -> impl IntoResponse {
+    tracing::debug!("Performing readiness check");
     let checks = perform_readiness_checks(&mut state).await;
     let status = overall_status(&checks);
     let response = HealthResponse { status, checks };
@@ -71,6 +67,7 @@ async fn readiness(State(mut state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn overall_health(State(mut state): State<AppState>) -> impl IntoResponse {
+    tracing::debug!("Performing overall health check");
     let checks = perform_readiness_checks(&mut state).await;
     let status = overall_status(&checks);
     let response = HealthResponse { status, checks };
@@ -87,12 +84,18 @@ async fn perform_readiness_checks(state: &mut AppState) -> Vec<HealthCheckResult
 
     match state.db.health_check() {
         Ok(_) => checks.push(HealthCheckResult::up("database")),
-        Err(error) => checks.push(HealthCheckResult::down("database", error.to_string())),
+        Err(error) => {
+            error.log();
+            checks.push(HealthCheckResult::down("database"))
+        }
     }
 
     match state.auth.health_check().await {
         Ok(_) => checks.push(HealthCheckResult::up("auth_server")),
-        Err(error) => checks.push(HealthCheckResult::down("auth_server", error.to_string())),
+        Err(error) => {
+            error.log();
+            checks.push(HealthCheckResult::down("auth_server"))
+        }
     }
 
     checks
