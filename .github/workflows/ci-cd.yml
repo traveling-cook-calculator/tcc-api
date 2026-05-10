@@ -319,7 +319,7 @@ jobs:
           set -euo pipefail
           mkdir -p docker-context
           cp "artifacts/${{ env.BINARY_NAME }}" "docker-context/${{ env.BINARY_NAME }}"
-          cp Dockerfile.runtime docker-context/Dockerfile
+          cp Dockerfile docker-context/Dockerfile  # <--- HIER GEÄNDERT
           chmod +x "docker-context/${{ env.BINARY_NAME }}"
 
       # Writes credentials to ~/.docker/config.json which Kaniko picks up.
