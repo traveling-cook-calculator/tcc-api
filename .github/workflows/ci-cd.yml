@@ -3,15 +3,16 @@ name: CI/CD Pipeline
 # +-----------------------------------------------------------------------------+
 # |  Job dependency graph (simplified):                                         |
 # |                                                                             |
-# |   version --+--► build (release + clippy) --+--► test ------► release      |
-# |             |                               |                              |
-# |   fmt ------+ (runs in parallel to build)   +--► build-image --► release   |
+# |   version --+--► security --► build --► coverage --► build-image --► release |
+# |             |                    |           |                |             |
+# |   fmt ------+ (runs in parallel) +--> test --+                +-------------+
 # |                                                                             |
-# |  The binary is compiled EXACTLY ONCE and passed to all downstream jobs     |
-# |  via upload-artifact -- no second Rust build anywhere in the pipeline.     |
+# |  The release binary is compiled once in the build job and reused downstream. |
+# |  Integration/unit test binaries are also compiled there and executed later.  |
+# |  Container images are built with Kaniko, then attested and signed.           |
 # |                                                                             |
-# |  Container images are built with Kaniko (no Docker daemon, no privileged   |
-# |  flag, no socket mount). Layer cache is stored directly in the registry.   |
+# |  Security: cargo-audit, cargo-deny (if deny.toml exists), cargo-outdated.    |
+# |  Supply chain: SBOM, provenance attestations, Cosign signatures.            |
 # +-----------------------------------------------------------------------------+
 
 on:
@@ -25,7 +26,6 @@ on:
     branches:
       - main
 
-# Minimal default permissions; jobs that need more declare it explicitly.
 permissions:
   contents: read
 
@@ -40,6 +40,10 @@ env:
   RUST_BACKTRACE: full
   BINARY_NAME: tcc_api
   TARGET: x86_64-unknown-linux-gnu
+  APP_PORT: "3000"
+  POSTGRES_VERSION: 15-alpine
+  HEALTH_ENDPOINT: /health
+  TEST_ARTIFACT_DIR: artifacts/tests
 
 jobs:
   # ============================================================================
@@ -48,6 +52,7 @@ jobs:
   version:
     name: Detect Version
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_main: ${{ steps.check_branch.outputs.is_main }}
@@ -63,13 +68,13 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "is_main=true"        >> "$GITHUB_OUTPUT"
+            echo "is_main=true" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "is_main=false"       >> "$GITHUB_OUTPUT"
+            echo "is_main=false" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            echo "is_main=false"      >> "$GITHUB_OUTPUT"
+            echo "is_main=false" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -91,11 +96,12 @@ jobs:
           echo "Detected version: ${VERSION}"
 
   # ============================================================================
-  # Format Check -- runs in parallel to build, requires no compilation
+  # Format Check
   # ============================================================================
   fmt:
     name: Format Check
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -107,23 +113,74 @@ jobs:
         run: cargo fmt --all -- --check
 
   # ============================================================================
-  # Build & Lint -- THE single compilation step for the entire workflow.
-  #
-  # Steps:
-  #   1. cargo build --release    ->  produces the release binary
-  #   2. cargo clippy              ->  reuses the incremental cache from step 1,
-  #                                    so it adds almost no extra compile time
-  #   3. cargo test --test api     ->  compiles ONLY the integration test binary
-  #      --no-run                      (no link/run); the executable path is
-  #                                    extracted from compiler JSON output and
-  #                                    staged alongside the service binary
-  #   4. upload artifacts          ->  both binaries available for downstream
-  #                                    jobs; no Rust toolchain needed there
+  # Security Scans
   # ============================================================================
-  build:
-    name: Build & Lint
+  security:
+    name: Security Scans
     runs-on: ubuntu-latest
     needs: [version, fmt]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: security
+
+      - name: Install security tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install cargo-audit --locked
+          cargo install cargo-deny --locked
+          cargo install cargo-outdated --locked
+
+      - name: Audit dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo audit --locked
+
+      - name: cargo-deny (policy file required)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f deny.toml ]]; then
+            cargo deny check advisories bans licenses sources
+          else
+            echo "::warning::deny.toml not found; cargo-deny will become active once a policy file is added."
+          fi
+
+      - name: Check outdated dependencies
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cargo outdated --root-deps > artifacts/cargo-outdated.txt || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports
+          path: artifacts/
+          retention-days: 7
+
+  # ============================================================================
+  # Build, Lint, Test Harness Compilation, SBOM, Provenance, Binary Signing
+  # ============================================================================
+  build:
+    name: Build & Prepare Test Artifacts
+    runs-on: ubuntu-latest
+    needs: [version, fmt, security]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -132,8 +189,6 @@ jobs:
           targets: ${{ env.TARGET }}
           components: clippy
 
-      # Cache key includes "release" to avoid colliding with a potential
-      # debug cache (e.g. from local development).
       - uses: Swatinem/rust-cache@v2
         with:
           key: release
@@ -141,44 +196,64 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --all-features --target ${{ env.TARGET }}
 
-      # Runs after build in the same job -- no compiler restart needed;
-      # clippy reuses the already-compiled object files from the cache.
       - name: Clippy (reuses build cache)
-        run: |
-          cargo clippy --locked --release --all-targets --all-features \
-            --target ${{ env.TARGET }} -- -D warnings
+        run: cargo clippy --locked --release --all-targets --all-features --target ${{ env.TARGET }} -- -D warnings
 
-      # Compile only the integration test binary -- no execution.
-      # --message-format=json lets us reliably extract the output path
-      # without having to glob through target/ directories.
-      - name: Compile integration test binary (no run)
+      - name: Compile test harnesses (unit + integration, no run)
+        id: compile-tests
         shell: bash
         run: |
           set -euo pipefail
-          TEST_BIN="$(
-            cargo test --locked --release --test api --no-run \
-              --all-features --target ${{ env.TARGET }} \
-              --message-format=json 2>/dev/null \
-            | jq -r 'select(.reason == "compiler-artifact"
-                       and (.target.kind[] == "test"))
-                     | .executable'
-          )"
-          echo "TEST_BIN=${TEST_BIN}" >> "$GITHUB_ENV"
-          echo "Compiled test binary: ${TEST_BIN}"
+          mkdir -p "${TEST_ARTIFACT_DIR}"
 
-      - name: Stage artifacts
+          cargo test --locked --release --all-targets --all-features --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .executable != null) | .executable' \
+            | sort -u \
+            | while read -r exe; do
+                [[ -n "${exe}" ]] || continue
+                base_name="$(basename "${exe}")"
+                cp "${exe}" "${TEST_ARTIFACT_DIR}/${base_name}"
+                chmod +x "${TEST_ARTIFACT_DIR}/${base_name}"
+                echo "Staged test binary: ${base_name}"
+              done
+
+          if [[ -z "$(find "${TEST_ARTIFACT_DIR}" -maxdepth 1 -type f | head -n 1)" ]]; then
+            echo "No compiled test binaries were staged."
+            exit 1
+          fi
+
+      - name: Stage release artifacts
         shell: bash
         run: |
           set -euo pipefail
-          VERSIONED="${{ env.BINARY_NAME }}-${{ needs.version.outputs.version }}-linux-x86_64"
           mkdir -p artifacts
-          cp "target/${{ env.TARGET }}/release/${{ env.BINARY_NAME }}" "artifacts/${VERSIONED}"
+          VERSIONED="${BINARY_NAME}-${{ needs.version.outputs.version }}-linux-x86_64"
+          cp "target/${TARGET}/release/${BINARY_NAME}" "artifacts/${VERSIONED}"
           chmod +x "artifacts/${VERSIONED}"
-          # Unversioned copy for convenient access in the test and image jobs
-          cp "artifacts/${VERSIONED}" "artifacts/${{ env.BINARY_NAME }}"
-          # Integration test binary -- fixed name so the test job needs no glob
-          cp "${TEST_BIN}" "artifacts/integration-tests"
-          chmod +x "artifacts/integration-tests"
+          cp "artifacts/${VERSIONED}" "artifacts/${BINARY_NAME}"
+
+      - name: Generate SBOM for release binary
+        uses: anchore/sbom-action@v0
+        with:
+          file: artifacts/${{ env.BINARY_NAME }}
+          format: spdx-json
+          output-file: artifacts/${{ env.BINARY_NAME }}.sbom.spdx.json
+          upload-artifact: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: v3.0.6
+
+      - name: Sign release binary
+        shell: bash
+        run: cosign sign-blob "artifacts/${BINARY_NAME}" --bundle "artifacts/${BINARY_NAME}.sigstore.json" --yes
+
+      - name: Generate build provenance attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/${{ env.BINARY_NAME }}
+          sbom-path: artifacts/${{ env.BINARY_NAME }}.sbom.spdx.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -187,16 +262,54 @@ jobs:
           retention-days: 7
 
   # ============================================================================
-  # Integration Tests -- no compilation at all. Both the service binary and
-  # the test binary were built in the build job and are downloaded here.
+  # Coverage
   # ============================================================================
-  test:
-    name: Integration Tests
+  coverage:
+    name: Code Coverage
     runs-on: ubuntu-latest
     needs: [build]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+
+      - name: Install cargo-llvm-cov
+        shell: bash
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Generate coverage report
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p coverage
+          cargo llvm-cov --locked --all-features --all-targets --lcov --output-path coverage/lcov.info
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # ============================================================================
+  # Integration + Unit Test Execution
+  # ============================================================================
+  test:
+    name: Integration & Unit Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    timeout-minutes: 30
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:${{ env.POSTGRES_VERSION }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: mysecretpassword
@@ -209,7 +322,9 @@ jobs:
         ports:
           - 5432:5432
     env:
-      ALLOW_ORIGIN: http://localhost:8080
+      ALLOW_ORIGIN: http://localhost:3000
+      APP_PORT: ${{ env.APP_PORT }}
+      HEALTH_ENDPOINT: ${{ env.HEALTH_ENDPOINT }}
       AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
       AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
       AUTH0_CLIENT_ID_1: ${{ secrets.AUTH0_CLIENT_ID_1 }}
@@ -229,13 +344,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x "artifacts/${{ env.BINARY_NAME }}"
-          "artifacts/${{ env.BINARY_NAME }}" > app.log 2>&1 &
+          chmod +x "artifacts/${BINARY_NAME}"
+          "artifacts/${BINARY_NAME}" > app.log 2>&1 &
           echo $! > /tmp/app.pid
 
           echo "Waiting for service to become ready..."
           for _ in $(seq 1 60); do
-            if curl -H "x-forwarded-for: 127.0.0.1" -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
+            if curl -H "x-forwarded-for: 127.0.0.1" -fsS "http://127.0.0.1:${APP_PORT}${HEALTH_ENDPOINT}" >/dev/null 2>&1; then
               echo "Service is ready."
               exit 0
             fi
@@ -251,13 +366,22 @@ jobs:
           cat app.log
           exit 1
 
-      # No cargo, no Rust toolchain -- run the pre-compiled test binary directly.
-      - name: Run integration tests
+      - name: Run compiled test binaries
         shell: bash
         run: |
-          chmod +x artifacts/integration-tests
-          artifacts/integration-tests --nocapture
-        timeout-minutes: 30
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(artifacts/tests/*)
+          if [[ ${#tests[@]} -eq 0 ]]; then
+            echo "No compiled test binaries were found."
+            exit 1
+          fi
+
+          for test_bin in "${tests[@]}"; do
+            chmod +x "${test_bin}"
+            echo "Running $(basename "${test_bin}")"
+            "${test_bin}" --nocapture
+          done
 
       - name: Stop service
         if: always()
@@ -267,7 +391,6 @@ jobs:
             kill "$(cat /tmp/app.pid)" 2>/dev/null || true
           fi
 
-      # Preserve service logs as an artifact so failures can be debugged.
       - name: Upload service logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -277,31 +400,19 @@ jobs:
           retention-days: 3
 
   # ============================================================================
-  # Container Image -- built with Kaniko instead of Docker.
-  #
-  # Why Kaniko over Docker/BuildKit:
-  #   - No Docker daemon required. Docker-in-Docker (DinD) needs --privileged,
-  #     giving a compromised build script near-root access to the host kernel.
-  #     Mounting /var/run/docker.sock is worse: full control over the host
-  #     daemon and every container running on it. Kaniko eliminates both risks
-  #     by building entirely in userspace without elevated privileges.
-  #   - Registry-native layer cache. Kaniko pushes cache layers directly to
-  #     ghcr.io/.../cache, making them persistent across runners and
-  #     independent of GitHub Actions cache quotas or eviction.
-  #   - Portable. Runs identically on GitHub Actions, Kubernetes (Tekton,
-  #     Argo), GitLab, or any other executor -- no environment-specific
-  #     workarounds needed.
-  #
-  # Auth: docker/login-action writes ~/.docker/config.json; Kaniko reads it
-  # automatically, so no extra credential wiring is needed.
+  # Container Image -- built with Kaniko, then attested and signed.
   # ============================================================================
   build-image:
-    name: Build & Push Container Image (Kaniko)
+    name: Build, Attest & Sign Container Image
     runs-on: ubuntu-latest
-    needs: [version, test]
+    needs: [version, test, coverage]
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v4
 
@@ -311,18 +422,15 @@ jobs:
           name: linux-x86_64
           path: artifacts/
 
-      # Copy binary and Dockerfile into an isolated build context so Kaniko
-      # does not need access to the entire repository tree.
       - name: Prepare build context
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p docker-context
-          cp "artifacts/${{ env.BINARY_NAME }}" "docker-context/${{ env.BINARY_NAME }}"
-          cp Dockerfile docker-context/Dockerfile  # <--- HIER GEÄNDERT
-          chmod +x "docker-context/${{ env.BINARY_NAME }}"
+          cp "artifacts/${BINARY_NAME}" "docker-context/${BINARY_NAME}"
+          cp Dockerfile docker-context/Dockerfile
+          chmod +x "docker-context/${BINARY_NAME}"
 
-      # Writes credentials to ~/.docker/config.json which Kaniko picks up.
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -342,12 +450,8 @@ jobs:
             type=ref,event=branch
             type=sha
 
-      # int128/kaniko-action wraps the Kaniko executor container.
-      # cache-repository: layers are pushed to the registry, giving persistent
-      # cross-run caching without relying on runner state or GHA cache quotas.
-      # On pull requests we skip the push (no credentials) but still verify
-      # the image builds successfully.
       - name: Build and push with Kaniko
+        id: build
         uses: int128/kaniko-action@v1
         with:
           context: docker-context/
@@ -357,6 +461,37 @@ jobs:
           cache: true
           cache-repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache
 
+      - name: Generate SBOM for container image
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: image.sbom.spdx.json
+          upload-artifact: false
+
+      - name: Generate image provenance attestation
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: image.sbom.spdx.json
+          push-to-registry: true
+
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: v3.0.6
+
+      - name: Sign container image
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+
   # ============================================================================
   # GitHub Release
   # ============================================================================
@@ -364,7 +499,8 @@ jobs:
     name: Create Release
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: [version, test, build-image]
+    needs: [version, test, coverage, build-image]
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -376,13 +512,12 @@ jobs:
           name: linux-x86_64
           path: release-artifacts/
 
-      # Remove internal helper files from the artifact bundle so only the
-      # versioned binary appears as a release asset.
-      - name: Strip internal artifacts from release assets
+      - name: Strip internal helper files from release assets
         shell: bash
         run: |
-          rm -f "release-artifacts/${{ env.BINARY_NAME }}"
-          rm -f "release-artifacts/integration-tests"
+          set -euo pipefail
+          rm -f "release-artifacts/${BINARY_NAME}"
+          rm -rf "release-artifacts/tests"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
