@@ -254,7 +254,9 @@ jobs:
       # No cargo, no Rust toolchain -- run the pre-compiled test binary directly.
       - name: Run integration tests
         shell: bash
-        run: artifacts/integration-tests --nocapture
+        run: |
+          chmod +x artifacts/integration-tests
+          artifacts/integration-tests --nocapture
         timeout-minutes: 30
 
       - name: Stop service
