@@ -96,18 +96,12 @@ impl AuthState {
         let jwks: Jwks = reqwest::get(&jwks_url)
             .await
             .map_err(|e| {
-                AppError::AuthorizationError(format!(
-                    "Error while requesting JWKS: {}",
-                    e
-                ))
+                AppError::AuthorizationError(format!("Error while requesting JWKS: {}", e))
             })?
             .json()
             .await
             .map_err(|e| {
-                AppError::AuthorizationError(format!(
-                    "Error while parsing JWKS-Response: {}",
-                    e
-                ))
+                AppError::AuthorizationError(format!("Error while parsing JWKS-Response: {}", e))
             })?;
 
         Ok(AuthState {
@@ -135,10 +129,7 @@ impl AuthState {
             .ok_or_else(|| AppError::AuthorizationError(format!("Kid id {} not found!", kid)))?;
 
         let decoding_key = DecodingKey::from_rsa_components(&key.n, &key.e).map_err(|e| {
-            AppError::AuthorizationError(format!(
-                "Error while decoding JWKS-Data: {}",
-                e
-            ))
+            AppError::AuthorizationError(format!("Error while decoding JWKS-Data: {}", e))
         })?;
 
         debug!(

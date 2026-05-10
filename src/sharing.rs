@@ -38,14 +38,11 @@ impl RequiredField {
     }
 
     fn from_list(db_field_list: Option<Vec<Option<db::models::TeamFields>>>) -> Vec<Self> {
-        db_field_list.map_or_else(
-            Vec::new,
-            |list| {
-                list.into_iter()
-                    .filter_map(|f| f.map(RequiredField::from))
-                    .collect()
-            },
-        )
+        db_field_list.map_or_else(Vec::new, |list| {
+            list.into_iter()
+                .filter_map(|f| f.map(RequiredField::from))
+                .collect()
+        })
     }
 }
 
@@ -135,9 +132,7 @@ pub fn update(
         Err(AppError::DatabaseError(diesel::result::Error::DatabaseError(
             DatabaseErrorKind::UniqueViolation,
             _,
-        ))) => {
-            Ok(())
-        }
+        ))) => Ok(()),
         Err(e) => Err(e),
     }
 }
