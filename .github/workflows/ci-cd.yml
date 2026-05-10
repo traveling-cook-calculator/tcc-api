@@ -1,15 +1,18 @@
 name: CI/CD Pipeline
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │  Job dependency graph (simplified):                                         │
-# │                                                                             │
-# │   version ──┬──► build (release + clippy) ──┬──► test ──────► release      │
-# │             │                               │                              │
-# │   fmt ──────┘ (runs in parallel to build)   └──► build-docker ──► release  │
-# │                                                                             │
-# │  The binary is compiled EXACTLY ONCE and passed to all downstream jobs      │
-# │  via upload-artifact – no second Rust build anywhere in the pipeline.       │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# +-----------------------------------------------------------------------------+
+# |  Job dependency graph (simplified):                                         |
+# |                                                                             |
+# |   version --+--► build (release + clippy) --+--► test ------► release      |
+# |             |                               |                              |
+# |   fmt ------+ (runs in parallel to build)   +--► build-image --► release   |
+# |                                                                             |
+# |  The binary is compiled EXACTLY ONCE and passed to all downstream jobs     |
+# |  via upload-artifact -- no second Rust build anywhere in the pipeline.     |
+# |                                                                             |
+# |  Container images are built with Kaniko (no Docker daemon, no privileged   |
+# |  flag, no socket mount). Layer cache is stored directly in the registry.   |
+# +-----------------------------------------------------------------------------+
 
 on:
   push:
@@ -88,7 +91,7 @@ jobs:
           echo "Detected version: ${VERSION}"
 
   # ============================================================================
-  # Format Check — runs in parallel to build, requires no compilation
+  # Format Check -- runs in parallel to build, requires no compilation
   # ============================================================================
   fmt:
     name: Format Check
@@ -104,13 +107,18 @@ jobs:
         run: cargo fmt --all -- --check
 
   # ============================================================================
-  # Build & Lint — THE single compilation step for the entire workflow.
+  # Build & Lint -- THE single compilation step for the entire workflow.
   #
   # Steps:
-  #   1. cargo build --release  →  produces the release binary
-  #   2. cargo clippy            →  reuses the incremental cache from step 1,
-  #                                 so it adds almost no extra compile time
-  #   3. upload artifact         →  binary is available for test + docker jobs
+  #   1. cargo build --release    ->  produces the release binary
+  #   2. cargo clippy              ->  reuses the incremental cache from step 1,
+  #                                    so it adds almost no extra compile time
+  #   3. cargo test --test api     ->  compiles ONLY the integration test binary
+  #      --no-run                      (no link/run); the executable path is
+  #                                    extracted from compiler JSON output and
+  #                                    staged alongside the service binary
+  #   4. upload artifacts          ->  both binaries available for downstream
+  #                                    jobs; no Rust toolchain needed there
   # ============================================================================
   build:
     name: Build & Lint
@@ -131,15 +139,32 @@ jobs:
           key: release
 
       - name: Build release binary
-        run: |
-          cargo build --locked --release --all-features --target ${{ env.TARGET }}
+        run: cargo build --locked --release --all-features --target ${{ env.TARGET }}
 
-      # Runs after build in the same job → no compiler restart needed;
+      # Runs after build in the same job -- no compiler restart needed;
       # clippy reuses the already-compiled object files from the cache.
       - name: Clippy (reuses build cache)
         run: |
           cargo clippy --locked --release --all-targets --all-features \
             --target ${{ env.TARGET }} -- -D warnings
+
+      # Compile only the integration test binary -- no execution.
+      # --message-format=json lets us reliably extract the output path
+      # without having to glob through target/ directories.
+      - name: Compile integration test binary (no run)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_BIN="$(
+            cargo test --locked --release --test api --no-run \
+              --all-features --target ${{ env.TARGET }} \
+              --message-format=json 2>/dev/null \
+            | jq -r 'select(.reason == "compiler-artifact"
+                       and (.target.kind[] == "test"))
+                     | .executable'
+          )"
+          echo "TEST_BIN=${TEST_BIN}" >> "$GITHUB_ENV"
+          echo "Compiled test binary: ${TEST_BIN}"
 
       - name: Stage artifacts
         shell: bash
@@ -149,8 +174,11 @@ jobs:
           mkdir -p artifacts
           cp "target/${{ env.TARGET }}/release/${{ env.BINARY_NAME }}" "artifacts/${VERSIONED}"
           chmod +x "artifacts/${VERSIONED}"
-          # Unversioned copy for convenient access in the test and docker jobs
+          # Unversioned copy for convenient access in the test and image jobs
           cp "artifacts/${VERSIONED}" "artifacts/${{ env.BINARY_NAME }}"
+          # Integration test binary -- fixed name so the test job needs no glob
+          cp "${TEST_BIN}" "artifacts/integration-tests"
+          chmod +x "artifacts/integration-tests"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -159,8 +187,8 @@ jobs:
           retention-days: 7
 
   # ============================================================================
-  # Integration Tests — starts the pre-built binary, only the lean
-  # integration test code needs to be compiled (no expensive service build).
+  # Integration Tests -- no compilation at all. Both the service binary and
+  # the test binary were built in the build job and are downloaded here.
   # ============================================================================
   test:
     name: Integration Tests
@@ -191,10 +219,7 @@ jobs:
       DISABLE_RATE_LIMIT: "true"
       RUST_BACKTRACE: "1"
     steps:
-      - uses: actions/checkout@v4
-
-      # No Rust build here – just download the pre-built binary
-      - name: Download pre-built binary
+      - name: Download pre-built binaries
         uses: actions/download-artifact@v4
         with:
           name: linux-x86_64
@@ -226,15 +251,10 @@ jobs:
           cat app.log
           exit 1
 
-      # Rust is only needed to compile the test binaries, not the service.
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: tests
-
+      # No cargo, no Rust toolchain -- run the pre-compiled test binary directly.
       - name: Run integration tests
-        run: cargo test --locked --test api -- --nocapture
+        shell: bash
+        run: artifacts/integration-tests --nocapture
         timeout-minutes: 30
 
       - name: Stop service
@@ -255,12 +275,26 @@ jobs:
           retention-days: 3
 
   # ============================================================================
-  # Docker Image — copies the pre-built binary into the build context and
-  # uses Dockerfile.runtime to assemble a lean runtime image only.
-  # No Rust toolchain, no cargo build inside any Docker layer.
+  # Container Image -- built with Kaniko instead of Docker.
+  #
+  # Why Kaniko over Docker/BuildKit:
+  #   - No Docker daemon required. Docker-in-Docker (DinD) needs --privileged,
+  #     giving a compromised build script near-root access to the host kernel.
+  #     Mounting /var/run/docker.sock is worse: full control over the host
+  #     daemon and every container running on it. Kaniko eliminates both risks
+  #     by building entirely in userspace without elevated privileges.
+  #   - Registry-native layer cache. Kaniko pushes cache layers directly to
+  #     ghcr.io/.../cache, making them persistent across runners and
+  #     independent of GitHub Actions cache quotas or eviction.
+  #   - Portable. Runs identically on GitHub Actions, Kubernetes (Tekton,
+  #     Argo), GitLab, or any other executor -- no environment-specific
+  #     workarounds needed.
+  #
+  # Auth: docker/login-action writes ~/.docker/config.json; Kaniko reads it
+  # automatically, so no extra credential wiring is needed.
   # ============================================================================
-  build-docker:
-    name: Build & Push Docker Image
+  build-image:
+    name: Build & Push Container Image (Kaniko)
     runs-on: ubuntu-latest
     needs: [version, test]
     permissions:
@@ -275,18 +309,18 @@ jobs:
           name: linux-x86_64
           path: artifacts/
 
-      # Copy binary into a separate Docker context so that Dockerfile.runtime
+      # Copy binary and Dockerfile into an isolated build context so Kaniko
       # does not need access to the entire repository tree.
-      - name: Prepare Docker build context
+      - name: Prepare build context
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p docker-context
           cp "artifacts/${{ env.BINARY_NAME }}" "docker-context/${{ env.BINARY_NAME }}"
+          cp Dockerfile.runtime docker-context/Dockerfile
           chmod +x "docker-context/${{ env.BINARY_NAME }}"
 
-      - uses: docker/setup-buildx-action@v3
-
+      # Writes credentials to ~/.docker/config.json which Kaniko picks up.
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -306,16 +340,20 @@ jobs:
             type=ref,event=branch
             type=sha
 
-      - name: Build and push
-        uses: docker/build-push-action@v5
+      # int128/kaniko-action wraps the Kaniko executor container.
+      # cache-repository: layers are pushed to the registry, giving persistent
+      # cross-run caching without relying on runner state or GHA cache quotas.
+      # On pull requests we skip the push (no credentials) but still verify
+      # the image builds successfully.
+      - name: Build and push with Kaniko
+        uses: int128/kaniko-action@v1
         with:
           context: docker-context/
-          file: Dockerfile.runtime
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache: true
+          cache-repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache
 
   # ============================================================================
   # GitHub Release
@@ -324,7 +362,7 @@ jobs:
     name: Create Release
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: [version, test, build-docker]
+    needs: [version, test, build-image]
     permissions:
       contents: write
     steps:
@@ -336,11 +374,13 @@ jobs:
           name: linux-x86_64
           path: release-artifacts/
 
-      # Remove the unversioned convenience copy ("tcc_api") from the artifact
-      # bundle so only the versioned binary appears in the release.
-      - name: Remove convenience copy from release assets
+      # Remove internal helper files from the artifact bundle so only the
+      # versioned binary appears as a release asset.
+      - name: Strip internal artifacts from release assets
         shell: bash
-        run: rm -f "release-artifacts/${{ env.BINARY_NAME }}"
+        run: |
+          rm -f "release-artifacts/${{ env.BINARY_NAME }}"
+          rm -f "release-artifacts/integration-tests"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
