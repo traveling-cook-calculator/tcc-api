@@ -1,57 +1,14 @@
-# Multi-stage build for Traveling Cook Calculator API
-
-# ============================================================================
-# Stage 1: Builder
-# ============================================================================
-FROM rust:1.75-slim as builder
-
-WORKDIR /build
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install diesel-cli
-RUN cargo install diesel_cli --no-default-features --features postgres --locked
-
-# Copy source code
-COPY . .
-
-# Build application
-RUN cargo build --release
-
-# ============================================================================
-# Stage 2: Runtime
-# ============================================================================
 FROM debian:bookworm-slim
 
-WORKDIR /app
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    libpq5 \
-    postgresql-client \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy binary from builder
-COPY --from=builder /build/target/release/tcc_api /app/tcc_api
+RUN useradd --no-create-home --shell /bin/false appuser
 
-# Copy migrations
-COPY migrations /app/migrations
+COPY tcc_api /usr/local/bin/tcc_api
+RUN chmod +x /usr/local/bin/tcc_api
 
-# Set environment variables
-ENV RUST_LOG=info
-ENV ADDR=0.0.0.0:3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
-
-# Expose port
+USER appuser
 EXPOSE 3000
-
-# Run application
-CMD ["/app/tcc_api"]
+ENTRYPOINT ["/usr/local/bin/tcc_api"]

@@ -1,5 +1,16 @@
 name: CI/CD Pipeline
 
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │  Job dependency graph (simplified):                                         │
+# │                                                                             │
+# │   version ──┬──► build (release + clippy) ──┬──► test ──────► release      │
+# │             │                               │                              │
+# │   fmt ──────┘ (runs in parallel to build)   └──► build-docker ──► release  │
+# │                                                                             │
+# │  The binary is compiled EXACTLY ONCE and passed to all downstream jobs      │
+# │  via upload-artifact – no second Rust build anywhere in the pipeline.       │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
 on:
   push:
     branches:
@@ -11,6 +22,7 @@ on:
     branches:
       - main
 
+# Minimal default permissions; jobs that need more declare it explicitly.
 permissions:
   contents: read
 
@@ -23,10 +35,12 @@ env:
   IMAGE_NAME: ${{ github.repository }}
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
+  BINARY_NAME: tcc_api
+  TARGET: x86_64-unknown-linux-gnu
 
 jobs:
   # ============================================================================
-  # Version Detection & Planning
+  # Version Detection
   # ============================================================================
   version:
     name: Detect Version
@@ -36,8 +50,7 @@ jobs:
       is_main: ${{ steps.check_branch.outputs.is_main }}
       is_prerelease: ${{ steps.check_branch.outputs.is_prerelease }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -47,17 +60,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "is_main=true" >> "$GITHUB_OUTPUT"
+            echo "is_main=true"        >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "is_main=false" >> "$GITHUB_OUTPUT"
+            echo "is_main=false"       >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            echo "is_main=false" >> "$GITHUB_OUTPUT"
+            echo "is_main=false"      >> "$GITHUB_OUTPUT"
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Detect version from tag or generate
+      - name: Detect version
         id: version
         shell: bash
         run: |
@@ -67,44 +80,92 @@ jobs:
           elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
             VERSION="v0.$(git rev-list --count HEAD).0"
           else
-            BRANCH="$(echo "${GITHUB_REF}" | sed 's#refs/heads/##' | sed 's#/#-#g')"
+            BRANCH="$(echo "${GITHUB_REF}" | sed 's#refs/heads/##;s#/#-#g')"
             SHORT_SHA="$(git rev-parse --short HEAD)"
             VERSION="v0.0.0-${BRANCH}.${SHORT_SHA}"
           fi
-
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Version: ${VERSION}"
+          echo "Detected version: ${VERSION}"
 
   # ============================================================================
-  # Lint & Format Checks
+  # Format Check — runs in parallel to build, requires no compilation
   # ============================================================================
-  lint:
-    name: Lint & Format
+  fmt:
+    name: Format Check
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+          components: rustfmt
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+  # ============================================================================
+  # Build & Lint — THE single compilation step for the entire workflow.
+  #
+  # Steps:
+  #   1. cargo build --release  →  produces the release binary
+  #   2. cargo clippy            →  reuses the incremental cache from step 1,
+  #                                 so it adds almost no extra compile time
+  #   3. upload artifact         →  binary is available for test + docker jobs
+  # ============================================================================
+  build:
+    name: Build & Lint
+    runs-on: ubuntu-latest
+    needs: [version, fmt]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+          components: clippy
+
+      # Cache key includes "release" to avoid colliding with a potential
+      # debug cache (e.g. from local development).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Build release binary
+        run: |
+          cargo build --locked --release --all-features --target ${{ env.TARGET }}
+
+      # Runs after build in the same job → no compiler restart needed;
+      # clippy reuses the already-compiled object files from the cache.
+      - name: Clippy (reuses build cache)
+        run: |
+          cargo clippy --locked --release --all-targets --all-features \
+            --target ${{ env.TARGET }} -- -D warnings
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSIONED="${{ env.BINARY_NAME }}-${{ needs.version.outputs.version }}-linux-x86_64"
+          mkdir -p artifacts
+          cp "target/${{ env.TARGET }}/release/${{ env.BINARY_NAME }}" "artifacts/${VERSIONED}"
+          chmod +x "artifacts/${VERSIONED}"
+          # Unversioned copy for convenient access in the test and docker jobs
+          cp "artifacts/${VERSIONED}" "artifacts/${{ env.BINARY_NAME }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: artifacts/
+          retention-days: 7
 
   # ============================================================================
-  # Unit & Integration Tests
+  # Integration Tests — starts the pre-built binary, only the lean
+  # integration test code needs to be compiled (no expensive service build).
   # ============================================================================
-  tests:
-    name: Run Tests
+  test:
+    name: Integration Tests
     runs-on: ubuntu-latest
+    needs: [build]
     services:
       postgres:
         image: postgres:15-alpine
@@ -119,7 +180,6 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-
     env:
       ALLOW_ORIGIN: http://localhost:8080
       AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
@@ -128,53 +188,56 @@ jobs:
       AUTH0_CLIENT_SECRET_1: ${{ secrets.AUTH0_CLIENT_SECRET_1 }}
       AUTH0_CLIENT_ID_2: ${{ secrets.AUTH0_CLIENT_ID_2 }}
       AUTH0_CLIENT_SECRET_2: ${{ secrets.AUTH0_CLIENT_SECRET_2 }}
-      DISABLE_RATE_LIMIT: true
-      RUST_BACKTRACE: 1
-
+      DISABLE_RATE_LIMIT: "true"
+      RUST_BACKTRACE: "1"
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      # No Rust build here – just download the pre-built binary
+      - name: Download pre-built binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: artifacts/
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build Service
-        run: cargo build --locked --all-targets --all-features
-
-      - name: Start Service
+      - name: Start service
         shell: bash
         run: |
           set -euo pipefail
-
-          cargo run --locked --all-features > app.log 2>&1 &
+          chmod +x "artifacts/${{ env.BINARY_NAME }}"
+          "artifacts/${{ env.BINARY_NAME }}" > app.log 2>&1 &
           echo $! > /tmp/app.pid
 
-          echo "Waiting for application to become ready..."
+          echo "Waiting for service to become ready..."
           for _ in $(seq 1 60); do
             if curl -H "x-forwarded-for: 127.0.0.1" -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
-              echo "Application is ready."
+              echo "Service is ready."
               exit 0
             fi
             if ! kill -0 "$(cat /tmp/app.pid)" 2>/dev/null; then
-              echo "Application exited before it became ready."
+              echo "Service exited before becoming ready:"
               cat app.log
               exit 1
             fi
             sleep 1
           done
 
-          echo "Timed out waiting for application startup."
+          echo "Timed out waiting for service startup:"
           cat app.log
           exit 1
+
+      # Rust is only needed to compile the test binaries, not the service.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests
 
       - name: Run integration tests
         run: cargo test --locked --test api -- --nocapture
         timeout-minutes: 30
 
-      - name: Stop Service
+      - name: Stop service
         if: always()
         shell: bash
         run: |
@@ -182,58 +245,47 @@ jobs:
             kill "$(cat /tmp/app.pid)" 2>/dev/null || true
           fi
 
-  # ============================================================================
-  # Build Jobs
-  # ============================================================================
-  build-linux-x86:
-    name: Build Linux x86_64
-    runs-on: ubuntu-latest
-    needs: [version, lint, tests]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build release
-        run: cargo build --locked --release --target x86_64-unknown-linux-gnu
-
-      - name: Prepare artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          cp target/x86_64-unknown-linux-gnu/release/tcc_api "artifacts/tcc_api-${{ needs.version.outputs.version }}-linux-x86_64"
-          chmod +x "artifacts/tcc_api-${{ needs.version.outputs.version }}-linux-x86_64"
-
-      - name: Upload artifact
+      # Preserve service logs as an artifact so failures can be debugged.
+      - name: Upload service logs on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: linux-x86_64
-          path: artifacts/
+          name: service-logs
+          path: app.log
+          retention-days: 3
 
   # ============================================================================
-  # Build: Docker Image
+  # Docker Image — copies the pre-built binary into the build context and
+  # uses Dockerfile.runtime to assemble a lean runtime image only.
+  # No Rust toolchain, no cargo build inside any Docker layer.
   # ============================================================================
   build-docker:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    needs: [version, lint, tests]
+    needs: [version, test]
     permissions:
       contents: read
       packages: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Download pre-built binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: artifacts/
+
+      # Copy binary into a separate Docker context so that Dockerfile.runtime
+      # does not need access to the entire repository tree.
+      - name: Prepare Docker build context
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docker-context
+          cp "artifacts/${{ env.BINARY_NAME }}" "docker-context/${{ env.BINARY_NAME }}"
+          chmod +x "docker-context/${{ env.BINARY_NAME }}"
+
+      - uses: docker/setup-buildx-action@v3
 
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
@@ -257,7 +309,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: docker-context/
+          file: Dockerfile.runtime
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -265,24 +318,29 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ============================================================================
-  # Releases
+  # GitHub Release
   # ============================================================================
   release:
     name: Create Release
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: [version, build-linux-x86, build-docker]
+    needs: [version, test, build-docker]
     permissions:
       contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release-artifacts
-          merge-multiple: true
+          name: linux-x86_64
+          path: release-artifacts/
+
+      # Remove the unversioned convenience copy ("tcc_api") from the artifact
+      # bundle so only the versioned binary appears in the release.
+      - name: Remove convenience copy from release assets
+        shell: bash
+        run: rm -f "release-artifacts/${{ env.BINARY_NAME }}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -291,6 +349,6 @@ jobs:
           name: Release ${{ needs.version.outputs.version }}
           files: release-artifacts/*
           draft: false
-          prerelease: false
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
