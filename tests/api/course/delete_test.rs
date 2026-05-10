@@ -51,7 +51,7 @@ fn execute_delete(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .delete(&format!(
+        .delete(format!(
             "{}/cook_and_run/{}/course/{}",
             base_url, cook_and_run_id, course_id
         ))

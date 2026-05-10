@@ -492,7 +492,7 @@ pub fn execute_create(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     let request = client
-        .post(&format!(
+        .post(format!(
             "{}/cook_and_run/{}/team/{}",
             base_url, cook_and_run_id, team_id
         ))

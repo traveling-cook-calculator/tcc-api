@@ -33,7 +33,7 @@ impl CookAndRunMeta {
             occur: cook_and_run.occur,
         }
     }
-    fn to_db(&self) -> CookAndRunUpdate {
+    fn to_db(&self) -> CookAndRunUpdate<'_> {
         CookAndRunUpdate {
             name: &self.name,
             edited: &self.edited,
@@ -52,14 +52,14 @@ pub struct CookAndRunCreate<'a> {
 }
 
 impl<'a> CookAndRunCreate<'a> {
-    fn to(&self) -> db::models::CookAndRunCreate {
+    fn to(&self) -> db::models::CookAndRunCreate<'_> {
         db::models::CookAndRunCreate {
-            id: &self.id,
-            user_id: &self.user_id,
-            name: &self.name,
-            created: &self.created,
-            edited: &self.edited,
-            occur: &self.occur,
+            id: self.id,
+            user_id: self.user_id,
+            name: self.name,
+            created: self.created,
+            edited: self.edited,
+            occur: self.occur,
         }
     }
 }
@@ -82,6 +82,7 @@ pub struct CookAndRun {
 }
 
 impl CookAndRun {
+    #[allow(clippy::too_many_arguments)]
     fn from(
         cook_and_run: db::models::CookAndRun,
         team_list: Vec<Team>,

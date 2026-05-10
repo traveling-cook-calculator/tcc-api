@@ -44,7 +44,7 @@ fn test_delete_share_config_wrong_user() {
 fn execute_delete(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .delete(&format!(
+        .delete(format!(
             "{}/cook_and_run/{}/share_team_config",
             base_url, cook_and_run_id
         ))

@@ -53,7 +53,7 @@ fn execute_create(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .post(&format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
+        .post(format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")

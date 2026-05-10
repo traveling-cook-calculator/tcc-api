@@ -26,8 +26,11 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct ListTeamsQuery {
+    #[allow(dead_code)]
     pub page: Option<u32>,
+    #[allow(dead_code)]
     pub limit: Option<u32>,
+    #[allow(dead_code)]
     pub sort: Option<TeamSortOption>,
 }
 

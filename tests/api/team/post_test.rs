@@ -46,7 +46,7 @@ fn execute_create(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .post(&format!(
+        .post(format!(
             "{}/cook_and_run/{}/team/{}",
             base_url, cook_and_run_id, team_id
         ))
@@ -63,6 +63,7 @@ pub fn create_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token:
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_team_create_json(
     user_id: Option<&str>,
     name: bool,

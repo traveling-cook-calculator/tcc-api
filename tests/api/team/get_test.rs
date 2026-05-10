@@ -91,7 +91,7 @@ fn test_get_team_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_auth0_2();
 
-    get_team_list(&test_data.cook_and_run_id, &vec![], &token);
+    get_team_list(&test_data.cook_and_run_id, &[], &token);
 }
 
 pub fn execute_get(
@@ -101,7 +101,7 @@ pub fn execute_get(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/team/{}",
             base_url, cook_and_run_id, team_id
         ))
@@ -131,7 +131,7 @@ pub fn get_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token: &s
 fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/teams",
             base_url, cook_and_run_id
         ))
@@ -141,7 +141,7 @@ fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::R
         .expect("Failed to send request")
 }
 
-pub fn get_team_list(cook_and_run_id: &Uuid, expected_team_id: &Vec<(Uuid, String)>, token: &str) {
+pub fn get_team_list(cook_and_run_id: &Uuid, expected_team_id: &[(Uuid, String)], token: &str) {
     let res = execute_get_list(cook_and_run_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
@@ -166,7 +166,7 @@ pub fn get_team_list(cook_and_run_id: &Uuid, expected_team_id: &Vec<(Uuid, Strin
     }
 }
 
-fn assert_cook_and_run_json(json: &serde_json::Value, expected_team_id: &Vec<(Uuid, String)>) {
+fn assert_cook_and_run_json(json: &serde_json::Value, expected_team_id: &[(Uuid, String)]) {
     let team_list = json
         .get("team_list")
         .and_then(|v| v.as_array())
@@ -188,6 +188,7 @@ fn assert_cook_and_run_json(json: &serde_json::Value, expected_team_id: &Vec<(Uu
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn assert_team_json(
     json: &serde_json::Value,
     expected_team_id: &Uuid,
@@ -310,23 +311,17 @@ pub fn assert_team_json(
         let street = address
             .get("address")
             .and_then(|v| v.as_str())
-            .expect(&format!("Missing street, got: {:#?}", address.to_string()));
+            .unwrap_or_else(|| panic!("Missing street, got: {:#?}", address.to_string()));
 
         let latitude = address
             .get("latitude")
             .and_then(|v| v.as_f64())
-            .expect(&format!(
-                "Missing latitude, got: {:#?}",
-                address.to_string()
-            ));
+            .unwrap_or_else(|| panic!("Missing latitude, got: {:#?}", address.to_string()));
 
         let longitude = address
             .get("longitude")
             .and_then(|v| v.as_f64())
-            .expect(&format!(
-                "Missing longitude, got: {:#?}",
-                address.to_string()
-            ));
+            .unwrap_or_else(|| panic!("Missing longitude, got: {:#?}", address.to_string()));
 
         assert_eq!(
             street, "Hasengasse 5-7, 60311 Frankfurt am Main, Deutschland",

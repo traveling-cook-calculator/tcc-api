@@ -26,10 +26,9 @@ impl Database {
             .select(PlanRow::as_select())
             .first(conn)
             .map_err(|e| match e {
-                diesel::result::Error::NotFound => AppError::PlanNotFound(
-                    user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
-                ),
+                diesel::result::Error::NotFound => {
+                    AppError::PlanNotFound(user_id_filter.to_string(), *cook_and_run_id_filter)
+                }
                 _ => AppError::DatabaseError(e),
             })?;
         Plan::from_plan_row(result)
@@ -51,7 +50,7 @@ impl Database {
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => AppError::PlanConfigNotFound(
                     user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
+                    *cook_and_run_id_filter,
                 ),
                 _ => AppError::DatabaseError(e),
             })
@@ -82,7 +81,7 @@ impl Database {
             if affected == 0 {
                 return Err(AppError::PlanNotFound(
                     user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
+                    *cook_and_run_id_filter,
                 ));
             }
 
@@ -113,7 +112,7 @@ impl Database {
             if affected == 0 {
                 return Err(AppError::PlanNotFound(
                     user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
+                    *cook_and_run_id_filter,
                 ));
             }
 
@@ -137,7 +136,7 @@ impl Database {
         if affected == 0 {
             return Err(AppError::PlanNotFound(
                 user_id_filter.to_string(),
-                cook_and_run_id_filter.clone(),
+                *cook_and_run_id_filter,
             ));
         }
 
@@ -160,7 +159,7 @@ impl Database {
         if affected == 0 {
             return Err(AppError::PlanNotFound(
                 user_id_filter.to_string(),
-                cook_and_run_id_filter.clone(),
+                *cook_and_run_id_filter,
             ));
         }
 

@@ -44,7 +44,7 @@ fn test_delete_cook_and_run_wrong_user() {
 fn execute_delete(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .delete(&format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
+        .delete(format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
         .send()

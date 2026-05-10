@@ -90,7 +90,7 @@ fn test_get_end_point_cook_and_run_not_authorised() {
 pub fn execute_get_start_point(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/start_point",
             base_url, cook_and_run_id
         ))
@@ -103,7 +103,7 @@ pub fn execute_get_start_point(cook_and_run_id: &Uuid, token: &str) -> reqwest::
 pub fn execute_get_end_point(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/end_point",
             base_url, cook_and_run_id
         ))

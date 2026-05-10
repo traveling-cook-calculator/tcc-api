@@ -80,9 +80,9 @@ impl Database {
             .first::<(Team, Address)>(conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => AppError::TeamNotFound(
-                    id_filter.clone(),
+                    *id_filter,
                     user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
+                    *cook_and_run_id_filter,
                 ),
                 _ => AppError::DatabaseError(e),
             })
@@ -114,9 +114,9 @@ impl Database {
 
         if affected == 0 {
             return Err(AppError::TeamNotFound(
-                id_filter.clone(),
+                *id_filter,
                 user_id_filter.to_string(),
-                cook_and_run_id_filter.clone(),
+                *cook_and_run_id_filter,
             ));
         }
         Ok(())

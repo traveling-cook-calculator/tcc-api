@@ -65,7 +65,7 @@ fn test_get_plan_config_wrong_user() {
 pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/plan_config",
             base_url, cook_and_run_id
         ))
@@ -87,7 +87,7 @@ fn assert_cook_and_run_json(json: &serde_json::Value, expect_plan_config: bool) 
 
     if expect_plan_config {
         let plan_config = plan_config_opt.expect("Missing or invalid plan_config");
-        assert_plan_config_json(&plan_config);
+        assert_plan_config_json(plan_config);
     } else {
         assert!(
             plan_config_opt.is_none() || plan_config_opt.unwrap().is_null(),

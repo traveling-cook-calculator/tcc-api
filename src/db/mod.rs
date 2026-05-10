@@ -59,7 +59,7 @@ impl Database {
 
     pub fn health_check(&mut self) -> Result<(), AppError> {
         let mut conn = self.get_connection()?;
-        diesel::dsl::sql::<Integer>("1")
+        diesel::dsl::sql::<Integer>("SELECT 1")
             .get_result::<i32>(&mut conn)
             .map_err(AppError::DatabaseError)?;
         Ok(())

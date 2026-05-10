@@ -47,6 +47,7 @@ where
 /// Formats `validator::ValidationErrors` into a human-readable, flat list
 /// such as `"name: length must be between 1 and 200; mail: must be a valid email"`.
 /// This is suitable for returning to API callers without leaking internals.
+#[allow(dead_code)]
 fn format_validation_errors(errors: &validator::ValidationErrors) -> String {
     errors
         .field_errors()

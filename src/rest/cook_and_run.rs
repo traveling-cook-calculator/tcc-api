@@ -39,6 +39,7 @@ pub struct ListCookAndRunQuery {
     pub page: Option<u32>,
     #[validate(range(min = 1, max = 100, message = "must be between 1 and 100"))]
     pub limit: Option<u32>,
+    #[allow(dead_code)]
     pub sort: Option<SortOption>,
 }
 

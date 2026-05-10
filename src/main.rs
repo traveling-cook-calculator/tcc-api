@@ -35,7 +35,7 @@ const DEFAULT_ALLOW_ORIGIN: &str = "http://localhost:8080";
 
 /// Maximum accepted request body size (1 MiB). Larger payloads are rejected
 /// with 413 before the body is read, preventing memory-exhaustion attacks.
-const MAX_BODY_BYTES: usize = 1 * 1024 * 1024;
+const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 /// Maximum time a single request may take end-to-end. Requests that exceed
 /// this are cancelled and return 408, preventing slow-client attacks.

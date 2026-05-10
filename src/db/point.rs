@@ -20,12 +20,13 @@ impl Database {
             .select(Point::as_select())
             .first(conn)
             .map_err(|e| match e {
-                diesel::result::Error::NotFound => AppError::PointNotFound(id_filter.clone()),
+                diesel::result::Error::NotFound => AppError::PointNotFound(*id_filter),
                 _ => AppError::DatabaseError(e),
             })
     }
 
     #[tracing::instrument(skip(self))]
+    #[allow(dead_code)]
     pub fn delete_point(&mut self, to_delete_point_id: &Uuid) -> Result<(), AppError> {
         let conn = &mut self.get_connection()?;
         delete_point(conn, to_delete_point_id)
@@ -56,7 +57,7 @@ pub fn delete_point(
         .execute(conn)
         .map_err(AppError::DatabaseError)?;
     if affected == 0 {
-        return Err(AppError::PointNotFound(to_delete_point_id.clone()));
+        return Err(AppError::PointNotFound(*to_delete_point_id));
     }
     Ok(())
 }

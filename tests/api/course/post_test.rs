@@ -46,7 +46,7 @@ fn execute_create(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .post(&format!(
+        .post(format!(
             "{}/cook_and_run/{}/course/{}",
             base_url, cook_and_run_id, course_id
         ))

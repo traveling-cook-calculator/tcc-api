@@ -13,9 +13,11 @@ mod sharing;
 mod team;
 mod validated_json;
 
+#[allow(dead_code)]
 pub struct Rest {}
 
 impl Rest {
+    #[allow(dead_code)]
     pub fn new() -> Result<Self, String> {
         Ok(Rest {})
     }

@@ -194,8 +194,8 @@ where
 #[diesel(sql_type = crate::db::schema::sql_types::Language)]
 #[diesel(postgres_type(name = "language"))]
 pub enum Language {
-    DEUTSCH,
-    ENGLISH,
+    Deutsch,
+    English,
 }
 
 impl<DB> diesel::deserialize::FromSql<crate::db::schema::sql_types::Language, DB> for Language
@@ -206,8 +206,8 @@ where
     fn from_sql(bytes: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
         let s = String::from_sql(bytes)?;
         match s.as_str() {
-            "deu" => Ok(Language::DEUTSCH),
-            "eng" => Ok(Language::ENGLISH),
+            "deu" => Ok(Language::Deutsch),
+            "eng" => Ok(Language::English),
             _ => Err(format!("Unknown variant: {}", s).into()),
         }
     }
@@ -223,8 +223,8 @@ where
         out: &mut diesel::serialize::Output<'b, '_, DB>,
     ) -> diesel::serialize::Result {
         let s = match self {
-            Language::DEUTSCH => "deu",
-            Language::ENGLISH => "eng",
+            Language::Deutsch => "deu",
+            Language::English => "eng",
         };
         s.to_sql(out)
     }

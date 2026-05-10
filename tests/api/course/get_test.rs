@@ -90,7 +90,7 @@ fn test_get_course_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_auth0_2();
 
-    get_course_list(&test_data.cook_and_run_id, &vec![], &token);
+    get_course_list(&test_data.cook_and_run_id, &[], &token);
 }
 
 pub fn execute_get(
@@ -100,7 +100,7 @@ pub fn execute_get(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/course/{}",
             base_url, cook_and_run_id, course_id
         ))
@@ -119,7 +119,7 @@ pub fn get_course(cook_and_run_id: &Uuid, course_id: &Uuid, token: &str) {
 fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/courses",
             base_url, cook_and_run_id
         ))
@@ -129,7 +129,7 @@ fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::R
         .expect("Failed to send request")
 }
 
-pub fn get_course_list(cook_and_run_id: &Uuid, expected_course_id: &Vec<Uuid>, token: &str) {
+pub fn get_course_list(cook_and_run_id: &Uuid, expected_course_id: &[Uuid], token: &str) {
     let res = execute_get_list(cook_and_run_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
@@ -143,7 +143,7 @@ pub fn get_course_list(cook_and_run_id: &Uuid, expected_course_id: &Vec<Uuid>, t
     }
 }
 
-fn assert_cook_and_run_json(json: &serde_json::Value, expected_course_id: &Vec<Uuid>) {
+fn assert_cook_and_run_json(json: &serde_json::Value, expected_course_id: &[Uuid]) {
     let course_list = json
         .get("course_list")
         .and_then(|v| v.as_array())

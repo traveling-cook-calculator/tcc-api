@@ -21,12 +21,14 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ListNotesQuery {
     pub sort: Option<NoteSortOption>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum NoteSortOption {
     CreatedAsc,
     CreatedDesc,

@@ -67,6 +67,7 @@ impl CreateShareConfigRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct ShareConfigResponse {
     #[serde(flatten)]
     pub config: ShareTeamConfig,

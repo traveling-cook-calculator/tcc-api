@@ -97,7 +97,7 @@ fn execute_patch_start_point(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/start_point",
             base_url, cook_and_run_id
         ))
@@ -115,7 +115,7 @@ fn execute_patch_end_point(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/end_point",
             base_url, cook_and_run_id
         ))

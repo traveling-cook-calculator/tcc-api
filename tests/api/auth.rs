@@ -47,14 +47,14 @@ pub fn get_auth0_2() -> (String, String) {
 fn get_token(client_id: String, client_secret: String) -> (String, String) {
     let token_request = Auth0TokenRequest {
         client_id: client_id.clone(),
-        client_secret: client_secret,
+        client_secret,
         audience: std::env::var("AUTH0_AUDIENCE").expect("Missing AUTH0_AUDIENCE"),
         grant_type: "client_credentials".to_string(),
     };
 
     let client = reqwest::blocking::Client::new();
     let response = client
-        .post(&format!(
+        .post(format!(
             "https://{}/oauth/token",
             std::env::var("AUTH0_DOMAIN").expect("Missing AUTH0_DOMAIN")
         ))
@@ -66,6 +66,6 @@ fn get_token(client_id: String, client_secret: String) -> (String, String) {
     let token_response: Auth0TokenResponse = response.json().expect("Failed to parse response");
     (
         token_response.access_token,
-        format!("{}@clients", client_id),
+        format!("{}@clients", client_id.clone()),
     )
 }

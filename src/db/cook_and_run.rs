@@ -43,7 +43,7 @@ impl Database {
             .map_err(AppError::DatabaseError)?;
 
         if affected == 0 {
-            return Err(AppError::ProjectNotFound(id_filter.clone()));
+            return Err(AppError::ProjectNotFound(*id_filter));
         }
         Ok(())
     }
@@ -76,7 +76,7 @@ impl Database {
             .select(CookAndRun::as_select())
             .first(conn)
             .map_err(|e| match e {
-                diesel::result::Error::NotFound => AppError::ProjectNotFound(id_filter.clone()),
+                diesel::result::Error::NotFound => AppError::ProjectNotFound(*id_filter),
                 _ => AppError::DatabaseError(e),
             })
     }
@@ -105,7 +105,7 @@ impl Database {
                 .execute(t)?;
 
             if affected == 0 {
-                return Err(AppError::ProjectNotFound(id_filter.clone()));
+                return Err(AppError::ProjectNotFound(*id_filter));
             }
             Ok(())
         })
@@ -139,8 +139,8 @@ impl Database {
         address: &Address,
     ) -> Result<(), AppError> {
         self.get_connection()?.transaction(|t| {
-            create_address(t, &address)?;
-            create_point(t, &point)?;
+            create_address(t, address)?;
+            create_point(t, point)?;
             use crate::db::schema::cook_and_run::dsl::*;
             let affected = update(cook_and_run.find(id_filter))
                 .filter(user_id.eq(user_id_filter))
@@ -149,7 +149,7 @@ impl Database {
                 .map_err(AppError::DatabaseError)?;
 
             if affected == 0 {
-                return Err(AppError::ProjectNotFound(id_filter.clone()));
+                return Err(AppError::ProjectNotFound(*id_filter));
             }
 
             Ok(())
@@ -172,11 +172,11 @@ impl Database {
                     .set(start_point.eq(None::<Uuid>))
                     .execute(t)?;
                 if affected == 0 {
-                    return Err(AppError::ProjectNotFound(id_filter.clone()));
+                    return Err(AppError::ProjectNotFound(*id_filter));
                 }
                 delete_point(t, &start_point_id)?;
             } else {
-                return Err(AppError::ProjectNotFound(id_filter.clone()));
+                return Err(AppError::ProjectNotFound(*id_filter));
             }
 
             Ok(())
@@ -211,8 +211,8 @@ impl Database {
         address: &Address,
     ) -> Result<(), AppError> {
         self.get_connection()?.transaction(|t| {
-            create_address(t, &address)?;
-            create_point(t, &point)?;
+            create_address(t, address)?;
+            create_point(t, point)?;
 
             use crate::db::schema::cook_and_run::dsl::*;
             let affected = update(cook_and_run.find(id_filter))
@@ -221,7 +221,7 @@ impl Database {
                 .execute(t)?;
 
             if affected == 0 {
-                return Err(AppError::ProjectNotFound(id_filter.clone()));
+                return Err(AppError::ProjectNotFound(*id_filter));
             }
 
             Ok(())
@@ -244,11 +244,11 @@ impl Database {
                     .execute(t)
                     .map_err(AppError::DatabaseError)?;
                 if affected == 0 {
-                    return Err(AppError::ProjectNotFound(id_filter.clone()));
+                    return Err(AppError::ProjectNotFound(*id_filter));
                 }
                 delete_point(t, &end_point_id)?;
             } else {
-                return Err(AppError::ProjectNotFound(id_filter.clone()));
+                return Err(AppError::ProjectNotFound(*id_filter));
             }
 
             Ok(())

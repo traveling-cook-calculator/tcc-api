@@ -27,7 +27,7 @@ pub fn create_cook_and_run() -> Uuid {
 
 pub fn get_cook_and_run(cook_and_run_id: &Uuid) -> serde_json::Value {
     let (token, _) = get_auth0_1();
-    let res = cook_and_run::get_test::execute_get(&cook_and_run_id, &token);
+    let res = cook_and_run::get_test::execute_get(cook_and_run_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     res.json().expect("Failed to parse JSON")
 }
