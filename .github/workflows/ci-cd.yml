@@ -197,7 +197,7 @@ jobs:
           mkdir -p "${TEST_ARTIFACT_DIR}"
 
           cargo test --locked --release --all-targets --all-features --no-run --message-format=json \
-            | jq -r 'select(.reason == "compiler-artifact" and .executable != null) | .executable' \
+            | jq -r 'select(.reason == "compiler-artifact" and .executable != null and (.target.kind | contains(["test"]))) | .executable' \
             | sort -u \
             | while read -r exe; do
                 [[ -n "${exe}" ]] || continue
