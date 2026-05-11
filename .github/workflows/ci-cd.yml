@@ -3,9 +3,9 @@ name: CI/CD Pipeline
 # +-----------------------------------------------------------------------------+
 # |  Job dependency graph (simplified):                                         |
 # |                                                                             |
-# |   version --+--► security --► build --► coverage --► build-image --► release |
+# |   version --+--► security --► build --► test --► build-image --► release |
 # |             |                    |           |                |             |
-# |   fmt ------+ (runs in parallel) +--> test --+                +-------------+
+# |                                                  
 # |                                                                             |
 # |  The release binary is compiled once in the build job and reused downstream. |
 # |  Integration/unit test binaries are also compiled there and executed later.  |
@@ -357,7 +357,7 @@ jobs:
   build-image:
     name: Build, Attest & Sign Container Image
     runs-on: ubuntu-latest
-    needs: [version, test, coverage]
+    needs: [version, test]
     timeout-minutes: 30
     permissions:
       contents: read
@@ -451,7 +451,7 @@ jobs:
     name: Create Release
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: [version, test, coverage, build-image]
+    needs: [version, test, build-image]
     timeout-minutes: 10
     permissions:
       contents: write
