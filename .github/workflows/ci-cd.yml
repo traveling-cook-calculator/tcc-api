@@ -18,7 +18,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches:
+    branches: 
       - main
       - 'feature/**'
     tags:
@@ -272,9 +272,7 @@ jobs:
         ports:
           - 5432:5432
     env:
-      ALLOW_ORIGIN: http://localhost:${{ env.APP_PORT }}
-      APP_PORT: ${{ env.APP_PORT }}
-      HEALTH_ENDPOINT: ${{ env.HEALTH_ENDPOINT }}
+      ALLOW_ORIGIN: http://localhost:${{ APP_PORT }}
       DATABASE_URL: postgres://postgres:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/postgres
       AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
       AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
