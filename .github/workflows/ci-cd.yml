@@ -241,7 +241,6 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: artifacts/${{ env.BINARY_NAME }}
-          sbom-path: artifacts/${{ env.BINARY_NAME }}.sbom.spdx.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -422,7 +421,6 @@ jobs:
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: image.sbom.spdx.json
           push-to-registry: true
 
       - name: Install Cosign
