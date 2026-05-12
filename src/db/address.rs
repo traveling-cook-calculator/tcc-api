@@ -24,6 +24,7 @@ impl Database {
     }
 
     #[tracing::instrument(skip(self))]
+    #[allow(dead_code)]
     pub fn delete_address(&mut self, to_delete_address_id: &Uuid) -> Result<(), AppError> {
         let conn = &mut self.get_connection()?;
         delete_address(conn, to_delete_address_id)?;
@@ -45,6 +46,7 @@ pub fn create_address(
 }
 
 #[tracing::instrument(skip(conn))]
+#[allow(dead_code)]
 pub fn delete_address(
     conn: &mut PooledConnection<ConnectionManager<PgConnection>>,
     to_delete_address_id: &Uuid,
@@ -54,7 +56,7 @@ pub fn delete_address(
         .execute(conn)
         .map_err(AppError::DatabaseError)?;
     if affected == 0 {
-        return Err(AppError::AddressNotFound(to_delete_address_id.clone()));
+        return Err(AppError::AddressNotFound(*to_delete_address_id));
     }
     Ok(())
 }

@@ -82,7 +82,7 @@ fn execute_patch_plan(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking:
     let payload = get_plan_patch_json();
     let (client, base_url) = get_client();
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/plan",
             base_url, cook_and_run_id
         ))

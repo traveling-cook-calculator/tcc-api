@@ -17,10 +17,13 @@ pub const UPDATE_PERMISSION: &str = "update:project";
 pub const DELETE_PERMISSION: &str = "delete:project";
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum AuthUser {
     Anonymous,
+    #[allow(dead_code)]
     None,
     Id(String),
+    #[allow(dead_code)]
     AnyOf(Vec<String>),
     AllOf(Vec<String>),
 }
@@ -37,6 +40,7 @@ pub enum Audience {
 }
 
 impl Audience {
+    #[allow(dead_code)]
     pub fn as_vec(&self) -> Vec<&str> {
         match self {
             Audience::Single(s) => vec![s.as_str()],
@@ -92,18 +96,12 @@ impl AuthState {
         let jwks: Jwks = reqwest::get(&jwks_url)
             .await
             .map_err(|e| {
-                AppError::AuthorizationError(format!(
-                    "Error while requesting JWKS: {}",
-                    e.to_string()
-                ))
+                AppError::AuthorizationError(format!("Error while requesting JWKS: {}", e))
             })?
             .json()
             .await
             .map_err(|e| {
-                AppError::AuthorizationError(format!(
-                    "Error while parsing JWKS-Response: {}",
-                    e.to_string()
-                ))
+                AppError::AuthorizationError(format!("Error while parsing JWKS-Response: {}", e))
             })?;
 
         Ok(AuthState {
@@ -120,7 +118,7 @@ impl AuthState {
     pub fn verify_token(&self, token: &str) -> Result<Claims, AppError> {
         debug!("Verifying token.");
         let header = decode_header(token).map_err(|e| {
-            AppError::AuthorizationError(format!("Error while decoding header: {}", e.to_string()))
+            AppError::AuthorizationError(format!("Error while decoding header: {}", e))
         })?;
         let kid = header
             .kid
@@ -131,10 +129,7 @@ impl AuthState {
             .ok_or_else(|| AppError::AuthorizationError(format!("Kid id {} not found!", kid)))?;
 
         let decoding_key = DecodingKey::from_rsa_components(&key.n, &key.e).map_err(|e| {
-            AppError::AuthorizationError(format!(
-                "Error while decoding JWKS-Data: {}",
-                e.to_string()
-            ))
+            AppError::AuthorizationError(format!("Error while decoding JWKS-Data: {}", e))
         })?;
 
         debug!(
@@ -148,7 +143,7 @@ impl AuthState {
         let token_data = decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {
             AppError::AuthorizationError(format!(
                 "Error while validating Token and extracting claims: {}",
-                e.to_string()
+                e
             ))
         })?;
 
@@ -157,6 +152,34 @@ impl AuthState {
             "Token verified successfully, claims extracted."
         );
         Ok(token_data.claims)
+    }
+
+    pub async fn health_check(&self) -> Result<(), AppError> {
+        let jwks_url = format!("https://{}/.well-known/jwks.json", self.auth0_domain);
+        let jwks: Jwks = reqwest::get(&jwks_url)
+            .await
+            .map_err(|e| {
+                AppError::AuthorizationError(format!(
+                    "Error while requesting JWKS for health check: {}",
+                    e
+                ))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                AppError::AuthorizationError(format!(
+                    "Error while parsing JWKS response for health check: {}",
+                    e
+                ))
+            })?;
+
+        if jwks.keys.is_empty() {
+            return Err(AppError::AuthorizationError(
+                "Auth server returned no JWKS keys".to_string(),
+            ));
+        }
+
+        Ok(())
     }
 
     pub fn has_permission(&self, claims: &Claims, required_permission: &str) -> bool {
@@ -183,6 +206,7 @@ impl AuthState {
 }
 
 // Permission-basierte Middleware Factory
+#[allow(clippy::type_complexity)]
 pub fn require_permission(
     permission: &'static str,
 ) -> impl Fn(

@@ -35,7 +35,7 @@ impl Database {
             if affected == 0 {
                 return Err(AppError::SharingConfigNotFound(
                     user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
+                    *cook_and_run_id_filter,
                 ));
             }
             Ok(())
@@ -69,7 +69,7 @@ impl Database {
             if affected == 0 {
                 return Err(AppError::SharingConfigNotFound(
                     user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
+                    *cook_and_run_id_filter,
                 ));
             }
             Ok(())
@@ -101,7 +101,7 @@ impl Database {
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => AppError::SharingConfigNotFound(
                     user_id_filter.to_string(),
-                    cook_and_run_id_filter.clone(),
+                    *cook_and_run_id_filter,
                 ),
                 other => AppError::DatabaseError(other),
             })
@@ -126,10 +126,9 @@ impl Database {
             .select(Share::as_select())
             .first::<Share>(conn)
             .map_err(|e| match e {
-                diesel::result::Error::NotFound => AppError::SharingConfigNotFound(
-                    "NONE".to_string(),
-                    cook_and_run_id_filter.clone(),
-                ),
+                diesel::result::Error::NotFound => {
+                    AppError::SharingConfigNotFound("NONE".to_string(), *cook_and_run_id_filter)
+                }
                 other => AppError::DatabaseError(other),
             })
     }
@@ -152,7 +151,7 @@ impl Database {
         if affected == 0 {
             return Err(AppError::SharingConfigNotFound(
                 user_id_filter.to_string(),
-                cook_and_run_id_filter.clone(),
+                *cook_and_run_id_filter,
             ));
         }
 

@@ -44,7 +44,7 @@ fn execute_patch_course(
     let payload = get_course_patch_json();
     let (client, base_url) = get_client();
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/course/{}",
             base_url, cook_and_run_id, course_id
         ))
@@ -109,5 +109,5 @@ fn assert_course_json(json: &serde_json::Value, expected_course_id: &Uuid) {
         time
     );
 
-    assert_eq!(has_multiple_hosts, true, "has_multiple_hosts is not true");
+    assert!(has_multiple_hosts, "has_multiple_hosts is not true");
 }

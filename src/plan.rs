@@ -43,22 +43,22 @@ impl Access {
 
 #[derive(Debug, Clone)]
 pub enum Language {
-    DEUTSCH,
-    ENGLISH,
+    Deutsch,
+    English,
 }
 
 impl Language {
     fn from(db_field: db::models::Language) -> Self {
         match db_field {
-            db::models::Language::DEUTSCH => Language::DEUTSCH,
-            db::models::Language::ENGLISH => Language::ENGLISH,
+            db::models::Language::Deutsch => Language::Deutsch,
+            db::models::Language::English => Language::English,
         }
     }
 
     fn to_db(&self) -> db::models::Language {
         match self {
-            Language::DEUTSCH => db::models::Language::DEUTSCH,
-            Language::ENGLISH => db::models::Language::ENGLISH,
+            Language::Deutsch => db::models::Language::Deutsch,
+            Language::English => db::models::Language::English,
         }
     }
 }

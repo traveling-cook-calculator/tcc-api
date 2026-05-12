@@ -133,7 +133,7 @@ fn test_get_cook_and_run_meta_list_wrong_user() {
 pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
+        .get(format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
         .send()
@@ -149,7 +149,7 @@ pub fn get_cook_and_run(cook_and_run_id: &Uuid, token: &str) {
 fn execute_get_meta_list(user_id: &str, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!("{}/cook_and_run?userId={}", base_url, user_id))
+        .get(format!("{}/cook_and_run?userId={}", base_url, user_id))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
         .send()
@@ -168,7 +168,7 @@ pub fn get_cook_and_run_meta_list(user_id: &str, token: &str, expected_cook_and_
 fn execute_get_meta(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/metadata",
             base_url, cook_and_run_id
         ))
@@ -233,6 +233,6 @@ fn assert_cook_and_run_meta_json(json: serde_json::Value, cook_and_run_id: &Uuid
         id,
         cook_and_run_id.to_string(),
         "Expected Cook and Run ID {} not found in JSON data",
-        cook_and_run_id.to_string()
+        cook_and_run_id
     );
 }

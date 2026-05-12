@@ -124,10 +124,10 @@ impl Database {
 
         if affected == 0 {
             return Err(AppError::NoteNotFound(
-                note_id_filter.clone(),
+                *note_id_filter,
                 user_id_filter.to_string(),
-                cook_and_run_id_filter.clone(),
-                team_id_filter.clone(),
+                *cook_and_run_id_filter,
+                *team_id_filter,
             ));
         }
         Ok(())

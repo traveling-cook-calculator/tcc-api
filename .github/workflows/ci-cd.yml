@@ -1,0 +1,481 @@
+name: CI/CD Pipeline
+
+# +-----------------------------------------------------------------------------+
+# |  Job dependency graph:                                                      |
+# |                                                                             |
+# |   version ──┐                                                               |
+# |             ├──► security ──► build ──► test ──► build-image ──► release   |
+# |   fmt ──────┘                                                               |
+# |                                                                             |
+# |  fmt and version run in parallel; security waits for both.                 |
+# |  The release binary is compiled once in build and reused downstream.        |
+# |  Test binaries are also compiled in build and executed later.               |
+# |  Container images are built with Kaniko, then attested and signed.          |
+# |                                                                             |
+# |  Security: cargo-audit, cargo-outdated.                                     |
+# |  Supply chain: SBOM, provenance attestations, Cosign signatures.            |
+# |                                                                             |
+# |  NOTE: build-image and release only run on push to main or version tags.   |
+# +-----------------------------------------------------------------------------+
+
+on:
+  push:
+    branches: 
+      - main
+      - 'feature/**'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  BINARY_NAME: tcc_api
+  TARGET: x86_64-unknown-linux-gnu
+  APP_PORT: "3000"
+  POSTGRES_VERSION: 15-alpine
+  HEALTH_ENDPOINT: /health
+  TEST_ARTIFACT_DIR: artifacts/tests
+
+jobs:
+  # ============================================================================
+  # Version Detection
+  # ============================================================================
+  version:
+    name: Detect Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_main: ${{ steps.check_branch.outputs.is_main }}
+      is_prerelease: ${{ steps.check_branch.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check branch
+        id: check_branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "is_main=true"         >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false"  >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "is_main=false"        >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false"  >> "$GITHUB_OUTPUT"
+          else
+            echo "is_main=false"        >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=true"   >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            VERSION="v0.$(git rev-list --count HEAD).0"
+          else
+            BRANCH="$(echo "${GITHUB_REF}" | sed 's#refs/heads/##;s#/#-#g')"
+            SHORT_SHA="$(git rev-parse --short HEAD)"
+            VERSION="v0.0.0-${BRANCH}.${SHORT_SHA}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: ${VERSION}"
+
+  # ============================================================================
+  # Format Check – runs in parallel with version, gates security
+  # ============================================================================
+  fmt:
+    name: Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  # ============================================================================
+  # Security Scans
+  # ============================================================================
+  security:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    needs: [version, fmt]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: security
+
+      - name: Install security tooling
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-outdated
+
+      - name: Audit dependencies (cargo-audit)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo audit
+
+      - name: Check outdated dependencies
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cargo outdated -R > artifacts/cargo-outdated.txt || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports
+          path: artifacts/
+          retention-days: 7
+
+  # ============================================================================
+  # Build, Lint, Test Harness Compilation, SBOM, Provenance, Binary Signing
+  # ============================================================================
+  build:
+    name: Build & Prepare Test Artifacts
+    runs-on: ubuntu-latest
+    needs: [version, security]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Build release binary
+        run: cargo build --locked --release --all-features --target ${{ env.TARGET }}
+
+      - name: Clippy (reuses build cache)
+        run: cargo clippy --locked --release --all-targets --all-features --target ${{ env.TARGET }} -- -D warnings
+
+      - name: Compile test harnesses (unit + integration, no run)
+        id: compile-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${TEST_ARTIFACT_DIR}"
+
+          cargo test --locked --release --all-targets --all-features --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .executable != null and (.target.kind | contains(["test"]))) | .executable' \
+            | sort -u \
+            | while read -r exe; do
+                [[ -n "${exe}" ]] || continue
+                base_name="$(basename "${exe}")"
+                cp "${exe}" "${TEST_ARTIFACT_DIR}/${base_name}"
+                chmod +x "${TEST_ARTIFACT_DIR}/${base_name}"
+                echo "Staged test binary: ${base_name}"
+              done
+
+          if [[ -z "$(find "${TEST_ARTIFACT_DIR}" -maxdepth 1 -type f | head -n 1)" ]]; then
+            echo "No compiled test binaries were staged."
+            exit 1
+          fi
+
+      - name: Stage release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          VERSIONED="${BINARY_NAME}-${{ needs.version.outputs.version }}-linux-x86_64"
+          cp "target/${TARGET}/release/${BINARY_NAME}" "artifacts/${VERSIONED}"
+          chmod +x "artifacts/${VERSIONED}"
+          cp "artifacts/${VERSIONED}" "artifacts/${BINARY_NAME}"
+
+      - name: Generate SBOM for release binary
+        uses: anchore/sbom-action@v0
+        with:
+          file: artifacts/${{ env.BINARY_NAME }}
+          format: spdx-json
+          output-file: artifacts/${{ env.BINARY_NAME }}.sbom.spdx.json
+          upload-artifact: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: v3.0.6
+
+      - name: Sign release binary
+        shell: bash
+        run: cosign sign-blob "artifacts/${BINARY_NAME}" --bundle "artifacts/${BINARY_NAME}.sigstore.json" --yes
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/${{ env.BINARY_NAME }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: artifacts/
+          retention-days: 7
+
+  # ============================================================================
+  # Integration + Unit Test Execution
+  # ============================================================================
+  test:
+    name: Integration & Unit Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      ALLOW_ORIGIN: http://localhost:${APP_PORT}
+      DATABASE_URL: postgres://postgres:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/postgres
+      AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
+      AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
+      AUTH0_CLIENT_ID_1: ${{ secrets.AUTH0_CLIENT_ID_1 }}
+      AUTH0_CLIENT_SECRET_1: ${{ secrets.AUTH0_CLIENT_SECRET_1 }}
+      AUTH0_CLIENT_ID_2: ${{ secrets.AUTH0_CLIENT_ID_2 }}
+      AUTH0_CLIENT_SECRET_2: ${{ secrets.AUTH0_CLIENT_SECRET_2 }}
+      DISABLE_RATE_LIMIT: "true"
+    steps:
+      - name: Download pre-built binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: artifacts/
+
+      - name: Start service
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x "artifacts/${BINARY_NAME}"
+          "artifacts/${BINARY_NAME}" > app.log 2>&1 &
+          echo $! > /tmp/app.pid
+
+          echo "Waiting for service to become ready..."
+          for _ in $(seq 1 60); do
+            if curl -H "x-forwarded-for: 127.0.0.1" -fsS "http://127.0.0.1:${APP_PORT}${HEALTH_ENDPOINT}" >/dev/null 2>&1; then
+              echo "Service is ready."
+              exit 0
+            fi
+            if ! kill -0 "$(cat /tmp/app.pid)" 2>/dev/null; then
+              echo "Service exited before becoming ready:"
+              cat app.log
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for service startup:"
+          cat app.log
+          exit 1
+
+      - name: Run compiled test binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(artifacts/tests/*)
+          if [[ ${#tests[@]} -eq 0 ]]; then
+            echo "No compiled test binaries found."
+            exit 1
+          fi
+
+          for test_bin in "${tests[@]}"; do
+            chmod +x "${test_bin}"
+            echo "Running $(basename "${test_bin}")"
+            "${test_bin}" --nocapture
+          done
+
+      - name: Stop service
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f /tmp/app.pid ]]; then
+            kill "$(cat /tmp/app.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: app.log
+          retention-days: 3
+
+  # ============================================================================
+  # Container Image – built with Kaniko, then attested and signed.
+  # Only runs on push to main or version tags – never on pull requests.
+  # ============================================================================
+  build-image:
+    name: Build, Attest & Sign Container Image
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    needs: [version, test]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download pre-built binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: artifacts/
+
+      - name: Prepare build context
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docker-context
+          cp "artifacts/${BINARY_NAME}" "docker-context/${BINARY_NAME}"
+          cp Dockerfile docker-context/Dockerfile
+          chmod +x "docker-context/${BINARY_NAME}"
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.version }}
+            type=ref,event=branch
+            type=sha
+
+      - name: Build and push with Kaniko
+        id: build
+        uses: int128/kaniko-action@v1
+        with:
+          context: docker-context/
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache: true
+          cache-repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache
+
+      - name: Generate SBOM for container image
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: image.sbom.spdx.json
+          upload-artifact: false
+
+      - name: Generate image provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: v3.0.6
+
+      - name: Sign container image
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+  # ============================================================================
+  # GitHub Release
+  # ============================================================================
+  release:
+    name: Create Release
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    needs: [version, test, build-image]
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: release-artifacts/
+
+      - name: Strip internal helper files from release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f  "release-artifacts/${BINARY_NAME}"
+          rm -rf "release-artifacts/tests"
+
+      # FIX: Updated softprops/action-gh-release from @v1 to @v2 (v1 is deprecated).
+      # NOTE: For maximum supply-chain security, pin to a specific commit SHA,
+      # e.g.: softprops/action-gh-release@<sha>
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.version }}
+          name: Release ${{ needs.version.outputs.version }}
+          files: release-artifacts/*
+          draft: false
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

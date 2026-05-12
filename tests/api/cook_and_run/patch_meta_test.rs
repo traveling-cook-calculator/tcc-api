@@ -71,7 +71,7 @@ fn execute_patch_meta(
     let (client, base_url) = get_client();
     let payload = json!({ "name": new_name , "occur":new_time});
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/metadata",
             base_url, cook_and_run_id
         ))

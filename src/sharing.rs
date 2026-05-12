@@ -38,14 +38,11 @@ impl RequiredField {
     }
 
     fn from_list(db_field_list: Option<Vec<Option<db::models::TeamFields>>>) -> Vec<Self> {
-        db_field_list.map_or_else(
-            || vec![],
-            |list| {
-                list.into_iter()
-                    .filter_map(|f| f.map(RequiredField::from))
-                    .collect()
-            },
-        )
+        db_field_list.map_or_else(Vec::new, |list| {
+            list.into_iter()
+                .filter_map(|f| f.map(RequiredField::from))
+                .collect()
+        })
     }
 }
 
@@ -87,6 +84,7 @@ impl ShareTeamConfig {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn none() -> ShareTeamConfig {
         ShareTeamConfig {
             id: Uuid::nil(),
@@ -117,7 +115,7 @@ pub fn create(
                 operation = "Create Share",
                 "Could not create share in database due to unique violation"
             );
-            return Ok(());
+            Ok(())
         }
         Err(e) => Err(e),
     }
@@ -134,9 +132,7 @@ pub fn update(
         Err(AppError::DatabaseError(diesel::result::Error::DatabaseError(
             DatabaseErrorKind::UniqueViolation,
             _,
-        ))) => {
-            return Ok(());
-        }
+        ))) => Ok(()),
         Err(e) => Err(e),
     }
 }

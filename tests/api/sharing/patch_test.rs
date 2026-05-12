@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use chrono::NaiveDateTime;
 use reqwest::StatusCode;
 use uuid::Uuid;
@@ -52,7 +50,7 @@ fn execute_patch(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/share_team_config",
             base_url, cook_and_run_id
         ))

@@ -419,6 +419,7 @@ impl TeamCreateData {
         }
     }
 
+    #[allow(dead_code)]
     pub fn to_with_user(
         &self,
         cook_and_run_id: &Uuid,
@@ -655,12 +656,14 @@ impl RequiredField {
 // Plan models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum Access {
     Link,
     Account,
 }
 
 impl Access {
+    #[allow(dead_code)]
     fn from(field: plan::Access) -> Self {
         match field {
             plan::Access::Link => Access::Link,
@@ -668,6 +671,7 @@ impl Access {
         }
     }
 
+    #[allow(dead_code)]
     fn to(&self) -> plan::Access {
         match self {
             Access::Link => plan::Access::Link,
@@ -686,15 +690,15 @@ pub enum Language {
 impl Language {
     fn from(field: plan::Language) -> Self {
         match field {
-            plan::Language::DEUTSCH => Language::Deu,
-            plan::Language::ENGLISH => Language::Eng,
+            plan::Language::Deutsch => Language::Deu,
+            plan::Language::English => Language::Eng,
         }
     }
 
     fn to(&self) -> plan::Language {
         match self {
-            Language::Deu => plan::Language::DEUTSCH,
-            Language::Eng => plan::Language::ENGLISH,
+            Language::Deu => plan::Language::Deutsch,
+            Language::Eng => plan::Language::English,
         }
     }
 }

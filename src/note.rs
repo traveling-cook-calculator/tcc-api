@@ -29,7 +29,7 @@ impl Note {
     pub fn to_db(&self, team_id: &Uuid) -> db::models::Note {
         db::models::Note {
             id: self.id,
-            team_id: team_id.clone(),
+            team_id: *team_id,
             headline: self.headline.clone(),
             content: self.content.clone(),
             created: self.created,
@@ -79,10 +79,10 @@ pub fn get(
         .collect();
     if note_list.is_empty() {
         return Err(AppError::NoteNotFound(
-            note_id.clone(),
+            *note_id,
             user_id.to_string(),
-            cook_and_run_id.clone(),
-            team_id.clone(),
+            *cook_and_run_id,
+            *team_id,
         ));
     }
     Ok(note_list[0].clone())
@@ -118,7 +118,7 @@ pub fn create(
                 operation = "Create Note",
                 "Could not create note in database due to unique violation"
             );
-            return Ok(());
+            Ok(())
         }
         Err(e) => Err(e),
     }

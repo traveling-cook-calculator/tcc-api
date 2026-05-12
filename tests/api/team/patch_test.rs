@@ -44,7 +44,7 @@ fn execute_patch_team(
     let payload = get_team_patch_json();
     let (client, base_url) = get_client();
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/team/{}",
             base_url, cook_and_run_id, team_id
         ))
@@ -138,23 +138,17 @@ fn assert_team_json(
     let street = address
         .get("address")
         .and_then(|v| v.as_str())
-        .expect(&format!("Missing street, got: {:#?}", address.to_string()));
+        .unwrap_or_else(|| panic!("Missing street, got: {:#?}", address.to_string()));
 
     let latitude = address
         .get("latitude")
         .and_then(|v| v.as_f64())
-        .expect(&format!(
-            "Missing latitude, got: {:#?}",
-            address.to_string()
-        ));
+        .unwrap_or_else(|| panic!("Missing latitude, got: {:#?}", address.to_string()));
 
     let longitude = address
         .get("longitude")
         .and_then(|v| v.as_f64())
-        .expect(&format!(
-            "Missing longitude, got: {:#?}",
-            address.to_string()
-        ));
+        .unwrap_or_else(|| panic!("Missing longitude, got: {:#?}", address.to_string()));
 
     assert_eq!(id, expected_team_id.to_string(), "team id does not match");
 
@@ -180,9 +174,9 @@ fn assert_team_json(
 
     assert_eq!(mail, "run@cook.de", "Mail is not: run@cook.de");
     assert_eq!(phone, "+49 54321", "Phone number is not: +49 54321");
-    assert_eq!(members, 5, "Members is not 2");
+    assert_eq!(members, 5, "Members is not 5");
     assert_eq!(diets, "special diets", "Diets is not: special diets");
-    assert_eq!(needs_check, false, "Needs_check is not false");
+    assert!(!needs_check, "Needs_check is not false");
 
     assert_eq!(
         street, "Igelgasse 5-7, 60311 Frankfurt am Main, Deutschland",

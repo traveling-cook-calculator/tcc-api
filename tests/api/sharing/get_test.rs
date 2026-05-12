@@ -74,7 +74,7 @@ fn test_get_share_config_wrong_user() {
 pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/share_team_config",
             base_url, cook_and_run_id
         ))
@@ -119,7 +119,7 @@ pub fn get_share_config_cook_and_run(
         .get("share_team_config")
         .expect("Missing share_config_list");
     assert_share_config_json(
-        &share_config_list,
+        share_config_list,
         expected_needs_login,
         expected_default_needs_check,
         expected_required_fields,

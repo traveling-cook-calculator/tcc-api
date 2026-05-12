@@ -22,17 +22,18 @@ pub fn setup() -> (Uuid, Uuid) {
 
 pub fn get_team(cook_and_run_id: &Uuid, team_id: &Uuid) -> serde_json::Value {
     let (token, _) = get_auth0_1();
-    let res = get_test::execute_get(&cook_and_run_id, team_id, &token);
+    let res = get_test::execute_get(cook_and_run_id, team_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     res.json().expect("Failed to parse JSON")
 }
 
 pub fn assert_team_not_found(cook_and_run_id: &Uuid, team_id: &Uuid) {
     let (token, _) = get_auth0_1();
-    let res = get_test::execute_get(&cook_and_run_id, team_id, &token);
+    let res = get_test::execute_get(cook_and_run_id, team_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn assert_team_json(
     json: &serde_json::Value,
     expected_team_id: &Uuid,

@@ -75,7 +75,7 @@ fn execute_patch_plan_config(cook_and_run_id: &Uuid, token: &str) -> reqwest::bl
     let payload = get_plan_config_patch_json();
     let (client, base_url) = get_client();
     client
-        .patch(&format!(
+        .patch(format!(
             "{}/cook_and_run/{}/plan_config",
             base_url, cook_and_run_id
         ))

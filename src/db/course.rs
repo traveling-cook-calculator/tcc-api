@@ -60,9 +60,9 @@ impl Database {
             .first(conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => AppError::CourseNotFound(
-                    id_filter.clone(),
+                    *id_filter,
                     user_id_filter.to_string(),
-                    Some(cook_and_run_id_filter.clone()),
+                    Some(*cook_and_run_id_filter),
                 ),
                 _ => AppError::DatabaseError(e),
             })
@@ -94,9 +94,9 @@ impl Database {
 
         if affected == 0 {
             return Err(AppError::CourseNotFound(
-                id_filter.clone(),
+                *id_filter,
                 user_id_filter.to_string(),
-                Some(cook_and_run_id_filter.clone()),
+                Some(*cook_and_run_id_filter),
             ));
         }
         Ok(())
@@ -124,9 +124,9 @@ impl Database {
             .map_err(AppError::DatabaseError)?;
         if affected == 0 {
             return Err(AppError::CourseNotFound(
-                data.id.clone(),
+                data.id,
                 user_id_filter.to_string(),
-                Some(data.cook_and_run_id.clone()),
+                Some(data.cook_and_run_id),
             ));
         }
         Ok(())

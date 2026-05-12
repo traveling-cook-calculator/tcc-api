@@ -52,7 +52,7 @@ fn execute_delete(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .delete(&format!(
+        .delete(format!(
             "{}/cook_and_run/{}/team/{}/note/{}",
             base_url, cook_and_run_id, team_id, note_id
         ))

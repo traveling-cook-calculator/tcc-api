@@ -22,6 +22,7 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct ListCoursesQuery {
+    #[allow(dead_code)]
     pub sort: Option<CourseSortOption>,
 }
 

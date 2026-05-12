@@ -31,8 +31,8 @@ pub fn setup() -> Uuid {
 
 pub fn get_share_config(cook_and_run_id: &Uuid, token: &str) {
     get_test::get_share_config(
-        &cook_and_run_id,
-        &token,
+        cook_and_run_id,
+        token,
         true,
         true,
         &vec![

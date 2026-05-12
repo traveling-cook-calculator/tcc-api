@@ -111,12 +111,7 @@ fn test_get_note_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_auth0_2();
 
-    get_note_list(
-        &test_data.cook_and_run_id,
-        &test_data.team_id,
-        &vec![],
-        &token,
-    );
+    get_note_list(&test_data.cook_and_run_id, &test_data.team_id, &[], &token);
 }
 
 pub fn execute_get(
@@ -127,7 +122,7 @@ pub fn execute_get(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/team/{}/note/{}",
             base_url, cook_and_run_id, team_id, note_id
         ))
@@ -150,7 +145,7 @@ fn execute_get_list(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(&format!(
+        .get(format!(
             "{}/cook_and_run/{}/team/{}/notes",
             base_url, cook_and_run_id, team_id
         ))
@@ -163,7 +158,7 @@ fn execute_get_list(
 pub fn get_note_list(
     cook_and_run_id: &Uuid,
     team_id: &Uuid,
-    expected_note_id: &Vec<Uuid>,
+    expected_note_id: &[Uuid],
     token: &str,
 ) {
     let res = execute_get_list(cook_and_run_id, team_id, token);
@@ -179,7 +174,7 @@ pub fn get_note_list(
     }
 }
 
-fn assert_team_json(json: &serde_json::Value, expected_note_id: &Vec<Uuid>) {
+fn assert_team_json(json: &serde_json::Value, expected_note_id: &[Uuid]) {
     let note_list = json
         .get("note_list")
         .and_then(|v| v.as_array())

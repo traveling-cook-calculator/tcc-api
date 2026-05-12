@@ -10,6 +10,8 @@ mod sharing;
 mod team;
 
 use anyhow::anyhow;
+use diesel::prelude::*;
+use diesel::sql_types::Integer;
 use diesel::{
     r2d2::{ConnectionManager, Pool, PooledConnection},
     PgConnection,
@@ -53,5 +55,13 @@ impl Database {
         }
 
         Ok(db)
+    }
+
+    pub fn health_check(&mut self) -> Result<(), AppError> {
+        let mut conn = self.get_connection()?;
+        diesel::dsl::sql::<Integer>("SELECT 1")
+            .get_result::<i32>(&mut conn)
+            .map_err(AppError::DatabaseError)?;
+        Ok(())
     }
 }
