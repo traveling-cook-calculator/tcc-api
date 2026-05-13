@@ -169,7 +169,7 @@ jobs:
     needs: [version, security]
     timeout-minutes: 30
     container:
-      image: ${{ env.RUST_BUILDER_IMAGE }}
+      image: ${{ RUST_BUILDER_IMAGE }}
     permissions:
       contents: read
       id-token: write
