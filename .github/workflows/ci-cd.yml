@@ -42,11 +42,12 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
   BINARY_NAME: tcc_api
-  TARGET: x86_64-unknown-linux-gnu
+  TARGET: x86_64-unknown-linux-musl
   APP_PORT: "3000"
   POSTGRES_VERSION: 15-alpine
   HEALTH_ENDPOINT: /health
   TEST_ARTIFACT_DIR: artifacts/tests
+  RUST_BUILDER_IMAGE: rust:alpine
 
 jobs:
   # ============================================================================
@@ -167,6 +168,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [version, security]
     timeout-minutes: 30
+    container:
+      image: ${{ env.RUST_BUILDER_IMAGE }}
     permissions:
       contents: read
       id-token: write
@@ -183,15 +186,30 @@ jobs:
         with:
           key: release
 
+      - name: Install system dependencies
+        run: apk add --no-cache bash musl-dev postgresql-dev pkgconfig
+
       - name: Build release binary
+        env:
+          PQ_LIB_STATIC: "1"
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo build --locked --release --all-features --target ${{ env.TARGET }}
 
+      - name: Strip debug symbols
+        run: strip "target/${{ env.TARGET }}/release/${{ env.BINARY_NAME }}"
+
       - name: Clippy (reuses build cache)
+        env:
+          PQ_LIB_STATIC: "1"
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo clippy --locked --release --all-targets --all-features --target ${{ env.TARGET }} -- -D warnings
 
       - name: Compile test harnesses (unit + integration, no run)
         id: compile-tests
         shell: bash
+        env:
+          PQ_LIB_STATIC: "1"
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: |
           set -euo pipefail
           mkdir -p "${TEST_ARTIFACT_DIR}"
@@ -466,9 +484,6 @@ jobs:
           rm -f  "release-artifacts/${BINARY_NAME}"
           rm -rf "release-artifacts/tests"
 
-      # FIX: Updated softprops/action-gh-release from @v1 to @v2 (v1 is deprecated).
-      # NOTE: For maximum supply-chain security, pin to a specific commit SHA,
-      # e.g.: softprops/action-gh-release@<sha>
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
