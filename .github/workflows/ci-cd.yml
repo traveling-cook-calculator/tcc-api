@@ -183,11 +183,13 @@ jobs:
           apk update && apk add --no-cache libpq-dev
 
       - uses: dtolnay/rust-toolchain@stable
+        shell: sh
         with:
           targets: ${{ env.TARGET }}
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
+        shell: sh
         with:
           key: release
 
