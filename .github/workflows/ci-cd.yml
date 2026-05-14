@@ -202,7 +202,7 @@ jobs:
 
       - name: Compile test harnesses (unit + integration, no run)
         id: compile-tests
-        shell: bash
+        shell: sh
         run: |
           set -euo pipefail
           mkdir -p "${TEST_ARTIFACT_DIR}"
@@ -224,7 +224,7 @@ jobs:
           fi
 
       - name: Stage release artifacts
-        shell: bash
+        shell: sh
         run: |
           set -euo pipefail
           mkdir -p artifacts
@@ -247,7 +247,7 @@ jobs:
           cosign-release: v3.0.6
 
       - name: Sign release binary
-        shell: bash
+        shell: sh
         run: cosign sign-blob "artifacts/${BINARY_NAME}" --bundle "artifacts/${BINARY_NAME}.sigstore.json" --yes
 
       - name: Generate build provenance attestation
