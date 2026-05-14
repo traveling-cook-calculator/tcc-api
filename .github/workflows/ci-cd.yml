@@ -180,7 +180,7 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          apk update && apk add --no-cache libpq-dev bash
+          apk update && apk add --no-cache libpq-dev bash build-base cmake perl clang llvm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
