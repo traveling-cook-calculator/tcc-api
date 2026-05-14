@@ -1,2 +1,8 @@
 [target.x86_64-unknown-linux-musl]
 linker = "gcc"
+
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-lpgcommon",
+    "-C", "link-arg=-lpgport",
+]

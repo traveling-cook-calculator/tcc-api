@@ -201,7 +201,6 @@ jobs:
         env:
           PQ_LIB_STATIC: "1"
           OPENSSL_STATIC: "1"
-          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo build --locked --release --all-features --target ${{ env.TARGET }}
 
       - name: Strip debug symbols
@@ -211,7 +210,6 @@ jobs:
         env:
           PQ_LIB_STATIC: "1"
           OPENSSL_STATIC: "1"
-          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo clippy --locked --release --all-targets --all-features --target ${{ env.TARGET }} -- -D warnings
 
       - name: Compile test harnesses (unit + integration, no run)
@@ -220,7 +218,6 @@ jobs:
         env:
           PQ_LIB_STATIC: "1"
           OPENSSL_STATIC: "1"
-          RUSTFLAGS: "-C target-feature=+crt-static"
         run: |
           set -euo pipefail
           mkdir -p "${TEST_ARTIFACT_DIR}"
