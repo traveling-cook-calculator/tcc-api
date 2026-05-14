@@ -47,7 +47,6 @@ env:
   POSTGRES_VERSION: 15-alpine
   HEALTH_ENDPOINT: /health
   TEST_ARTIFACT_DIR: artifacts/tests
-  RUST_BUILDER_IMAGE: rust:alpine
 
 jobs:
   # ============================================================================
@@ -169,7 +168,7 @@ jobs:
     needs: [version, security]
     timeout-minutes: 30
     container:
-      image: ${{ env.RUST_BUILDER_IMAGE }}
+      image: rust:alpine
     permissions:
       contents: read
       id-token: write
