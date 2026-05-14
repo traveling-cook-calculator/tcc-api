@@ -164,7 +164,7 @@ jobs:
   # ============================================================================
   build:
     name: Build & Prepare Test Artifacts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [version, security]
     timeout-minutes: 30
     permissions:
