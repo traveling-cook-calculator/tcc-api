@@ -1,12 +1,15 @@
-FROM alpine:3 AS base
-RUN apk add --no-cache ca-certificates
+FROM debian:bookworm-slim
 
-FROM scratch
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libpq5 \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --chmod=755 tcc_api /tcc_api
+RUN useradd --no-create-home --shell /bin/false tcc
 
-USER 10001:10001
+COPY --chmod=755 tcc_api /usr/local/bin/tcc_api
 
+USER tcc
 EXPOSE 3000
-ENTRYPOINT ["/tcc_api"]
+ENTRYPOINT ["/usr/local/bin/tcc_api"]
