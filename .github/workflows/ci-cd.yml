@@ -180,16 +180,14 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          apk update && apk add --no-cache libpq-dev
+          apk update && apk add --no-cache libpq-dev bash
 
       - uses: dtolnay/rust-toolchain@stable
-        shell: sh
         with:
           targets: ${{ env.TARGET }}
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
-        shell: sh
         with:
           key: release
 
@@ -204,7 +202,7 @@ jobs:
 
       - name: Compile test harnesses (unit + integration, no run)
         id: compile-tests
-        shell: sh
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${TEST_ARTIFACT_DIR}"
@@ -226,7 +224,7 @@ jobs:
           fi
 
       - name: Stage release artifacts
-        shell: sh
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts
@@ -249,7 +247,7 @@ jobs:
           cosign-release: v3.0.6
 
       - name: Sign release binary
-        shell: sh
+        shell: bash
         run: cosign sign-blob "artifacts/${BINARY_NAME}" --bundle "artifacts/${BINARY_NAME}.sigstore.json" --yes
 
       - name: Generate build provenance attestation
