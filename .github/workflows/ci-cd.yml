@@ -192,6 +192,9 @@ jobs:
           key: release
 
       - name: Build release binary
+        env:
+          CC: clang
+          CXX: clang
         run: cargo build --locked --release --all-features --target ${{ env.TARGET }}
 
       - name: Strip debug symbols
