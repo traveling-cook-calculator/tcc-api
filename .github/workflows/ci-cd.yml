@@ -184,7 +184,7 @@ jobs:
           key: release
 
       - name: Install system dependencies
-        run: apk add --no-cache bash musl-dev postgresql-dev pkgconfig
+        run: apt update && apt install -y bash musl-dev postgresql-dev pkgconfig
 
       - name: Build release binary
         env:
