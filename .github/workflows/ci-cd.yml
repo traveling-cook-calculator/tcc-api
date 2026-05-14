@@ -180,8 +180,7 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libpq-dev
+          apk update && apk add --no-cache libpq-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
