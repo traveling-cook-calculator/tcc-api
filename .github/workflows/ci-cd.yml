@@ -167,8 +167,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [version, security]
     timeout-minutes: 30
-    container:
-      image: rust:alpine
     permissions:
       contents: read
       id-token: write
