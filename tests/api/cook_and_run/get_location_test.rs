@@ -95,7 +95,6 @@ pub fn execute_get_start_point(cook_and_run_id: &Uuid, token: &str) -> reqwest::
             base_url, cook_and_run_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }
@@ -108,7 +107,6 @@ pub fn execute_get_end_point(cook_and_run_id: &Uuid, token: &str) -> reqwest::bl
             base_url, cook_and_run_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }

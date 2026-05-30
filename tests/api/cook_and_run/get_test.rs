@@ -135,7 +135,6 @@ pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Re
     client
         .get(format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }
@@ -151,7 +150,6 @@ fn execute_get_meta_list(user_id: &str, token: &str) -> reqwest::blocking::Respo
     client
         .get(format!("{}/cook_and_run?userId={}", base_url, user_id))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }
@@ -173,7 +171,6 @@ fn execute_get_meta(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::R
             base_url, cook_and_run_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }

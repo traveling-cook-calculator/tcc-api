@@ -145,17 +145,6 @@ async fn main() {
         );
     }
 
-    let (rate_per_second, burst) = if std::env::var("DISABLE_RATE_LIMIT").is_ok() {
-        warn!(
-            operation = "Loading environment variable",
-            variable = "DISABLE_RATE_LIMIT",
-            "DISABLE_RATE_LIMIT is true. Rate limiting disable. This is not recommended for production deployments.",
-        );
-        (1_000u64, 10_000u32)
-    } else {
-        (RATE_LIMIT_PER_SECOND, RATE_LIMIT_BURST)
-    };
-
     info!("Starting server...");
 
     debug!("Initializing AuthState...");
@@ -185,8 +174,8 @@ async fn main() {
     // the limiter works correctly behind a reverse proxy (nginx, Caddy, etc.).
     // Clients that exceed the limit receive HTTP 429 with a Retry-After header.
     let governor_conf = GovernorConfigBuilder::default()
-        .per_second(rate_per_second)
-        .burst_size(burst)
+        .per_second(RATE_LIMIT_PER_SECOND)
+        .burst_size(RATE_LIMIT_BURST)
         .use_headers()
         .key_extractor(SmartIpKeyExtractor)
         .finish()
@@ -230,23 +219,35 @@ async fn main() {
             Method::PATCH,
             Method::PUT,
             Method::DELETE,
+            Method::OPTIONS,
         ])
         .allow_origin(allow_origins)
         .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
 
     let app = rest::get_routes(app_state.clone())
         .layer(security_headers)
-        .layer(cors_layer)
         //Reject bodies larger than MAX_BODY_BYTES before reading them.
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
         // Cancel requests that take longer than REQUEST_TIMEOUT_SECS.
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(REQUEST_TIMEOUT_SECS),
-        ))
+        ));
+
+    let app = if std::env::var("DISABLE_RATE_LIMIT").is_ok() {
+        warn!(
+            operation = "Loading environment variable",
+            variable = "DISABLE_RATE_LIMIT",
+            "DISABLE_RATE_LIMIT is true. Rate limiting disable. This is not recommended for production deployments.",
+        );
+        app
+    } else {
         // Per-IP rate limiting — must sit outside TimeoutLayer so 429 responses
         // are not themselves subject to the timeout.
-        .layer(GovernorLayer::new(governor_conf))
+        app.layer(GovernorLayer::new(governor_conf))
+    };
+
+    let app = app
         .layer(
             TraceLayer::new_for_http()
                 // .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
@@ -261,6 +262,7 @@ async fn main() {
                     },
                 ),
         )
+        .layer(cors_layer)
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind(&addr)

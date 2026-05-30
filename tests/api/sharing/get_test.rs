@@ -79,7 +79,6 @@ pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Re
             base_url, cook_and_run_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }

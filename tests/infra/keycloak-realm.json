@@ -49,11 +49,11 @@
                 "http://localhost:8080*"
             ],
             "webOrigins": [
-                "http://localhost:8080*"
+                "http://localhost:8080"
             ],
             "attributes": {
                 "access.token.lifespan": "900",
-                "post.logout.redirect.uris": "http://localhost:8080"
+                "post.logout.redirect.uris": "http://localhost:8080*"
             },
             "protocolMappers": [
                 {

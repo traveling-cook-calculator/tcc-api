@@ -7,7 +7,6 @@ fn test_health_live_success() {
     let (_client, base_url) = get_client();
     let res = _client
         .get(format!("{}/health/live", base_url))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request");
 
@@ -31,7 +30,6 @@ fn test_health_ready_success() {
     let (_client, base_url) = get_client();
     let res = _client
         .get(format!("{}/health/ready", base_url))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request");
 
@@ -73,7 +71,6 @@ fn test_health_success() {
     let (_client, base_url) = get_client();
     let res = _client
         .get(format!("{}/health", base_url))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request");
 
@@ -111,7 +108,6 @@ fn test_health_response_structure_live() {
     let (_client, base_url) = get_client();
     let res = _client
         .get(format!("{}/health/live", base_url))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request");
 
@@ -143,7 +139,6 @@ fn test_health_response_structure_ready() {
     let (_client, base_url) = get_client();
     let res = _client
         .get(format!("{}/health/ready", base_url))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request");
 
@@ -175,7 +170,6 @@ fn test_health_checks_include_database_and_auth() {
     let (_client, base_url) = get_client();
     let res = _client
         .get(format!("{}/health/ready", base_url))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request");
 
