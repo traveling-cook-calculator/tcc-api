@@ -2,7 +2,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     create_cook_and_run, get_client, get_cook_and_run,
     plan::patch_test::patch_plan,
 };
@@ -10,7 +10,7 @@ use crate::{
 #[test]
 fn test_get_plan() {
     let cook_and_run_id = create_cook_and_run();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     patch_plan(&cook_and_run_id, &token);
     let response = execute_get(&cook_and_run_id, &token);
     assert!(response.status().is_success(), "Response: {:#?}", response);
@@ -20,7 +20,7 @@ fn test_get_plan() {
 #[test]
 fn test_get_plan_in_cook_and_run() {
     let cook_and_run_id = create_cook_and_run();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     patch_plan(&cook_and_run_id, &token);
     let cook_and_run = get_cook_and_run(&cook_and_run_id);
     assert_cook_and_run_json(&cook_and_run, true);
@@ -29,7 +29,7 @@ fn test_get_plan_in_cook_and_run() {
 #[test]
 fn test_get_plan_not_found() {
     let cook_and_run_id = create_cook_and_run();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     let response = execute_get(&cook_and_run_id, &token);
     assert_eq!(
@@ -50,9 +50,9 @@ fn test_get_plan_not_found_in_cook_and_run() {
 #[test]
 fn test_get_plan_wrong_user() {
     let cook_and_run_id = create_cook_and_run();
-    let (token_1, _) = get_auth0_1();
+    let (token_1, _) = get_user_1();
     patch_plan(&cook_and_run_id, &token_1);
-    let (token_2, _) = get_auth0_2();
+    let (token_2, _) = get_user_2();
     let response = execute_get(&cook_and_run_id, &token_2);
     assert_eq!(
         response.status(),

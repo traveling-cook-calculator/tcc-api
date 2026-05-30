@@ -13,7 +13,7 @@ use crate::{
     course::{self},
     error::AppError,
     rest::{
-        auth::{require_permission, Claims, READ_PERMISSION, UPDATE_PERMISSION},
+        auth::{require_permission, Claims, USER_ROLE},
         models::{Course, CourseCreateData, CourseUpdateData, PaginationInfo},
         validated_json::ValidatedJson,
     },
@@ -51,35 +51,35 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run/{cook_and_run_id}/courses",
             get(list_courses).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/course/{course_id}",
             post(create_course).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/course/{course_id}",
             get(get_course).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/course/{course_id}",
             patch(update_course).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/course/{course_id}",
             delete(delete_course).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
 }

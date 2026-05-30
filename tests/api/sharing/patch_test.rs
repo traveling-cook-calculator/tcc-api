@@ -3,7 +3,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     get_client,
     sharing::{
         get_share_config, get_test::assert_share_config_json, get_test::execute_get,
@@ -15,7 +15,7 @@ use crate::{
 fn test_patch_share_config() {
     let cook_and_run_id = setup();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     let payload = get_share_patch_json();
     patch_share_config(&cook_and_run_id, payload, &token);
     let res = execute_get(&cook_and_run_id, &token);
@@ -34,12 +34,12 @@ fn test_patch_share_config() {
 fn test_patch_share_config_wrong_user() {
     let cook_and_run_id = setup();
 
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
     let payload = get_share_patch_json();
     let res = execute_patch(&cook_and_run_id, payload, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     get_share_config(&cook_and_run_id, &token);
 }
 

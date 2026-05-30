@@ -3,7 +3,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     get_client, team,
 };
 
@@ -12,7 +12,7 @@ fn test_create_note() {
     let (cook_and_run_id, team_id) = team::setup();
     let note_id = Uuid::new_v4();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     create_note(&cook_and_run_id, &team_id, &note_id, &token);
 }
 
@@ -21,7 +21,7 @@ fn test_create_created_note() {
     let (cook_and_run_id, team_id) = team::setup();
     let note_id = Uuid::new_v4();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     create_note(&cook_and_run_id, &team_id, &note_id, &token);
     create_note(&cook_and_run_id, &team_id, &note_id, &token);
 }
@@ -30,7 +30,7 @@ fn test_create_created_note() {
 fn test_create_note_wrong_user() {
     let (cook_and_run_id, team_id) = team::setup();
     let note_id = Uuid::new_v4();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     let payload = get_note_create_json();
     let res = execute_create(&cook_and_run_id, &team_id, &note_id, payload, &token);

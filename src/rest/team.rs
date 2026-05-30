@@ -14,10 +14,7 @@ use uuid::Uuid;
 use crate::{
     error::AppError,
     rest::{
-        auth::{
-            is_user_authenticated, require_permission, AuthState, Claims, DELETE_PERMISSION,
-            READ_PERMISSION, UPDATE_PERMISSION,
-        },
+        auth::{is_user_authenticated, require_permission, AuthState, Claims, USER_ROLE},
         models::{PaginationInfo, Team, TeamCreateData, TeamUpdateData},
         validated_json::ValidatedJson,
     },
@@ -61,12 +58,9 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run/{cook_and_run_id}/teams",
             get(list_teams).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
-        // Team creation is intentionally unauthenticated at the JWT middleware level
-        // to allow public registration via share links. Ownership is enforced inside
-        // the handler via optional bearer token verification.
         .route(
             "/cook_and_run/{cook_and_run_id}/team/{team_id}",
             post(create_team),
@@ -75,14 +69,14 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run/{cook_and_run_id}/team/{team_id}",
             get(get_team).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/team/{team_id}",
             patch(update_team).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         // SECURITY FIX: was READ_PERMISSION — any read-only user could delete teams.
@@ -90,7 +84,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run/{cook_and_run_id}/team/{team_id}",
             delete(delete_team).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(DELETE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
 }

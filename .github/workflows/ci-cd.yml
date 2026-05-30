@@ -164,7 +164,7 @@ jobs:
   # ============================================================================
   build:
     name: Build & Prepare Test Artifacts
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: [version, security]
     timeout-minutes: 30
     permissions:
@@ -266,31 +266,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build]
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    env:
-      ALLOW_ORIGIN: http://localhost:${APP_PORT}
-      DATABASE_URL: postgres://postgres:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/postgres
-      AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
-      AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
-      AUTH0_CLIENT_ID_1: ${{ secrets.AUTH0_CLIENT_ID_1 }}
-      AUTH0_CLIENT_SECRET_1: ${{ secrets.AUTH0_CLIENT_SECRET_1 }}
-      AUTH0_CLIENT_ID_2: ${{ secrets.AUTH0_CLIENT_ID_2 }}
-      AUTH0_CLIENT_SECRET_2: ${{ secrets.AUTH0_CLIENT_SECRET_2 }}
-      DISABLE_RATE_LIMIT: "true"
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+     
+      - name: Start Docker Compose Services
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          KC_ADMIN_USER: ${{ secrets.KC_ADMIN_USER }}
+          KC_ADMIN_PASSWORD: ${{ secrets.KC_ADMIN_PASSWORD }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+        run: docker compose -f tests/infra/docker-compose.yaml up -d --wait  
+
       - name: Download pre-built binaries
         uses: actions/download-artifact@v4
         with:
@@ -299,6 +287,9 @@ jobs:
 
       - name: Start service
         shell: bash
+        env:
+          DISABLE_RATE_LIMIT: "true"
+          DATABASE_URL: postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/tcc_db
         run: |
           set -euo pipefail
           chmod +x "artifacts/${BINARY_NAME}"
@@ -346,6 +337,14 @@ jobs:
           if [[ -f /tmp/app.pid ]]; then
             kill "$(cat /tmp/app.pid)" 2>/dev/null || true
           fi
+
+      - name: Docker Compose Logs
+        if: failure()  
+        run: docker compose -f tests/infra/docker-compose.yaml logs
+
+      - name: Stop Docker Compose Services
+        if: always() 
+        run: docker compose -f tests/infra/docker-compose.yaml down
 
       - name: Upload service logs on failure
         if: failure()

@@ -10,7 +10,7 @@ use crate::{
     error::AppError,
     plan,
     rest::{
-        auth::{require_permission, Claims, READ_PERMISSION, UPDATE_PERMISSION},
+        auth::{require_permission, Claims, USER_ROLE},
         models::{Plan, PlanConfig},
         validated_json::ValidatedJson,
     },
@@ -23,42 +23,42 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run/{cook_and_run_id}/plan",
             get(get_plan).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/plan",
             patch(update_plan).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/plan",
             delete(delete_plan).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/plan_config",
             get(get_plan_config).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/plan_config",
             patch(update_plan_config).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/plan_config",
             delete(delete_plan_config).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
 }

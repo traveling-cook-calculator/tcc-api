@@ -11,10 +11,7 @@ use tracing::{debug, warn};
 
 use crate::error::AppError;
 
-pub const CREATE_PERMISSION: &str = "create:project";
-pub const READ_PERMISSION: &str = "read:project";
-pub const UPDATE_PERMISSION: &str = "update:project";
-pub const DELETE_PERMISSION: &str = "delete:project";
+pub const USER_ROLE: &str = "user";
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -31,6 +28,10 @@ pub enum AuthUser {
 pub trait AuthenticatedUser {
     fn user_id(&self) -> AuthUser;
 }
+
+// ---------------------------------------------------------------------------
+// JWT claim structures
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
@@ -49,6 +50,29 @@ impl Audience {
     }
 }
 
+/// Realm-wide roles sourced from `realm_access.roles`.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct RealmAccess {
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// Client-specific roles sourced from `resource_access.<client_id>.roles`.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ClientAccess {
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// Keycloak access-token claims.
+///
+/// Unlike Auth0, Keycloak does **not** encode permissions as a flat
+/// `permissions` array. Instead it uses:
+///   - `realm_access.roles`              – realm-wide roles
+///   - `resource_access.<client_id>.roles` – client-specific roles
+///
+/// Keycloak also includes standard OIDC fields such as `preferred_username`
+/// and `email` directly in the access token.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
@@ -56,19 +80,30 @@ pub struct Claims {
     pub iss: String,
     pub exp: usize,
     pub iat: usize,
+    /// Realm-wide roles (e.g. `offline_access`, `uma_authorization`).
     #[serde(default)]
-    pub permissions: Vec<String>,
+    pub realm_access: RealmAccess,
+    /// Client-specific roles; key is the respective client ID.
+    #[serde(default)]
+    pub resource_access: HashMap<String, ClientAccess>,
+    /// Space-separated OAuth2 scope string, e.g. `"openid profile email"`.
     #[serde(default)]
     pub scope: Option<String>,
+    /// Username, mirrors `UserData` on the client side.
+    pub preferred_username: Option<String>,
+    pub email: Option<String>,
+    /// Any additional claims (azp, session_state, …).
     #[serde(flatten)]
     pub other: HashMap<String, serde_json::Value>,
 }
 
+// ---------------------------------------------------------------------------
+// JWKS structures
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct JwksKey {
-    //pub kty: String,
     pub kid: String,
-    //pub r#use: String,
     pub n: String,
     pub e: String,
 }
@@ -78,134 +113,202 @@ pub struct Jwks {
     pub keys: Vec<JwksKey>,
 }
 
+// ---------------------------------------------------------------------------
+// AuthState
+// ---------------------------------------------------------------------------
+
+/// Server-side authentication state for Keycloak.
+///
+/// # Configuration
+/// | Field                | Example                         |
+/// |----------------------|---------------------------------|
+/// | `keycloak_domain`    | `https://auth.example.com`      |
+/// | `keycloak_realm`     | `myrealm`                       |
+/// | `keycloak_client_id` | `myapp-backend`                 |
+///
+/// The **JWKS URL** is constructed internally as
+/// `{domain}/realms/{realm}/protocol/openid-connect/certs`.
+///
+/// The **issuer** is validated as `{domain}/realms/{realm}`.
+///
+/// The **audience** is validated against `keycloak_client_id`. For this to
+/// work, an *Audience Mapper* must be configured in the Keycloak client so
+/// that the client ID is written into the `aud` claim.
 #[derive(Clone, Debug)]
 pub struct AuthState {
-    pub auth0_domain: String,
-    pub auth0_audience: String,
+    pub keycloak_domain: String,
+    pub keycloak_realm: String,
+    pub keycloak_client_id: String,
     pub jwks: Jwks,
 }
 
 impl AuthState {
-    pub async fn new(domain: &str, audience: &str) -> Result<Self, AppError> {
+    /// Creates a new `AuthState` and fetches the JWKS keys from Keycloak.
+    pub async fn new(domain: &str, realm: &str, client_id: &str) -> Result<Self, AppError> {
         debug!(
             domain = domain,
-            audience = audience,
-            "Initializing AuthState."
+            realm = realm,
+            client_id = client_id,
+            "Initializing Keycloak AuthState."
         );
-        let jwks_url = format!("https://{}/.well-known/jwks.json", domain);
-        let jwks: Jwks = reqwest::get(&jwks_url)
+
+        let jwks = Self::fetch_jwks(domain, realm).await?;
+
+        Ok(AuthState {
+            keycloak_domain: domain.to_string(),
+            keycloak_realm: realm.to_string(),
+            keycloak_client_id: client_id.to_string(),
+            jwks,
+        })
+    }
+
+    /// Constructs the Keycloak JWKS URL and fetches the public keys.
+    async fn fetch_jwks(domain: &str, realm: &str) -> Result<Jwks, AppError> {
+        let jwks_url = format!("{}/realms/{}/protocol/openid-connect/certs", domain, realm,);
+        debug!(jwks_url = %jwks_url, "Fetching JWKS from Keycloak.");
+
+        reqwest::get(&jwks_url)
             .await
             .map_err(|e| {
                 AppError::AuthorizationError(format!("Error while requesting JWKS: {}", e))
             })?
-            .json()
+            .json::<Jwks>()
             .await
             .map_err(|e| {
-                AppError::AuthorizationError(format!("Error while parsing JWKS-Response: {}", e))
-            })?;
-
-        Ok(AuthState {
-            auth0_domain: domain.to_string(),
-            auth0_audience: audience.to_string(),
-            jwks,
-        })
+                AppError::AuthorizationError(format!("Error while parsing JWKS response: {}", e))
+            })
     }
 
     fn get_key(&self, kid: &str) -> Option<&JwksKey> {
         self.jwks.keys.iter().find(|key| key.kid == kid)
     }
 
+    /// Verifies a Bearer token and returns the extracted claims on success.
+    ///
+    /// The following are validated:
+    /// - Signature (RS256, key looked up from JWKS via `kid`)
+    /// - Issuer (`{domain}/realms/{realm}`)
+    /// - Audience (`keycloak_client_id`)
+    /// - Expiry (`exp`)
     pub fn verify_token(&self, token: &str) -> Result<Claims, AppError> {
-        debug!("Verifying token.");
+        debug!("Verifying Keycloak token.");
+
         let header = decode_header(token).map_err(|e| {
             AppError::AuthorizationError(format!("Error while decoding header: {}", e))
         })?;
+
         let kid = header
             .kid
             .ok_or_else(|| AppError::AuthorizationError("Token has no key id".to_string()))?;
 
-        let key = self
-            .get_key(&kid)
-            .ok_or_else(|| AppError::AuthorizationError(format!("Kid id {} not found!", kid)))?;
-
-        let decoding_key = DecodingKey::from_rsa_components(&key.n, &key.e).map_err(|e| {
-            AppError::AuthorizationError(format!("Error while decoding JWKS-Data: {}", e))
+        let key = self.get_key(&kid).ok_or_else(|| {
+            AppError::AuthorizationError(format!("Kid '{}' not found in JWKS", kid))
         })?;
 
+        let decoding_key = DecodingKey::from_rsa_components(&key.n, &key.e).map_err(|e| {
+            AppError::AuthorizationError(format!("Error while building decoding key: {}", e))
+        })?;
+
+        let issuer = format!("{}/realms/{}", self.keycloak_domain, &self.keycloak_realm,);
         debug!(
-            kid = kid,
-            "Token header decoded. Attempting to verify token with corresponding key."
+            kid = %kid,
+            issuer = %issuer,
+            "Token header decoded. Verifying token with corresponding key."
         );
+
         let mut validation = Validation::new(Algorithm::RS256);
-        validation.set_audience(&[&self.auth0_audience]);
-        validation.set_issuer(&[&format!("https://{}/", self.auth0_domain)]);
+        validation.set_audience(&[&self.keycloak_client_id]);
+        validation.set_issuer(&[&issuer]);
 
         let token_data = decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {
             AppError::AuthorizationError(format!(
-                "Error while validating Token and extracting claims: {}",
+                "Error while validating token and extracting claims: {}",
                 e
             ))
         })?;
 
         debug!(
             user = %token_data.claims.sub,
-            "Token verified successfully, claims extracted."
+            "Keycloak token verified successfully, claims extracted."
         );
         Ok(token_data.claims)
     }
 
+    /// Health check: verifies that Keycloak is reachable and returns JWKS keys.
     pub async fn health_check(&self) -> Result<(), AppError> {
-        let jwks_url = format!("https://{}/.well-known/jwks.json", self.auth0_domain);
-        let jwks: Jwks = reqwest::get(&jwks_url)
-            .await
-            .map_err(|e| {
-                AppError::AuthorizationError(format!(
-                    "Error while requesting JWKS for health check: {}",
-                    e
-                ))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::AuthorizationError(format!(
-                    "Error while parsing JWKS response for health check: {}",
-                    e
-                ))
-            })?;
+        let jwks = Self::fetch_jwks(&self.keycloak_domain, &self.keycloak_realm).await?;
 
         if jwks.keys.is_empty() {
             return Err(AppError::AuthorizationError(
-                "Auth server returned no JWKS keys".to_string(),
+                "Keycloak returned no JWKS keys".to_string(),
             ));
         }
 
         Ok(())
     }
 
+    /// Checks whether the given claims contain a specific permission.
+    ///
+    /// Lookup order:
+    /// 1. **Client roles** in `resource_access.<client_id>.roles`
+    ///    (preferred, as they are more fine-grained)
+    /// 2. **Realm roles** in `realm_access.roles`
+    /// 3. **Scope** string as a fallback (OAuth2 standard)
     pub fn has_permission(&self, claims: &Claims, required_permission: &str) -> bool {
         debug!(
             user = %claims.sub,
             required_permission = required_permission,
-            "Checking permissions for user."
+            "Checking Keycloak permissions for user."
         );
-        // Prüfe zuerst das permissions Array (Auth0 Standard)
+
+        // 1. Client-specific roles
+        if let Some(client_access) = claims.resource_access.get(&self.keycloak_client_id) {
+            if client_access.roles.iter().any(|r| r == required_permission) {
+                return true;
+            }
+        }
+
+        // 2. Realm-wide roles
         if claims
-            .permissions
-            .contains(&required_permission.to_string())
+            .realm_access
+            .roles
+            .iter()
+            .any(|r| r == required_permission)
         {
             return true;
         }
 
-        // Fallback: Prüfe scope string (OAuth2 Standard)
+        // 3. Fallback: scope string (OAuth2 standard)
         if let Some(scope) = &claims.scope {
-            return scope.split_whitespace().any(|s| s == required_permission);
+            if scope.split_whitespace().any(|s| s == required_permission) {
+                return true;
+            }
         }
 
         false
     }
 }
 
-// Permission-basierte Middleware Factory
+// ---------------------------------------------------------------------------
+// Axum middleware
+// ---------------------------------------------------------------------------
+
+/// Middleware factory that requires a specific permission string.
+///
+/// Validates the `Authorization: Bearer <token>` header, verifies the token,
+/// and ensures the claims contain the requested permission. On success the
+/// `Claims` are inserted as a request extension and are available to
+/// downstream handlers.
+///
+/// # Example
+/// ```rust
+/// Router::new()
+///     .route("/projects", post(create_project))
+///     .route_layer(middleware::from_fn_with_state(
+///         state.clone(),
+///         require_permission(CREATE_PERMISSION),
+///     ))
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn require_permission(
     permission: &'static str,
@@ -219,7 +322,7 @@ pub fn require_permission(
     move |State(state): State<crate::AppState>, mut request: Request, next: Next| {
         debug!(
             required_permission = permission,
-            "Executing permission check middleware."
+            "Executing Keycloak permission check middleware."
         );
         Box::pin(async move {
             let auth_header = request
@@ -230,6 +333,7 @@ pub fn require_permission(
                     warn!(operation = "Authorization", "Missing authorization header");
                     StatusCode::UNAUTHORIZED
                 })?;
+
             let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
                 warn!(
                     operation = "Authorization",
@@ -260,6 +364,10 @@ pub fn require_permission(
         })
     }
 }
+
+// ---------------------------------------------------------------------------
+// Resource owner check
+// ---------------------------------------------------------------------------
 
 pub fn is_user_authenticated<T: AuthenticatedUser>(
     user: &T,

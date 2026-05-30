@@ -22,7 +22,7 @@ include_dir = "0.7"
 diesel = { version = "2.2", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
 diesel_migrations = { version = "2.2", features = ["postgres"] }
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
-reqwest = { version ="0.13", features = ["json","blocking"] }
+reqwest = { version ="0.13", features = ["json","blocking", "form"] }
 once_cell = "1.21"
 validator =  { version = "0.20", features = ["derive"] }
 governor = "0.10.4"
@@ -37,9 +37,13 @@ r2d2 = "0.8.10"
 opentelemetry = "0.31" # Aktuelle OTel Core Lib
 opentelemetry-otlp = "0.15" # OTLP Exporter für Jaeger
 tracing-opentelemetry = "0.32" # Verbindet 'tracing' mit 'opentelemetry'
+testcontainers = "0.27.3"
 
 
 # Test-Organisation
 [[test]]
 name = "api"
 path = "tests/api/mod.rs"
+
+[dev-dependencies]
+base64 = "0.22.1"

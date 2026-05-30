@@ -5,7 +5,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     get_client,
     team::{self, note::post_test::create_note},
 };
@@ -23,7 +23,7 @@ pub fn setup() -> TestData {
     let data = TEST_DATA.get_or_init(|| {
         let (cook_and_run_id, team_id) = team::setup();
 
-        let (token, _) = get_auth0_1();
+        let (token, _) = get_user_1();
         let mut note_list = Vec::new();
         for _ in 0..10 {
             let note_id = Uuid::new_v4();
@@ -44,7 +44,7 @@ pub fn setup() -> TestData {
 #[test]
 fn test_get_note() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     for note in test_data.note_list {
         get_note(
@@ -59,7 +59,7 @@ fn test_get_note() {
 #[test]
 fn test_get_note_list() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     get_note_list(
         &test_data.cook_and_run_id,
@@ -79,7 +79,7 @@ fn test_get_note_list_in_team() {
 #[test]
 fn test_get_note_not_found() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     let res = execute_get(
         &test_data.cook_and_run_id,
@@ -93,7 +93,7 @@ fn test_get_note_not_found() {
 #[test]
 fn test_get_note_wrong_user() {
     let test_data = setup();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     for note in test_data.note_list {
         let res = execute_get(
@@ -109,7 +109,7 @@ fn test_get_note_wrong_user() {
 #[test]
 fn test_get_note_list_wrong_user() {
     let test_data = setup();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     get_note_list(&test_data.cook_and_run_id, &test_data.team_id, &[], &token);
 }

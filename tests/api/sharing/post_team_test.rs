@@ -2,7 +2,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     create_cook_and_run, get_client,
     sharing::post_test::create_share_config,
     team::{self, assert_team_not_found, post_test::get_team_create_json},
@@ -12,9 +12,9 @@ use crate::{
 fn test_create_with_login_but_not_required() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token_1, _) = get_auth0_1();
+    let (token_1, _) = get_user_1();
 
-    let (token_2, user_id) = get_auth0_2();
+    let (token_2, user_id) = get_user_2();
 
     create_share_config(
         &cook_and_run_id,
@@ -38,9 +38,9 @@ fn test_create_with_login_but_not_required() {
 fn test_create_with_required_login() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token_1, _) = get_auth0_1();
+    let (token_1, _) = get_user_1();
 
-    let (token_2, user_id_2) = get_auth0_2();
+    let (token_2, user_id_2) = get_user_2();
 
     create_share_config(
         &cook_and_run_id,
@@ -64,7 +64,7 @@ fn test_create_with_required_login() {
 fn test_create_with_required_login_but_not_loged_in() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token_1, _) = get_auth0_1();
+    let (token_1, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
@@ -92,9 +92,9 @@ fn test_create_with_required_login_but_not_loged_in() {
 fn test_create_with_login_but_wrong_user_id() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token_1, user_id_1) = get_auth0_1();
+    let (token_1, user_id_1) = get_user_1();
 
-    let (token_2, _) = get_auth0_2();
+    let (token_2, _) = get_user_2();
 
     create_share_config(
         &cook_and_run_id,
@@ -122,7 +122,7 @@ fn test_create_with_login_but_wrong_user_id() {
 fn test_create_team_all_required() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
@@ -181,7 +181,7 @@ fn test_create_team_all_required() {
 fn test_create_team_max_teams() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
@@ -219,7 +219,7 @@ fn test_create_team_max_teams() {
 fn test_create_deadline_okay() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
@@ -247,7 +247,7 @@ fn test_create_deadline_okay() {
 fn test_create_deadline_over() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
@@ -280,7 +280,7 @@ fn test_create_deadline_over() {
 fn test_create_team_all_required_not_set() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
@@ -380,7 +380,7 @@ fn test_create_team_all_required_not_set() {
 fn test_create_team_none_required() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
@@ -434,7 +434,7 @@ fn test_create_team_none_required() {
 fn test_create_team_none_required_all_set() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     create_share_config(
         &cook_and_run_id,
