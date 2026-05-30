@@ -174,14 +174,14 @@ pub fn assert_share_config_json(
     assert_eq!(invite_text, "Join our amazing Cook & Run event! Register your share_config and get ready for a culinary adventure.", "share_config invite text does not match");
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:00").is_ok(),
         "Created is not a valid NaiveTime: {}",
         created
     );
 
     if let Some(registration_deadline) = registration_deadline {
         assert!(
-            NaiveDateTime::parse_from_str(registration_deadline, "%Y-%m-%dT%H:%M").is_ok(),
+            NaiveDateTime::parse_from_str(registration_deadline, "%Y-%m-%dT%H:%M:00").is_ok(),
             "Edited is not a valid NaiveTime: {}",
             registration_deadline
         );

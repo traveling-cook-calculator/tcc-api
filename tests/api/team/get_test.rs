@@ -343,13 +343,13 @@ pub fn assert_team_json(
         .expect("Missing edited");
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:00").is_ok(),
         "Created is not a valid NaiveTime: {}",
         created
     );
 
     assert!(
-        NaiveDateTime::parse_from_str(edited, "%Y-%m-%dT%H:%M").is_ok(),
+        NaiveDateTime::parse_from_str(edited, "%Y-%m-%dT%H:%M:00").is_ok(),
         "Edited is not a valid NaiveTime: {}",
         edited
     );

@@ -78,7 +78,7 @@ fn get_share_patch_json() -> serde_json::Value {
         &EXPECTED_REQUIRED_FIELDS,
         &EXPECTED_MAX_TEAMS,
         &Some(
-            NaiveDateTime::parse_from_str(EXPECTED_REGISTRATION_DEADLINE, "%Y-%m-%dT%H:%M")
+            NaiveDateTime::parse_from_str(EXPECTED_REGISTRATION_DEADLINE, "%Y-%m-%dT%H:%M:00")
                 .unwrap(),
         ),
     )
