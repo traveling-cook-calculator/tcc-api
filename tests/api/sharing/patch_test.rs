@@ -69,7 +69,7 @@ const EXPECTED_NEEDS_LOGIN: bool = false;
 const EXPECTED_DEFAULT_NEEDS_CHECK: bool = false;
 const EXPECTED_REQUIRED_FIELDS: Vec<String> = vec![];
 const EXPECTED_MAX_TEAMS: Option<u32> = Some(5);
-const EXPECTED_REGISTRATION_DEADLINE: &str = "2024-09-29T15:30";
+const EXPECTED_REGISTRATION_DEADLINE: &str = "2024-09-29T15:30:00Z";
 
 fn get_share_patch_json() -> serde_json::Value {
     get_share_create_json(
