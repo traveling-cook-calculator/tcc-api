@@ -160,13 +160,13 @@ fn assert_team_json(
     assert_eq!(name, "TestTeam2", "team name does not match");
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:00Z").is_ok(),
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
         "Created is not a valid NaiveTime: {}",
         created
     );
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:00Z").is_ok(),
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
         "Edited is not a valid NaiveTime: {}",
         edited
     );

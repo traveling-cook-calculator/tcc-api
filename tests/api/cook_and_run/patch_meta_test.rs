@@ -123,7 +123,7 @@ fn assert_cook_and_run_json(
     assert_eq!(name, expected_name, "Cook and Run name does not match");
     assert_eq!(
         occure,
-        expected_time.format("%Y-%m-%dT%H:%M:00Z").to_string(),
+        expected_time.format("%Y-%m-%dT%H:%M").to_string(),
         "Cook and Run occure time does not match"
     );
 }

@@ -15,7 +15,7 @@ mod naive_datetime_minutes {
     use chrono::NaiveDateTime;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    const FORMAT: &str = "%Y-%m-%dT%H:%M:00Z";
+    const FORMAT: &str = "%Y-%m-%dT%H:%M";
 
     pub fn serialize<S>(datetime: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
     where
