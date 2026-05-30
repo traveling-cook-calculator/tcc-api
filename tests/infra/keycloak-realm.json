@@ -84,7 +84,7 @@
             "credentials": [
                 {
                     "type": "password",
-                    "value": "ChangeMe123!",
+                    "value": "${env.TEST_USER_PASSWORD:ChangeMe123!}",
                     "temporary": true
                 }
             ]
@@ -102,7 +102,7 @@
             "credentials": [
                 {
                     "type": "password",
-                    "value": "ChangeMe123!",
+                    "value": "${env.TEST_USER_PASSWORD:ChangeMe123!}",
                     "temporary": true
                 }
             ]
@@ -118,7 +118,7 @@
             "credentials": [
                 {
                     "type": "password",
-                    "value": "ChangeMe123!",
+                    "value": "${env.TEST_USER_PASSWORD:ChangeMe123!}",
                     "temporary": true
                 }
             ]
@@ -136,7 +136,7 @@
             "credentials": [
                 {
                     "type": "password",
-                    "value": "ChangeMe123!",
+                    "value": "${env.TEST_USER_PASSWORD:ChangeMe123!}",
                     "temporary": true
                 }
             ]

@@ -271,6 +271,12 @@ jobs:
         uses: actions/checkout@v4
      
       - name: Start Docker Compose Services
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          KC_ADMIN_USER: ${{ secrets.KC_ADMIN_USER }}
+          KC_ADMIN_PASSWORD: ${{ secrets.KC_ADMIN_PASSWORD }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
         run: docker compose -f tests/infra/docker-compose.yaml up -d --wait  
 
       - name: Download pre-built binaries
