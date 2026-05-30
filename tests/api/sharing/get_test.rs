@@ -25,7 +25,7 @@ fn test_get_share_config() {
             "diets".to_string(),
         ],
         &Some(5),
-        &Some("2015-09-05T23:56"),
+        &Some("2015-09-05T23:56:00Z"),
     );
 }
 
@@ -44,7 +44,7 @@ fn test_get_share_config_list() {
             "diets".to_string(),
         ],
         &Some(5),
-        &Some("2015-09-05T23:56"),
+        &Some("2015-09-05T23:56:00Z"),
     );
 }
 

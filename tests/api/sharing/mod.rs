@@ -42,6 +42,6 @@ pub fn get_share_config(cook_and_run_id: &Uuid, token: &str) {
             "diets".to_string(),
         ],
         &Some(5),
-        &Some("2015-09-05T23:56"),
+        &Some("2015-09-05T23:56:00Z"),
     );
 }
