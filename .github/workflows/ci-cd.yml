@@ -281,6 +281,8 @@ jobs:
 
       - name: Start service
         shell: bash
+        env:
+          DISABLE_RATE_LIMIT: "true"
         run: |
           set -euo pipefail
           chmod +x "artifacts/${BINARY_NAME}"
