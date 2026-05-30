@@ -5,7 +5,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     course::post_test::create_course,
     create_cook_and_run, get_client, get_cook_and_run,
 };
@@ -22,7 +22,7 @@ pub fn setup() -> TestData {
     let data = TEST_DATA.get_or_init(|| {
         let cook_and_run_id = create_cook_and_run();
 
-        let (token, _) = get_auth0_1();
+        let (token, _) = get_user_1();
         let mut course_list = Vec::new();
         for _ in 0..10 {
             let course_id = Uuid::new_v4();
@@ -42,7 +42,7 @@ pub fn setup() -> TestData {
 #[test]
 fn test_get_course() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     for course in test_data.course_list {
         get_course(&test_data.cook_and_run_id, &course, &token);
@@ -52,7 +52,7 @@ fn test_get_course() {
 #[test]
 fn test_get_course_list() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     get_course_list(&test_data.cook_and_run_id, &test_data.course_list, &token);
 }
@@ -68,7 +68,7 @@ fn test_get_course_list_in_cook_and_run() {
 #[test]
 fn test_get_course_not_found() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     let res = execute_get(&test_data.cook_and_run_id, &Uuid::new_v4(), &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
@@ -77,7 +77,7 @@ fn test_get_course_not_found() {
 #[test]
 fn test_get_course_wrong_user() {
     let test_data = setup();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     for course in test_data.course_list {
         let res = execute_get(&test_data.cook_and_run_id, &course, &token);
@@ -88,7 +88,7 @@ fn test_get_course_wrong_user() {
 #[test]
 fn test_get_course_list_wrong_user() {
     let test_data = setup();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     get_course_list(&test_data.cook_and_run_id, &[], &token);
 }

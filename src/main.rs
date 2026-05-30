@@ -29,9 +29,12 @@ use tracing::{debug, error, info, warn, Span};
 
 use crate::{db::Database, rest::auth::AuthState};
 
-const DEFAULT_DATABASE_URL: &str = "postgresql://postgres:mysecretpassword@localhost:5432/postgres";
+const DEFAULT_DATABASE_URL: &str = "postgresql://postgres:password123@localhost:5432/tcc_db";
 const DEFAULT_ADDR: &str = "0.0.0.0:3000";
 const DEFAULT_ALLOW_ORIGIN: &str = "http://localhost:8080";
+const DEFAULT_AUTH_DOMAIN: &str = "http://localhost:8081";
+const DEFAULT_AUTH_REALM: &str = "tcc-realm";
+const DEFAULT_AUTH_AUDIENCE: &str = "http://localhost:3000/api";
 
 /// Maximum accepted request body size (1 MiB). Larger payloads are rejected
 /// with 413 before the body is read, preventing memory-exhaustion attacks.
@@ -58,7 +61,7 @@ struct AppState {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
     info!("Loading environment variables...");
 
@@ -66,36 +69,52 @@ async fn main() {
         warn!(
             operation = "Loading environment variable",
             variable = "DATABASE_URL",
+            default = DEFAULT_DATABASE_URL,
             "DATABASE_URL not set. Using built-in default. \
              Set this variable before exposing the service to the internet."
         );
         DEFAULT_DATABASE_URL.to_string()
     });
 
-    let auth0_domain = std::env::var("AUTH0_DOMAIN").unwrap_or_else(|_| {
-        error!(
+    let auth_domain = std::env::var("AUTH_DOMAIN").unwrap_or_else(|_| {
+        warn!(
             operation = "Loading environment variable",
-            variable = "AUTH0_DOMAIN",
-            "AUTH0_DOMAIN must be set"
+            variable = "AUTH_DOMAIN",
+            default = DEFAULT_AUTH_DOMAIN,
+            "AUTH_DOMAIN not set. Using built-in default. \
+             Set this variable before exposing the service to the internet."
         );
-        panic!("Missing required environment variable: AUTH0_DOMAIN");
+        DEFAULT_AUTH_DOMAIN.to_string()
     });
 
-    let auth0_audience = std::env::var("AUTH0_AUDIENCE").unwrap_or_else(|_| {
-        error!(
+    let auth_realm = std::env::var("AUTH_REALM").unwrap_or_else(|_| {
+        warn!(
             operation = "Loading environment variable",
-            variable = "AUTH0_AUDIENCE",
-            "AUTH0_AUDIENCE must be set"
+            variable = "AUTH_REALM",
+            default = DEFAULT_AUTH_REALM,
+            "AUTH_REALM not set. Using built-in default. \
+             Set this variable before exposing the service to the internet."
         );
-        panic!("Missing required environment variable: AUTH0_AUDIENCE");
+        DEFAULT_AUTH_REALM.to_string()
+    });
+
+    let auth_audience = std::env::var("AUTH_AUDIENCE").unwrap_or_else(|_| {
+        warn!(
+            operation = "Loading environment variable",
+            variable = "AUTH_AUDIENCE",
+            default = DEFAULT_AUTH_AUDIENCE,
+            "AUTH_AUDIENCE not set. Using built-in default. \
+            Set this variable before exposing the service to the internet."
+        );
+        DEFAULT_AUTH_AUDIENCE.to_string()
     });
 
     let addr = std::env::var("ADDR").unwrap_or_else(|_| {
         info!(
             operation = "Loading environment variable",
             variable = "ADDR",
-            "ADDR not set. Defaulting to '{}'.",
-            DEFAULT_ADDR
+            default = DEFAULT_ADDR,
+            "ADDR not set. Using built-in default.",
         );
         DEFAULT_ADDR.to_string()
     });
@@ -127,7 +146,6 @@ async fn main() {
     }
 
     let (rate_per_second, burst) = if std::env::var("DISABLE_RATE_LIMIT").is_ok() {
-        info!("Rate limiting disabled (DISABLE_RATE_LIMIT is set).");
         warn!(
             operation = "Loading environment variable",
             variable = "DISABLE_RATE_LIMIT",
@@ -141,7 +159,7 @@ async fn main() {
     info!("Starting server...");
 
     debug!("Initializing AuthState...");
-    let auth = match AuthState::new(&auth0_domain, &auth0_audience).await {
+    let auth = match AuthState::new(&auth_domain, &auth_realm, &auth_audience).await {
         Ok(a) => a,
         Err(e) => {
             error!(operation = "Initialize AuthState", "Failed: {}", e);

@@ -6,7 +6,7 @@ use serde_json::Number;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     create_cook_and_run, get_client, get_cook_and_run,
     team::post_test::create_team,
 };
@@ -23,7 +23,7 @@ pub fn setup() -> TestData {
     let data = TEST_DATA.get_or_init(|| {
         let cook_and_run_id = create_cook_and_run();
 
-        let (token, user_id) = get_auth0_1();
+        let (token, user_id) = get_user_1();
         let mut team_list = Vec::new();
         for _ in 0..10 {
             let team_id = Uuid::new_v4();
@@ -43,7 +43,7 @@ pub fn setup() -> TestData {
 #[test]
 fn test_get_team() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     for team in test_data.team_list {
         get_team(&test_data.cook_and_run_id, &team.0, &team.1, &token);
@@ -53,7 +53,7 @@ fn test_get_team() {
 #[test]
 fn test_get_team_list() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     get_team_list(&test_data.cook_and_run_id, &test_data.team_list, &token);
 }
@@ -69,7 +69,7 @@ fn test_get_team_list_in_cook_and_run() {
 #[test]
 fn test_get_team_not_found() {
     let test_data = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     let res = execute_get(&test_data.cook_and_run_id, &Uuid::new_v4(), &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
@@ -78,7 +78,7 @@ fn test_get_team_not_found() {
 #[test]
 fn test_get_team_wrong_user() {
     let test_data = setup();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     for team in test_data.team_list {
         let res = execute_get(&test_data.cook_and_run_id, &team.0, &token);
@@ -89,7 +89,7 @@ fn test_get_team_wrong_user() {
 #[test]
 fn test_get_team_list_wrong_user() {
     let test_data = setup();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     get_team_list(&test_data.cook_and_run_id, &[], &token);
 }

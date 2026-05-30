@@ -4,7 +4,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     cook_and_run::{
         get_test::{execute_get, get_cook_and_run},
         post_test::{create_cook_and_run, get_cook_and_run_create_json},
@@ -14,7 +14,7 @@ use crate::{
 
 #[test]
 fn test_patch_meta_cook_and_run() {
-    let (token, user_id) = get_auth0_1();
+    let (token, user_id) = get_user_1();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload, &token);
     patch_meta_cook_and_run(
@@ -27,7 +27,7 @@ fn test_patch_meta_cook_and_run() {
 
 #[test]
 fn test_patch_patched_meta_cook_and_run() {
-    let (token, user_id) = get_auth0_1();
+    let (token, user_id) = get_user_1();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload, &token);
     patch_meta_cook_and_run(
@@ -46,8 +46,8 @@ fn test_patch_patched_meta_cook_and_run() {
 
 #[test]
 fn test_patch_cook_and_run_wrong_user() {
-    let (token_1, user_id) = get_auth0_1();
-    let (token_2, _) = get_auth0_2();
+    let (token_1, user_id) = get_user_1();
+    let (token_2, _) = get_user_2();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload, &token_1);
 

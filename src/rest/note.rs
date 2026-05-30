@@ -13,7 +13,7 @@ use crate::{
     error::AppError,
     note::{self},
     rest::{
-        auth::{require_permission, Claims, DELETE_PERMISSION, READ_PERMISSION, UPDATE_PERMISSION},
+        auth::{require_permission, Claims, USER_ROLE},
         models::{Note, NoteCreateData, PaginationInfo},
         validated_json::ValidatedJson,
     },
@@ -52,28 +52,28 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run/{cook_and_run_id}/team/{team_id}/notes",
             get(get_team_notes).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/team/{team_id}/note/{note_id}",
             get(get_note).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/team/{team_id}/note/{note_id}",
             post(create_team_note).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/team/{team_id}/note/{note_id}",
             delete(delete_team_note).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(DELETE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
 }

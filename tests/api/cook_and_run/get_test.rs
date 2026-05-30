@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     cook_and_run::post_test::{create_cook_and_run, get_cook_and_run_create_json},
     get_client,
 };
@@ -20,8 +20,8 @@ pub struct TestData {
 
 pub fn setup() -> TestData {
     let data = TEST_DATA.get_or_init(|| {
-        let creater_user = get_auth0_1;
-        let second_user = get_auth0_2;
+        let creater_user = get_user_1;
+        let second_user = get_user_2;
         let mut cook_and_run_id_list = Vec::new();
         {
             let (token, user_id) = (creater_user)();
@@ -63,7 +63,7 @@ fn test_get_cook_and_run() {
 
 #[test]
 fn test_get_cook_and_run_not_found() {
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     let cook_and_run_id = Uuid::new_v4();
     let res = execute_get(&cook_and_run_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
@@ -80,7 +80,7 @@ fn test_get_cook_and_run_meta() {
 
 #[test]
 fn test_get_cook_and_run_meta_not_found() {
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     let cook_and_run_id = Uuid::new_v4();
     let res = execute_get_meta(&cook_and_run_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);

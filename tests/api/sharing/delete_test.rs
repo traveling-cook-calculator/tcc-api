@@ -2,7 +2,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     get_client,
     sharing::{get_share_config, get_test::execute_get, setup},
 };
@@ -11,7 +11,7 @@ use crate::{
 fn test_delete_share_config() {
     let cook_and_run_id = setup();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     delete_share_config(&cook_and_run_id, &token);
     let res = execute_get(&cook_and_run_id, &token);
@@ -22,7 +22,7 @@ fn test_delete_share_config() {
 fn test_delete_deleted_share_config() {
     let cook_and_run_id = setup();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     delete_share_config(&cook_and_run_id, &token); // First deletion
     let res = execute_delete(&cook_and_run_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
@@ -32,12 +32,12 @@ fn test_delete_deleted_share_config() {
 fn test_delete_share_config_wrong_user() {
     let cook_and_run_id = setup();
 
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     let res = execute_delete(&cook_and_run_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     get_share_config(&cook_and_run_id, &token);
 }
 

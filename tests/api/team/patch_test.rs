@@ -4,7 +4,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     get_client,
     team::{get_test::execute_get, setup},
 };
@@ -12,7 +12,7 @@ use crate::{
 #[test]
 fn test_patch_team() {
     let (cook_and_run_id, team_id) = setup();
-    let (token, user_id) = get_auth0_1();
+    let (token, user_id) = get_user_1();
 
     patch_team(&cook_and_run_id, &team_id, &user_id, &token);
 }
@@ -21,7 +21,7 @@ fn test_patch_team() {
 fn test_patch_patched_team() {
     let (cook_and_run_id, team_id) = setup();
 
-    let (token, user_id) = get_auth0_1();
+    let (token, user_id) = get_user_1();
     patch_team(&cook_and_run_id, &team_id, &user_id, &token); // First deletion
     let res = execute_patch_team(&cook_and_run_id, &team_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::OK, "Response: {:#?}", res);
@@ -31,7 +31,7 @@ fn test_patch_patched_team() {
 fn test_patch_team_wrong_user() {
     let (cook_and_run_id, team_id) = setup();
 
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
     let res = execute_patch_team(&cook_and_run_id, &team_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }

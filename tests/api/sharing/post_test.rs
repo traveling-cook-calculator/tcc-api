@@ -4,7 +4,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     create_cook_and_run, get_client,
 };
 
@@ -12,7 +12,7 @@ use crate::{
 fn test_create_share_config() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     create_share_config(
         &cook_and_run_id,
         &token,
@@ -32,7 +32,7 @@ fn test_create_share_config() {
 #[test]
 fn test_create_created_share_config() {
     let cook_and_run_id = create_cook_and_run();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     create_share_config(
         &cook_and_run_id,
         &token,
@@ -67,7 +67,7 @@ fn test_create_created_share_config() {
 fn test_create_share_config_wrong_user() {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     let payload = get_share_create_json(
         true,

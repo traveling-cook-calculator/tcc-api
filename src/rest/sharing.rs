@@ -14,7 +14,7 @@ use validator::Validate;
 use crate::{
     error::AppError,
     rest::{
-        auth::{require_permission, Claims, READ_PERMISSION, UPDATE_PERMISSION},
+        auth::{require_permission, Claims, USER_ROLE},
         models::{RequiredField, ShareTeamConfig},
         validated_json::ValidatedJson,
     },
@@ -87,28 +87,28 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run/{cook_and_run_id}/share_team_config",
             post(create_share_config).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/share_team_config",
             patch(update_share_config).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/share_team_config",
             get(get_share_config).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/share_team_config",
             delete(delete_share_config).layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )),
         )
 }

@@ -1,0 +1,145 @@
+{
+    "realm": "tcc-realm",
+    "enabled": true,
+    "loginWithEmailAllowed": true,
+    "resetPasswordAllowed": true,
+    "rememberMe": true,
+    "verifyEmail": true,
+    "bruteForceProtected": true,
+    "accessTokenLifespan": 900,
+    "ssoSessionIdleTimeout": 3600,
+    "ssoSessionMaxLifespan": 36000,
+    "offlineSessionIdleTimeout": 2592000,
+    "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1)",
+    "roles": {
+        "realm": [
+            {
+                "name": "user",
+                "description": "Standard User"
+            },
+            {
+                "name": "admin",
+                "description": "Administrator"
+            }
+        ]
+    },
+    "groups": [
+        {
+            "name": "users",
+            "realmRoles": [
+                "user"
+            ]
+        },
+        {
+            "name": "admins",
+            "realmRoles": [
+                "admin"
+            ]
+        }
+    ],
+    "clients": [
+        {
+            "clientId": "tcc-client",
+            "name": "TCC Client",
+            "enabled": true,
+            "publicClient": true,
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": true,
+            "redirectUris": [
+                "http://localhost:8080*"
+            ],
+            "webOrigins": [
+                "http://localhost:8080*"
+            ],
+            "attributes": {
+                "access.token.lifespan": "900",
+                "post.logout.redirect.uris": "http://localhost:8080"
+            },
+            "protocolMappers": [
+                {
+                    "name": "audience-mapper-localhost-3000",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-audience-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "included.custom.audience": "http://localhost:3000/api",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true"
+                    }
+                }
+            ]
+        }
+    ],
+    "users": [
+        {
+            "username": "alice",
+            "enabled": true,
+            "emailVerified": true,
+            "email": "alice@example.com",
+            "firstName": "Alice",
+            "lastName": "User",
+            "groups": [
+                "/users"
+            ],
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "ChangeMe123!",
+                    "temporary": true
+                }
+            ]
+        },
+        {
+            "username": "bob",
+            "enabled": true,
+            "emailVerified": true,
+            "email": "bob@example.com",
+            "firstName": "Bob",
+            "lastName": "User",
+            "groups": [
+                "/users"
+            ],
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "ChangeMe123!",
+                    "temporary": true
+                }
+            ]
+        },
+        {
+            "username": "flop",
+            "enabled": true,
+            "emailVerified": true,
+            "email": "flop@example.com",
+            "firstName": "Flop",
+            "lastName": "User",
+            "groups": [],
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "ChangeMe123!",
+                    "temporary": true
+                }
+            ]
+        },
+        {
+            "username": "admin",
+            "enabled": true,
+            "emailVerified": true,
+            "email": "admin@example.com",
+            "firstName": "System",
+            "lastName": "Administrator",
+            "groups": [
+                "/admins"
+            ],
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "ChangeMe123!",
+                    "temporary": true
+                }
+            ]
+        }
+    ]
+}
