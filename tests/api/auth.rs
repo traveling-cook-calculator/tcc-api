@@ -37,11 +37,9 @@ struct SubClaim {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_USER_1_USERNAME: &str = "alice";
-const DEFAULT_USER_1_PASSWORD: &str = "ChangeMe123!";
 const DEFAULT_USER_2_USERNAME: &str = "bob";
-const DEFAULT_USER_2_PASSWORD: &str = "ChangeMe123!";
 const DEFAULT_USER_NO_PERMISSIONS_USERNAME: &str = "flop";
-const DEFAULT_USER_NO_PERMISSIONS_PASSWORD: &str = "ChangeMe123!";
+const DEFAULT_USER_PASSWORD: &str = "ChangeMe123!";
 const DEFAULT_AUTH_DOMAIN: &str = "http://localhost:8081";
 const DEFAULT_AUTH_REALM: &str = "tcc-realm";
 /// Must match `auth_client_id` in `config.json` — the public frontend client.
@@ -62,8 +60,8 @@ pub fn get_user_1() -> (String, String) {
             dotenv().ok();
             let username = std::env::var("TEST_USER_1_USERNAME")
                 .unwrap_or_else(|_| DEFAULT_USER_1_USERNAME.to_string());
-            let password = std::env::var("TEST_USER_1_PASSWORD")
-                .unwrap_or_else(|_| DEFAULT_USER_1_PASSWORD.to_string());
+            let password = std::env::var("TEST_USER_PASSWORD")
+                .unwrap_or_else(|_| DEFAULT_USER_PASSWORD.to_string());
             get_token(username, password)
         })
         .clone()
@@ -79,8 +77,8 @@ pub fn get_user_2() -> (String, String) {
             dotenv().ok();
             let username = std::env::var("TEST_USER_2_USERNAME")
                 .unwrap_or_else(|_| DEFAULT_USER_2_USERNAME.to_string());
-            let password = std::env::var("TEST_USER_2_PASSWORD")
-                .unwrap_or_else(|_| DEFAULT_USER_2_PASSWORD.to_string());
+            let password = std::env::var("TEST_USER_PASSWORD")
+                .unwrap_or_else(|_| DEFAULT_USER_PASSWORD.to_string());
             get_token(username, password)
         })
         .clone()
@@ -96,8 +94,8 @@ pub fn get_user_no_permissions() -> (String, String) {
             dotenv().ok();
             let username = std::env::var("TEST_USER_NO_PERMISSIONS_USERNAME")
                 .unwrap_or_else(|_| DEFAULT_USER_NO_PERMISSIONS_USERNAME.to_string());
-            let password = std::env::var("TEST_USER_NO_PERMISSIONS_PASSWORD")
-                .unwrap_or_else(|_| DEFAULT_USER_NO_PERMISSIONS_PASSWORD.to_string());
+            let password = std::env::var("TEST_USER_PASSWORD")
+                .unwrap_or_else(|_| DEFAULT_USER_PASSWORD.to_string());
             get_token(username, password)
         })
         .clone()
