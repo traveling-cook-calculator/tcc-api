@@ -214,8 +214,10 @@ fn assert_note_json(json: &serde_json::Value, expected_note_id: &Uuid) {
     );
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
-        "Created is not a valid NaiveTime: {}",
-        created
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:%S.%f").is_ok(),
+        "Created is not a valid NaiveDateTime: {}",
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:%S.%f")
+            .err()
+            .expect("Failed to parse created")
     );
 }
