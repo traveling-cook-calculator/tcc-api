@@ -1,0 +1,26 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended"
+    ],
+    "baseBranches": [
+        "main"
+    ],
+    "timezone": "Europe/Berlin",
+    "schedule": [
+        "on friday"
+    ],
+    "branchPrefix": "feature/renovate/",
+    "commitMessagePrefix": "feature/deps: ",
+    "platformAutomerge": true,
+    "packageRules": [
+        {
+            "matchUpdateTypes": [
+                "minor",
+                "patch",
+                "major"
+            ],
+            "automerge": true
+        }
+    ]
+}
