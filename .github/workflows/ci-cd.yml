@@ -54,7 +54,7 @@ jobs:
   # ============================================================================
   version:
     name: Detect Version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -171,13 +171,16 @@ jobs:
       contents: read
       id-token: write
       attestations: write
+
+    container:
+      image: rust:alpine
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libpq-dev
+          apk update && apk add --no-cache libpq-dev bash build-base cmake perl clang llvm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -189,6 +192,9 @@ jobs:
           key: release
 
       - name: Build release binary
+        env:
+          CC: clang
+          CXX: clang
         run: cargo build --locked --release --all-features --target ${{ env.TARGET }}
 
       - name: Strip debug symbols
@@ -363,7 +369,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [version, test]
     timeout-minutes: 30
     permissions:
@@ -452,7 +458,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [version, test, build-image]
     timeout-minutes: 10
     permissions:
