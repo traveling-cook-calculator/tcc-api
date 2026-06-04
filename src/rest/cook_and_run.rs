@@ -23,7 +23,7 @@ use crate::{
     rest::{
         auth::{
             is_user_authenticated, require_permission, AuthUser, AuthenticatedUser, Claims,
-            CREATE_PERMISSION, DELETE_PERMISSION, READ_PERMISSION, UPDATE_PERMISSION,
+            USER_ROLE,
         },
         models::{CookAndRun, CookAndRunCreateData, CookAndRunMeta, PaginationInfo, Point},
         validated_json::ValidatedJson,
@@ -108,63 +108,63 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
             "/cook_and_run",
             get(list_cook_and_run_projects.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             ))),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}",
             get(get_cook_and_run_project.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )))
             .post(create_cook_and_run_project.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(CREATE_PERMISSION),
+                require_permission(USER_ROLE),
             )))
             .delete(delete_cook_and_run_project.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(DELETE_PERMISSION),
+                require_permission(USER_ROLE),
             ))),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/metadata",
             get(get_cook_and_run_project_meta.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )))
             .patch(patch_cook_and_run_meta.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             ))),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/start_point",
             get(get_start_point.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )))
             .patch(patch_start_point.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )))
             .delete(delete_start_point.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(DELETE_PERMISSION),
+                require_permission(USER_ROLE),
             ))),
         )
         .route(
             "/cook_and_run/{cook_and_run_id}/end_point",
             get(get_end_point.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(READ_PERMISSION),
+                require_permission(USER_ROLE),
             )))
             .patch(patch_end_point.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(UPDATE_PERMISSION),
+                require_permission(USER_ROLE),
             )))
             .delete(delete_end_point.layer(from_fn_with_state(
                 app_state.clone(),
-                require_permission(DELETE_PERMISSION),
+                require_permission(USER_ROLE),
             ))),
         )
 }

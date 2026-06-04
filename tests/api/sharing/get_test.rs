@@ -3,7 +3,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     create_cook_and_run, get_client, get_cook_and_run,
     sharing::setup,
 };
@@ -11,7 +11,7 @@ use crate::{
 #[test]
 fn test_get_share_config() {
     let cook_and_run_id = setup();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     get_share_config(
         &cook_and_run_id,
@@ -51,7 +51,7 @@ fn test_get_share_config_list() {
 #[test]
 fn test_get_share_config_not_found() {
     let cook_and_run_id = create_cook_and_run();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     let res = execute_get(&cook_and_run_id, &token);
     assert_eq!(
@@ -65,7 +65,7 @@ fn test_get_share_config_not_found() {
 #[test]
 fn test_get_share_config_wrong_user() {
     let cook_and_run_id = setup();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     let res = execute_get(&cook_and_run_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);

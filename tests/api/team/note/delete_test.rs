@@ -2,7 +2,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     get_client,
     team::note::{
         get_test::{execute_get, get_note},
@@ -14,7 +14,7 @@ use crate::{
 fn test_delete_note() {
     let (cook_and_run_id, team_id, note_id) = setup();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
 
     delete_note(&cook_and_run_id, &team_id, &note_id, &token);
     let res = execute_get(&cook_and_run_id, &team_id, &note_id, &token);
@@ -25,7 +25,7 @@ fn test_delete_note() {
 fn test_delete_deleted_note() {
     let (cook_and_run_id, team_id, note_id) = setup();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     delete_note(&cook_and_run_id, &team_id, &note_id, &token); // First deletion
     let res = execute_delete(&cook_and_run_id, &team_id, &note_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
@@ -35,12 +35,12 @@ fn test_delete_deleted_note() {
 fn test_delete_note_wrong_user() {
     let (cook_and_run_id, team_id, note_id) = setup();
 
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
 
     let res = execute_delete(&cook_and_run_id, &team_id, &note_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     get_note(&cook_and_run_id, &team_id, &note_id, &token);
 }
 

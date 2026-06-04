@@ -6,12 +6,12 @@ mod post_test;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::{auth::get_auth0_1, create_cook_and_run, sharing::post_test::create_share_config};
+use crate::{auth::get_user_1, create_cook_and_run, sharing::post_test::create_share_config};
 
 pub fn setup() -> Uuid {
     let cook_and_run_id = create_cook_and_run();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     create_share_config(
         &cook_and_run_id,
         &token,

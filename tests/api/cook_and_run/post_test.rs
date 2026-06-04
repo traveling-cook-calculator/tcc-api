@@ -3,20 +3,20 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2, get_user_no_permissions},
     get_client,
 };
 
 #[test]
 fn test_create_cook_and_run() {
-    let (token, user_id) = get_auth0_1();
+    let (token, user_id) = get_user_1();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload, &token);
 }
 
 #[test]
 fn test_create_created_cook_and_run() {
-    let (token, user_id) = get_auth0_1();
+    let (token, user_id) = get_user_1();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload.clone(), &token);
     create_cook_and_run(&cook_and_run_id, payload, &token);
@@ -24,8 +24,8 @@ fn test_create_created_cook_and_run() {
 
 #[test]
 fn test_create_cook_and_run_wrong_user() {
-    let (token, _) = get_auth0_1();
-    let (_, user_id) = get_auth0_2();
+    let (token, _) = get_user_1();
+    let (_, user_id) = get_user_2();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
 
     let res = execute_create(&cook_and_run_id, payload, &token);
@@ -39,7 +39,7 @@ fn test_create_cook_and_run_wrong_user() {
 
 #[test]
 fn test_create_cook_and_run_missing_permission() {
-    let (token, user_id) = get_auth0_2();
+    let (token, user_id) = get_user_no_permissions();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
 
     let res = execute_create(&cook_and_run_id, payload, &token);

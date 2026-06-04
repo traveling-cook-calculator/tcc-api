@@ -3,7 +3,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     create_cook_and_run, get_client,
 };
 
@@ -12,7 +12,7 @@ fn test_create_course() {
     let cook_and_run_id = create_cook_and_run();
     let course_id = Uuid::new_v4();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     create_course(&cook_and_run_id, &course_id, &token);
 }
 
@@ -21,7 +21,7 @@ fn test_create_created_course() {
     let cook_and_run_id = create_cook_and_run();
     let course_id = Uuid::new_v4();
 
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     create_course(&cook_and_run_id, &course_id, &token);
     create_course(&cook_and_run_id, &course_id, &token);
 }
@@ -32,7 +32,7 @@ fn test_create_course_wrong_user() {
     let course_id = Uuid::new_v4();
 
     let payload = get_course_create_json();
-    let (token, _) = get_auth0_2();
+    let (token, _) = get_user_2();
     let res = execute_create(&cook_and_run_id, &course_id, payload, &token);
 
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);

@@ -2,7 +2,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_auth0_1, get_auth0_2},
+    auth::{get_user_1, get_user_2},
     create_cook_and_run, get_client,
     plan::{
         get_test::{execute_get, get_plan},
@@ -13,7 +13,7 @@ use crate::{
 #[test]
 fn test_delete_plan() {
     let cook_and_run_id = create_cook_and_run();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     patch_plan(&cook_and_run_id, &token);
     delete_plan(&cook_and_run_id, &token);
     let res = execute_get(&cook_and_run_id, &token);
@@ -23,7 +23,7 @@ fn test_delete_plan() {
 #[test]
 fn test_delete_deleted_plan() {
     let cook_and_run_id = create_cook_and_run();
-    let (token, _) = get_auth0_1();
+    let (token, _) = get_user_1();
     patch_plan(&cook_and_run_id, &token);
     delete_plan(&cook_and_run_id, &token);
     delete_plan(&cook_and_run_id, &token);
@@ -34,9 +34,9 @@ fn test_delete_deleted_plan() {
 #[test]
 fn test_delete_plan_wrong_user() {
     let cook_and_run_id = create_cook_and_run();
-    let (token_1, _) = get_auth0_1();
+    let (token_1, _) = get_user_1();
     patch_plan(&cook_and_run_id, &token_1);
-    let (token_2, _) = get_auth0_2();
+    let (token_2, _) = get_user_2();
     let response = execute_delete(&cook_and_run_id, &token_2);
     assert_eq!(
         response.status(),
