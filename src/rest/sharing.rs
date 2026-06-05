@@ -25,9 +25,9 @@ use crate::{
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateShareConfigRequest {
     #[validate(length(
-        min = 1,
+        min = 0,
         max = 5000,
-        message = "must be between 1 and 5,000 characters"
+        message = "must be between 0 and 5,000 characters"
     ))]
     pub invite_text: String,
     pub needs_login: bool,

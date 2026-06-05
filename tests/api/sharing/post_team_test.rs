@@ -503,7 +503,6 @@ pub fn execute_create(
     } else {
         request
     }
-    .header("x-forwarded-for", "127.0.0.1")
     .send()
     .expect("Failed to send request")
 }

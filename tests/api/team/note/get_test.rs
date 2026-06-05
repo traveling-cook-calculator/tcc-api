@@ -127,7 +127,6 @@ pub fn execute_get(
             base_url, cook_and_run_id, team_id, note_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }
@@ -150,7 +149,6 @@ fn execute_get_list(
             base_url, cook_and_run_id, team_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }
@@ -216,8 +214,9 @@ fn assert_note_json(json: &serde_json::Value, expected_note_id: &Uuid) {
     );
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
-        "Created is not a valid NaiveTime: {}",
-        created
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:%S.%f").is_ok(),
+        "Created is not a valid NaiveDateTime: {}",
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:%S.%f")
+            .expect_err("Failed to parse created")
     );
 }

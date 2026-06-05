@@ -55,7 +55,6 @@ fn execute_delete(
             base_url, cook_and_run_id, team_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }

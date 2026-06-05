@@ -105,7 +105,6 @@ fn execute_delete_start_point(cook_and_run_id: &Uuid, token: &str) -> reqwest::b
             base_url, cook_and_run_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }
@@ -118,7 +117,6 @@ fn execute_delete_end_point(cook_and_run_id: &Uuid, token: &str) -> reqwest::blo
             base_url, cook_and_run_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }

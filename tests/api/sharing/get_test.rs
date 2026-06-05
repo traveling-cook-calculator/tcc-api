@@ -25,7 +25,7 @@ fn test_get_share_config() {
             "diets".to_string(),
         ],
         &Some(5),
-        &Some("2015-09-05T23:56"),
+        &Some("2015-09-05T23:56:00"),
     );
 }
 
@@ -44,7 +44,7 @@ fn test_get_share_config_list() {
             "diets".to_string(),
         ],
         &Some(5),
-        &Some("2015-09-05T23:56"),
+        &Some("2015-09-05T23:56:00"),
     );
 }
 
@@ -79,7 +79,6 @@ pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Re
             base_url, cook_and_run_id
         ))
         .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request")
 }
@@ -175,14 +174,14 @@ pub fn assert_share_config_json(
     assert_eq!(invite_text, "Join our amazing Cook & Run event! Register your share_config and get ready for a culinary adventure.", "share_config invite text does not match");
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
+        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M:%S%.6f").is_ok(),
         "Created is not a valid NaiveTime: {}",
         created
     );
 
     if let Some(registration_deadline) = registration_deadline {
         assert!(
-            NaiveDateTime::parse_from_str(registration_deadline, "%Y-%m-%dT%H:%M").is_ok(),
+            NaiveDateTime::parse_from_str(registration_deadline, "%Y-%m-%dT%H:%M:%S%.6f").is_ok(),
             "Edited is not a valid NaiveTime: {}",
             registration_deadline
         );
