@@ -3,7 +3,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::NaiveDateTime;
+
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde_json::json;
 use thiserror::Error;
@@ -46,7 +47,7 @@ pub enum AppError {
     TeamNotFound(Uuid, String, Uuid),
 
     #[error("Registration deadline for project {1} exceeded: {0}")]
-    DeadlineExceeded(NaiveDateTime, Uuid),
+    DeadlineExceeded(DateTime<Utc>, Uuid),
 
     #[error("User needs to be logged in to create a team in project {0}")]
     NeedLoginToCreateTeam(Uuid),
@@ -73,10 +74,7 @@ pub enum AppError {
     SerializationError(#[from] serde_json::Error),
 
     #[error(transparent)]
-    DatabaseInitError(#[from] r2d2::Error),
-
-    #[error(transparent)]
-    DatabaseError(#[from] diesel::result::Error),
+    DatabaseError(#[from] sqlx::Error),
 
     #[error("An unexpected internal error occurred: {0}")]
     InternalError(anyhow::Error),
@@ -90,9 +88,6 @@ impl AppError {
             }
             AppError::DatabaseError(error) => {
                 tracing::error!(error = %error, "A database error occurred");
-            }
-            AppError::DatabaseInitError(error) => {
-                tracing::error!(error = %error, "A database initialization error occurred");
             }
             AppError::InternalError(error) => {
                 tracing::error!(error = %error, "An internal error occurred");
@@ -180,7 +175,6 @@ impl IntoResponse for AppError {
             | AppError::NoteNotFound(_, _, _, _)
             | AppError::SharingConfigNotFound(_, _) => StatusCode::NOT_FOUND,
             AppError::DatabaseError(_)
-            | AppError::DatabaseInitError(_)
             | AppError::InternalError(_)
             | AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Unauthorized(_, _) | AppError::AuthorizationError(_) => {

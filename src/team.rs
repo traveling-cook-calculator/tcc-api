@@ -1,5 +1,5 @@
-use chrono::NaiveDateTime;
-use diesel::result::DatabaseErrorKind;
+
+use chrono::{DateTime, Utc};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -18,8 +18,8 @@ pub struct Team {
     pub cook_and_run_id: Uuid,
     pub created_by_user: Option<String>,
     pub name: String,
-    pub created: NaiveDateTime,
-    pub edited: NaiveDateTime,
+    pub created: DateTime<Utc>,
+    pub edited: DateTime<Utc>,
     pub address: Address,
     pub mail: Option<String>,
     pub phone: Option<String>,
@@ -66,67 +66,73 @@ impl Team {
     }
 }
 
-pub(crate) fn get_list(
-    db: &mut Database,
+pub(crate) async fn get_list(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<Vec<Team>, AppError> {
-    let team_list = db
-        .select_all_team(cook_and_run_id, user_id)?
-        .into_iter()
-        .map(|team_address| {
-            let note_list = get_list_by_team_id(db, &team_address.0.id)?;
-            Ok(Team::from(team_address.0, team_address.1, note_list))
-        })
-        .collect::<Result<Vec<_>, AppError>>()?;
+    let teams = db.select_all_team(cook_and_run_id, user_id).await?;
+    let mut team_list = Vec::with_capacity(teams.len());
+    for team_address in teams {
+        let note_list = get_list_by_team_id(db, &team_address.0.id).await?;
+        team_list.push(Team::from(team_address.0, team_address.1, note_list));
+    }
     Ok(team_list)
 }
 
-pub(crate) fn get(
-    db: &mut Database,
+pub(crate) async fn get(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     team_id: &Uuid,
 ) -> Result<Team, AppError> {
-    let (team, address) = db.select_team(team_id, cook_and_run_id, user_id)?;
-    Ok(Team::from(team, address, get_list_by_team_id(db, team_id)?))
+    let (team, address) = db.select_team(team_id, cook_and_run_id, user_id).await?;
+    Ok(Team::from(team, address, get_list_by_team_id(db, team_id).await?))
 }
 
-pub(crate) fn delete(
+pub(crate) async fn delete(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     team_id: &Uuid,
 ) -> Result<(), AppError> {
-    db.delete_team(team_id, cook_and_run_id, user_id)?;
+    db.delete_team(team_id, cook_and_run_id, user_id).await?;
     Ok(())
 }
 
-pub(crate) fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(), AppError> {
-    db.update_team(&data.to(), &data.address.to_db(), user_id)
+pub(crate) async fn update(
+    db: &mut Database,
+    user_id: &str,
+    data: &Team
+) -> Result<(), AppError> {
+    db.update_team(&data.to(), &data.address.to_db(), user_id).await
 }
 
-pub fn create(db: &mut Database, user_id: &Option<String>, data: &Team) -> Result<(), AppError> {
-    match db.select_share_uncheckt(&data.cook_and_run_id) {
-        Ok(share) => check_team_against_share(db, &ShareTeamConfig::from(share), user_id, data)?,
-        Err(AppError::SharingConfigNotFound(_, _)) => {
-            if !(user_id.clone().is_some_and(|user_id| {
-                get_cook_and_run(db, &data.cook_and_run_id, &user_id).is_ok()
-            })) {
-                return Err(AppError::SharingConfigNotFound(
-                    user_id.clone().unwrap_or("NONE".to_string()),
-                    data.cook_and_run_id,
-                ));
-            }
+pub async fn create(
+    db: &mut Database,
+    user_id: &Option<String>,
+    data: &Team
+) -> Result<(), AppError> {
+match db.select_share_uncheckt(&data.cook_and_run_id).await {
+    Ok(share) => check_team_against_share(db, &ShareTeamConfig::from(share), user_id, data).await?,
+    Err(AppError::SharingConfigNotFound(_, _)) => {
+        let is_owner = if let Some(uid) = user_id {
+            get_cook_and_run(db, &data.cook_and_run_id, uid).await.is_ok()
+        } else {
+            false
+        };
+        if !is_owner {
+            return Err(AppError::SharingConfigNotFound(
+                user_id.clone().unwrap_or_else(|| "NONE".to_string()),
+                data.cook_and_run_id.clone(),
+            ));
         }
-        Err(e) => return Err(e),
     }
-    match db.create_team(&data.to(), &data.address.to_db()) {
+    Err(e) => return Err(e),
+}
+    match db.create_team(&data.to(), &data.address.to_db()) .await{
         Ok(_) => Ok(()),
-        Err(AppError::DatabaseError(diesel::result::Error::DatabaseError(
-            DatabaseErrorKind::UniqueViolation,
-            _,
-        ))) => {
+        Err(AppError::DatabaseError(sqlx::Error::Database(db_err))) if db_err.is_unique_violation()=> {
             warn!(
                 project_id = %data.cook_and_run_id,
                 "Could not create team in database due to unique violation"
@@ -137,17 +143,22 @@ pub fn create(db: &mut Database, user_id: &Option<String>, data: &Team) -> Resul
     }
 }
 
-fn check_team_against_share(
+async fn check_team_against_share(
     db: &mut Database,
     share: &ShareTeamConfig,
     user_id: &Option<String>,
     data: &Team,
 ) -> Result<(), AppError> {
     debug!(share = ?share, "Checking team against share config");
-    if user_id
-        .clone()
-        .is_some_and(|user_id| get_cook_and_run(db, &data.cook_and_run_id, &user_id).is_ok())
-    {
+
+    
+    let is_owner = if let Some(uid) = user_id {
+        get_cook_and_run(db, &data.cook_and_run_id, uid).await.is_ok()
+    } else {
+        false
+    };
+
+    if is_owner {
         debug!(user_id = ?user_id, share = ?share, project_id = %data.cook_and_run_id, "User is the owner of the cook and run project, skipping share checks");
         return Ok(());
     }
@@ -156,7 +167,7 @@ fn check_team_against_share(
 
     let deadline = share.registration_deadline;
     if let Some(deadline) = deadline {
-        if deadline < chrono::Utc::now().naive_utc() {
+        if deadline < chrono::Utc::now() {
             return Err(AppError::DeadlineExceeded(deadline, data.cook_and_run_id));
         }
     }
@@ -166,7 +177,7 @@ fn check_team_against_share(
     }
 
     if let Some(max_team_size) = share.max_teams {
-        let team_size = db.count_teams(&data.cook_and_run_id)?;
+        let team_size = db.count_teams(&data.cook_and_run_id).await?;
         if team_size >= max_team_size as i64 {
             return Err(AppError::MaxTeamSizeExceeded(
                 max_team_size,

@@ -33,6 +33,6 @@ impl Address {
     }
 }
 
-pub fn get_by_id(db: &mut Database, address_id: &Uuid) -> Result<Address, AppError> {
-    db.select_address(address_id).map(Address::from)
+pub async fn get_by_id(db: &Database, address_id: &Uuid) -> Result<Address, AppError> {
+    db.select_address(address_id).await.map(Address::from)
 }

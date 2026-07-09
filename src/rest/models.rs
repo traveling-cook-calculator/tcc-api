@@ -3,82 +3,13 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, Utc};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 use validator::Validate;
-
-mod naive_datetime_minutes {
-    use chrono::NaiveDateTime;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    const FORMAT: &str = "%Y-%m-%dT%H:%M";
-
-    pub fn serialize<S>(datetime: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&datetime.format(FORMAT).to_string())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<NaiveDateTime, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
-    }
-
-    pub fn serialize_option<S>(
-        datetime: &Option<NaiveDateTime>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match datetime {
-            Some(dt) => serializer.serialize_str(&dt.format(FORMAT).to_string()),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize_option<'de, D>(deserializer: D) -> Result<Option<NaiveDateTime>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let opt = Option::<String>::deserialize(deserializer)?;
-        match opt {
-            Some(s) => Ok(Some(
-                NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)?,
-            )),
-            None => Ok(None),
-        }
-    }
-
-    pub mod option {
-        use super::*;
-
-        pub fn serialize<S>(
-            datetime: &Option<NaiveDateTime>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            super::serialize_option(datetime, serializer)
-        }
-
-        pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<NaiveDateTime>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            super::deserialize_option(deserializer)
-        }
-    }
-}
 
 use crate::{
     plan::{self},
@@ -190,12 +121,9 @@ pub struct CookAndRunMeta {
     pub id: Uuid,
     pub user_id: String,
     pub name: String,
-    #[serde(with = "naive_datetime_minutes")]
-    pub created: NaiveDateTime,
-    #[serde(with = "naive_datetime_minutes")]
-    pub edited: NaiveDateTime,
-    #[serde(with = "naive_datetime_minutes")]
-    pub occur: NaiveDateTime,
+    pub created: DateTime<Utc>,
+    pub edited: DateTime<Utc>,
+    pub occur: DateTime<Utc>,
 }
 
 impl CookAndRunMeta {
@@ -231,7 +159,7 @@ impl CookAndRunCreateData {
     pub fn to_cook_and_run_create<'a>(
         &'a self,
         cook_and_run_id: &'a Uuid,
-        time: &'a NaiveDateTime,
+        time: &'a DateTime<Utc>,
     ) -> crate::cook_and_run::CookAndRunCreate<'a> {
         crate::cook_and_run::CookAndRunCreate {
             id: cook_and_run_id,
@@ -255,12 +183,9 @@ pub struct CookAndRun {
     pub id: Uuid,
     pub user_id: String,
     pub name: String,
-    #[serde(with = "naive_datetime_minutes")]
-    pub created: NaiveDateTime,
-    #[serde(with = "naive_datetime_minutes")]
-    pub edited: NaiveDateTime,
-    #[serde(with = "naive_datetime_minutes")]
-    pub occur: NaiveDateTime,
+    pub created: DateTime<Utc>,
+    pub edited: DateTime<Utc>,
+    pub occur: DateTime<Utc>,
     pub team_list: Vec<Team>,
     pub course_list: Vec<Course>,
     pub start_point: Option<Point>,
@@ -399,7 +324,7 @@ impl TeamCreateData {
         &self,
         cook_and_run_id: &Uuid,
         team_id: &Uuid,
-        time: &NaiveDateTime,
+        time: &DateTime<Utc>,
     ) -> crate::team::Team {
         let address = self.address.to();
         crate::team::Team {
@@ -425,7 +350,7 @@ impl TeamCreateData {
         cook_and_run_id: &Uuid,
         team_id: &Uuid,
         created_by_user: &str,
-        time: &NaiveDateTime,
+        time: &DateTime<Utc>,
     ) -> crate::team::Team {
         let address = self.address.to();
         crate::team::Team {
@@ -479,7 +404,7 @@ impl TeamUpdateData {
         cook_and_run_id: &Uuid,
         team_id: &Uuid,
         created_by_user: &str,
-        time: &NaiveDateTime,
+        time: &DateTime<Utc>,
     ) -> crate::team::Team {
         let address = self.address.to();
         crate::team::Team {
@@ -511,10 +436,8 @@ pub struct Team {
     pub diets: Option<String>,
     pub note_list: Vec<Note>,
     pub created_by_user: Option<String>,
-    #[serde(with = "naive_datetime_minutes")]
-    pub created: NaiveDateTime,
-    #[serde(with = "naive_datetime_minutes")]
-    pub edited: NaiveDateTime,
+    pub created: DateTime<Utc>,
+    pub edited: DateTime<Utc>,
     pub needs_check: bool,
 }
 
@@ -557,7 +480,7 @@ pub struct NoteCreateData {
 }
 
 impl NoteCreateData {
-    pub(crate) fn to(&self, note_id: &Uuid, time: NaiveDateTime) -> crate::note::Note {
+    pub(crate) fn to(&self, note_id: &Uuid, time: DateTime<Utc>) -> crate::note::Note {
         crate::note::Note {
             id: *note_id,
             headline: self.headline.clone(),
@@ -572,8 +495,7 @@ pub struct Note {
     pub id: Uuid,
     pub headline: String,
     pub content: String,
-    #[serde(with = "naive_datetime_minutes")]
-    pub created: NaiveDateTime,
+    pub created: DateTime<Utc>,
 }
 
 impl Note {
@@ -602,10 +524,8 @@ pub struct ShareTeamConfig {
     pub default_needs_check: bool,
     pub required_fields: Vec<RequiredField>,
     pub max_teams: Option<u32>,
-    #[serde(with = "naive_datetime_minutes::option")]
-    pub registration_deadline: Option<NaiveDateTime>,
-    #[serde(with = "naive_datetime_minutes")]
-    pub created: NaiveDateTime,
+    pub registration_deadline: Option<DateTime<Utc>>,
+    pub created: DateTime<Utc>,
 }
 
 impl IntoResponse for ShareTeamConfig {

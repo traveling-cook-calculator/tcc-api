@@ -67,10 +67,10 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 #[tracing::instrument(skip(claims, state))]
 async fn get_plan(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<Plan, AppError> {
-    let result = plan::get_by_id(&mut state.db, &cook_and_run_id, &claims.sub)?;
+    let result = plan::get_by_id(&state.db, &cook_and_run_id, &claims.sub).await?;
     Ok(Plan::from(result))
 }
 
@@ -82,7 +82,7 @@ async fn update_plan(
     Path(cook_and_run_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<Plan>,
 ) -> Result<(), AppError> {
-    plan::create_or_update(&mut state.db, payload.to(), &cook_and_run_id, &claims.sub)
+    plan::create_or_update(&mut state.db, payload.to(), &cook_and_run_id, &claims.sub).await
 }
 
 /// Delete plan for cook and run project
@@ -92,7 +92,7 @@ async fn delete_plan(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    plan::delete(&mut state.db, &cook_and_run_id, &claims.sub)
+    plan::delete(&mut state.db, &cook_and_run_id, &claims.sub).await
 }
 
 /// Get plan config
@@ -102,7 +102,7 @@ async fn get_plan_config(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<PlanConfig, AppError> {
-    let result = plan::get_config_by_id(&mut state.db, &cook_and_run_id, &claims.sub)?;
+    let result = plan::get_config_by_id(&mut state.db, &cook_and_run_id, &claims.sub).await?;
     Ok(PlanConfig::from(result))
 }
 
@@ -114,7 +114,7 @@ async fn update_plan_config(
     Path(cook_and_run_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<PlanConfig>,
 ) -> Result<(), AppError> {
-    plan::create_or_update_config(&mut state.db, payload.to(), &cook_and_run_id, &claims.sub)
+    plan::create_or_update_config(&mut state.db, payload.to(), &cook_and_run_id, &claims.sub).await
 }
 
 /// Delete plan config for cook and run project
@@ -124,5 +124,5 @@ async fn delete_plan_config(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    plan::delete_config(&mut state.db, &cook_and_run_id, &claims.sub)
+    plan::delete_config(&mut state.db, &cook_and_run_id, &claims.sub).await
 }

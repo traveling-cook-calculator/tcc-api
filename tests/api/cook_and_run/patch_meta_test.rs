@@ -1,4 +1,4 @@
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
@@ -21,7 +21,7 @@ fn test_patch_meta_cook_and_run() {
         &cook_and_run_id,
         &token,
         "New Name",
-        &Utc::now().naive_utc(),
+        &Utc::now(),
     );
 }
 
@@ -34,13 +34,13 @@ fn test_patch_patched_meta_cook_and_run() {
         &cook_and_run_id,
         &token,
         "New Name",
-        &Utc::now().naive_utc(),
+        &Utc::now(),
     );
     patch_meta_cook_and_run(
         &cook_and_run_id,
         &token,
         "New Name",
-        &Utc::now().naive_utc(),
+        &Utc::now(),
     );
 }
 
@@ -55,7 +55,7 @@ fn test_patch_cook_and_run_wrong_user() {
         &cook_and_run_id,
         &token_2,
         "New Name",
-        &Utc::now().naive_utc(),
+        &Utc::now(),
     );
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
@@ -66,10 +66,11 @@ fn execute_patch_meta(
     cook_and_run_id: &Uuid,
     token: &str,
     new_name: &str,
-    new_time: &NaiveDateTime,
+    new_time: &DateTime<Utc>,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     let payload = json!({ "name": new_name , "occur":new_time});
+    println!("Payload: {}", payload);
     client
         .patch(format!(
             "{}/cook_and_run/{}/metadata",
@@ -86,7 +87,7 @@ pub fn patch_meta_cook_and_run(
     cook_and_run_id: &Uuid,
     token: &str,
     new_name: &str,
-    new_time: &NaiveDateTime,
+    new_time: &DateTime<Utc>,
 ) {
     let res = execute_patch_meta(cook_and_run_id, token, new_name, new_time);
     assert!(res.status().is_success(), "Response: {:#?}", res);
@@ -104,7 +105,7 @@ fn assert_cook_and_run_json(
     json: serde_json::Value,
     cook_and_run_id: &Uuid,
     expected_name: &str,
-    expected_time: &NaiveDateTime,
+    expected_time: &DateTime<Utc>,
 ) {
     let id = json.get("id").and_then(|v| v.as_str()).expect("Missing id");
     let name = json
@@ -122,9 +123,6 @@ fn assert_cook_and_run_json(
         "Cook and Run ID does not match"
     );
     assert_eq!(name, expected_name, "Cook and Run name does not match");
-    assert_eq!(
-        occure,
-        expected_time.format("%Y-%m-%dT%H:%M").to_string(),
-        "Cook and Run occure time does not match"
-    );
+    let parsed_time = occure.parse::<DateTime<Utc>>().expect("Failed to parse occur time");
+    assert_eq!(parsed_time.timestamp(), expected_time.timestamp(), "Cook and Run occure time does not match");
 }

@@ -1,6 +1,6 @@
 use std::sync::{Mutex, OnceLock};
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use uuid::Uuid;
 
@@ -215,9 +215,6 @@ fn assert_note_json(json: &serde_json::Value, expected_note_id: &Uuid) {
         "note content does not match"
     );
 
-    assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
-        "Created is not a valid NaiveTime: {}",
-        created
-    );
+    let parsed_time = created.parse::<DateTime<Utc>>();
+    assert!(parsed_time.is_ok(), "Cook and Run created time does not match");
 }

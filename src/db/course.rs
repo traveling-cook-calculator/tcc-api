@@ -1,96 +1,101 @@
-use diesel::dsl::{delete, insert_into, update};
-
-use diesel::{BoolExpressionMethods, ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper};
 use uuid::Uuid;
 
-use crate::db::models::Course;
-use crate::db::Database;
+use crate::{db::models::Course, error::AppError};
 
-use crate::db::schema::cook_and_run as c_a_r;
-use crate::db::schema::course::{self, has_multiple_hosts, name, time};
-use crate::error::AppError;
-
-impl Database {
+impl super::Database {
     #[tracing::instrument(skip(self, data))]
-    pub fn create_course(&mut self, data: &Course) -> Result<(), AppError> {
-        let conn = &mut self.get_connection()?;
-        let result = insert_into(course::dsl::course).values(data).execute(conn);
+    pub async fn create_course(&self, data: &Course) -> Result<(), AppError> {
+        let result = sqlx::query(
+            "INSERT INTO course (id, cook_and_run_id, name, time, has_multiple_hosts)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(data.id)
+        .bind(data.cook_and_run_id)
+        .bind(&data.name)
+        .bind(&data.time)
+        .bind(data.has_multiple_hosts)
+        .execute(&self.pool)
+        .await;
+
         match result {
             Ok(_) => Ok(()),
-            Err(diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::UniqueViolation,
-                _,
-            )) => Ok(()),
+            // Postgres unique_violation SQLSTATE = "23505"
+            Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
+                Ok(())
+            }
             Err(e) => Err(AppError::DatabaseError(e)),
         }
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn select_all_course(
-        &mut self,
+    pub async fn select_all_course(
+        &self,
         cook_and_run_id_filter: &Uuid,
         user_id_filter: &str,
     ) -> Result<Vec<Course>, AppError> {
-        let conn = &mut self.get_connection()?;
-
-        course::table
-            .inner_join(c_a_r::table)
-            .filter(c_a_r::dsl::id.eq(cook_and_run_id_filter))
-            .filter(c_a_r::user_id.eq(user_id_filter))
-            .order(time.asc())
-            .select(Course::as_select())
-            .load::<Course>(conn)
-            .map_err(AppError::DatabaseError)
+        sqlx::query_as::<_, Course>(
+            "SELECT c.id, c.cook_and_run_id, c.name, c.time, c.has_multiple_hosts
+             FROM course c
+             INNER JOIN cook_and_run car ON car.id = c.cook_and_run_id
+             WHERE car.id = $1 AND car.user_id = $2
+             ORDER BY c.time ASC",
+        )
+        .bind(cook_and_run_id_filter)
+        .bind(user_id_filter)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::DatabaseError)
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn select_course(
-        &mut self,
+    pub async fn select_course(
+        &self,
         id_filter: &Uuid,
         cook_and_run_id_filter: &Uuid,
         user_id_filter: &str,
     ) -> Result<Course, AppError> {
-        let conn = &mut self.get_connection()?;
-        course::table
-            .find(id_filter)
-            .inner_join(c_a_r::table)
-            .filter(c_a_r::id.eq(cook_and_run_id_filter))
-            .filter(c_a_r::user_id.eq(user_id_filter))
-            .select(Course::as_select())
-            .first(conn)
-            .map_err(|e| match e {
-                diesel::result::Error::NotFound => AppError::CourseNotFound(
-                    *id_filter,
-                    user_id_filter.to_string(),
-                    Some(*cook_and_run_id_filter),
-                ),
-                _ => AppError::DatabaseError(e),
-            })
+        sqlx::query_as::<_, Course>(
+            "SELECT c.id, c.cook_and_run_id, c.name, c.time, c.has_multiple_hosts
+             FROM course c
+             INNER JOIN cook_and_run car ON car.id = c.cook_and_run_id
+             WHERE c.id = $1 AND car.id = $2 AND car.user_id = $3",
+        )
+        .bind(id_filter)
+        .bind(cook_and_run_id_filter)
+        .bind(user_id_filter)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => AppError::CourseNotFound(
+                *id_filter,
+                user_id_filter.to_string(),
+                Some(*cook_and_run_id_filter),
+            ),
+            other => AppError::DatabaseError(other),
+        })
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn delete_course(
-        &mut self,
+    pub async fn delete_course(
+        &self,
         id_filter: &Uuid,
         cook_and_run_id_filter: &Uuid,
         user_id_filter: &str,
     ) -> Result<(), AppError> {
-        let conn = &mut self.get_connection()?;
-
-        let affected = delete(
-            course::table.filter(
-                course::id.eq(id_filter).and(
-                    course::cook_and_run_id.eq_any(
-                        c_a_r::table
-                            .filter(c_a_r::id.eq(cook_and_run_id_filter))
-                            .filter(c_a_r::user_id.eq(user_id_filter))
-                            .select(c_a_r::id),
-                    ),
-                ),
-            ),
+        let affected = sqlx::query(
+            "DELETE FROM course
+             WHERE id = $1
+               AND cook_and_run_id IN (
+                   SELECT id FROM cook_and_run WHERE id = $2 AND user_id = $3
+               )",
         )
-        .execute(conn)
-        .map_err(AppError::DatabaseError)?;
+        .bind(id_filter)
+        .bind(cook_and_run_id_filter)
+        .bind(user_id_filter)
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
 
         if affected == 0 {
             return Err(AppError::CourseNotFound(
@@ -103,25 +108,26 @@ impl Database {
     }
 
     #[tracing::instrument(skip(self, data))]
-    pub fn update_course(&mut self, data: &Course, user_id_filter: &str) -> Result<(), AppError> {
-        let conn = &mut self.get_connection()?;
+    pub async fn update_course(&self, data: &Course, user_id_filter: &str) -> Result<(), AppError> {
+        let affected = sqlx::query(
+            "UPDATE course
+             SET name = $1, time = $2, has_multiple_hosts = $3
+             WHERE id = $4
+               AND cook_and_run_id IN (
+                   SELECT id FROM cook_and_run WHERE id = $5 AND user_id = $6
+               )",
+        )
+        .bind(&data.name)
+        .bind(&data.time)
+        .bind(data.has_multiple_hosts)
+        .bind(data.id)
+        .bind(data.cook_and_run_id)
+        .bind(user_id_filter)
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
 
-        let affected = update(course::table.find(data.id))
-            .filter(
-                course::cook_and_run_id.eq_any(
-                    c_a_r::table
-                        .filter(c_a_r::id.eq(data.cook_and_run_id))
-                        .filter(c_a_r::user_id.eq(user_id_filter))
-                        .select(c_a_r::id),
-                ),
-            )
-            .set((
-                name.eq(data.name.clone()),
-                time.eq(data.time.clone()),
-                has_multiple_hosts.eq(data.has_multiple_hosts),
-            ))
-            .execute(conn)
-            .map_err(AppError::DatabaseError)?;
         if affected == 0 {
             return Err(AppError::CourseNotFound(
                 data.id,

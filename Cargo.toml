@@ -11,39 +11,46 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
-time = { version = "0.3", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 dotenvy = "0.15"
 tower-http = { version = "0.6", features = ["cors","trace", "timeout", "limit", "set-header"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio","tls-rustls","postgres","uuid","chrono","json", "migrate", "macros"] }
-include_dir = "0.7"
-diesel = { version = "2.2", features = ["postgres", "uuid", "chrono", "serde_json", "r2d2"] }
-diesel_migrations = { version = "2.2", features = ["postgres"] }
+
+# sqlx statt diesel: reiner Rust-Postgres-Treiber, kein libpq nötig.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "macros",
+    "migrate" 
+] }
+
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
-reqwest = { version ="0.13", features = ["json","blocking", "form"] }
+reqwest = { version = "0.13", features = ["json", "blocking"] }
 once_cell = "1.21"
-validator =  { version = "0.20", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 governor = "0.10.4"
 tower_governor = { version = "0.8", features = ["axum"] }
 tower = "0.5"
 regex = "1.12"
 thiserror = "2.0.18"
 anyhow = "1.0.102"
-r2d2 = "0.8.10"
 
-# OpenTelemetry Integration für Jaeger
-opentelemetry = "0.31" # Aktuelle OTel Core Lib
-opentelemetry-otlp = "0.15" # OTLP Exporter für Jaeger
-tracing-opentelemetry = "0.32" # Verbindet 'tracing' mit 'opentelemetry'
-testcontainers = "0.27.3"
+# OpenTelemetry & Brücken-Crates (Aktuellste Versionen)
+tracing-opentelemetry = "0.33"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry", "fmt"] }
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "trace"] }
 
 
-# Test-Organisation
 [[test]]
 name = "api"
 path = "tests/api/mod.rs"
 
 [dev-dependencies]
 base64 = "0.22.1"
+reqwest = { version = "0.13", features = ["blocking", "form"] }

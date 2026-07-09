@@ -82,7 +82,7 @@ async fn overall_health(State(mut state): State<AppState>) -> impl IntoResponse 
 async fn perform_readiness_checks(state: &mut AppState) -> Vec<HealthCheckResult> {
     let mut checks = Vec::new();
 
-    match state.db.health_check() {
+    match state.db.health_check().await {
         Ok(_) => checks.push(HealthCheckResult::up("database")),
         Err(error) => {
             error.log();

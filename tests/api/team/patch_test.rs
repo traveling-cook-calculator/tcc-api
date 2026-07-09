@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::DateTime;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
@@ -161,13 +161,15 @@ fn assert_team_json(
     assert_eq!(name, "TestTeam2", "team name does not match");
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
+           DateTime::parse_from_rfc3339(&format!("{}", created))
+                .is_ok(),
         "Created is not a valid NaiveTime: {}",
         created
     );
 
     assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
+           DateTime::parse_from_rfc3339(&format!("{}", edited))
+                .is_ok(),
         "Edited is not a valid NaiveTime: {}",
         edited
     );
