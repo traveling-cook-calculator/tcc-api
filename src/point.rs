@@ -34,8 +34,8 @@ impl Point {
     }
 }
 
-pub fn get_by_id(db: &mut Database, point_id: &Uuid) -> Result<Point, AppError> {
-    let point = db.select_point(point_id)?;
-    let address = address::get_by_id(db, &point.address)?;
+pub async fn get_by_id(db: &Database, point_id: Uuid) -> Result<Point, AppError> {
+    let point = db.select_point(point_id).await?;
+    let address = address::get_by_id(db, &point.address).await?;
     Ok(Point::from(point, address))
 }

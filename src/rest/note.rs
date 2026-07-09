@@ -82,15 +82,16 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 #[tracing::instrument(skip(claims, state))]
 async fn get_team_notes(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path((cook_and_run_id, team_id)): Path<(Uuid, Uuid)>,
 ) -> Result<NoteListResponse, AppError> {
     let result = note::get_list_by_cook_and_run_id_and_team_id(
-        &mut state.db,
+        &state.db,
         &cook_and_run_id,
         &team_id,
         &claims.sub,
-    )?
+    )
+    .await?
     .into_iter()
     .map(Note::from)
     .collect();
@@ -107,16 +108,10 @@ async fn get_team_notes(
 #[tracing::instrument(skip(claims, state))]
 async fn get_note(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path((cook_and_run_id, team_id, note_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<Note, AppError> {
-    let result = note::get(
-        &mut state.db,
-        &cook_and_run_id,
-        &team_id,
-        &note_id,
-        &claims.sub,
-    )?;
+    let result = note::get(&state.db, &cook_and_run_id, &team_id, &note_id, &claims.sub).await?;
 
     Ok(Note::from(result))
 }
@@ -129,7 +124,7 @@ async fn create_team_note(
     Path((cook_and_run_id, team_id, note_id)): Path<(Uuid, Uuid, Uuid)>,
     ValidatedJson(payload): ValidatedJson<NoteCreateData>,
 ) -> Result<(), AppError> {
-    let time = chrono::Utc::now().naive_utc();
+    let time = chrono::Utc::now();
     note::create(
         &mut state.db,
         &cook_and_run_id,
@@ -137,6 +132,7 @@ async fn create_team_note(
         &claims.sub,
         &payload.to(&note_id, time),
     )
+    .await
 }
 
 /// Delete note for team
@@ -153,4 +149,5 @@ async fn delete_team_note(
         &note_id,
         &claims.sub,
     )
+    .await
 }

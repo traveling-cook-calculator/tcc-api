@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
@@ -17,9 +17,9 @@ pub struct CookAndRunMeta {
     pub id: Uuid,
     pub user_id: String,
     pub name: String,
-    pub created: NaiveDateTime,
-    pub edited: NaiveDateTime,
-    pub occur: NaiveDateTime,
+    pub created: DateTime<Utc>,
+    pub edited: DateTime<Utc>,
+    pub occur: DateTime<Utc>,
 }
 
 impl CookAndRunMeta {
@@ -46,9 +46,9 @@ pub struct CookAndRunCreate<'a> {
     pub id: &'a Uuid,
     pub user_id: &'a str,
     pub name: &'a str,
-    pub created: &'a NaiveDateTime,
-    pub edited: &'a NaiveDateTime,
-    pub occur: &'a NaiveDateTime,
+    pub created: &'a DateTime<Utc>,
+    pub edited: &'a DateTime<Utc>,
+    pub occur: &'a DateTime<Utc>,
 }
 
 impl<'a> CookAndRunCreate<'a> {
@@ -69,9 +69,9 @@ pub struct CookAndRun {
     pub id: Uuid,
     pub user_id: String,
     pub name: String,
-    pub created: NaiveDateTime,
-    pub edited: NaiveDateTime,
-    pub occur: NaiveDateTime,
+    pub created: DateTime<Utc>,
+    pub edited: DateTime<Utc>,
+    pub occur: DateTime<Utc>,
     pub team_list: Vec<Team>,
     pub course_list: Vec<Course>,
     pub start_point: Option<Point>,
@@ -111,52 +111,65 @@ impl CookAndRun {
     }
 }
 
-pub fn get_list_of_cook_and_run_meta(
-    db: &mut Database,
+pub async fn get_list_of_cook_and_run_meta(
+    db: &Database,
     user_id: &str,
 ) -> Result<Vec<CookAndRunMeta>, AppError> {
     db.select_all_cook_and_run(user_id)
+        .await
         .map(|list| list.into_iter().map(CookAndRunMeta::from).collect())
 }
 
-pub fn get_cook_and_run(
-    db: &mut Database,
+pub async fn get_cook_and_run(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<CookAndRun, AppError> {
-    let cook_and_run = db.select_cook_and_run(cook_and_run_id, user_id)?;
-    let team = team::get_list(db, cook_and_run_id, user_id)?;
-    let course = course::get_list(db, cook_and_run_id, user_id)?;
+    let cook_and_run = db.select_cook_and_run(cook_and_run_id, user_id).await?;
+    let team = team::get_list(db, cook_and_run_id, user_id);
+    let course = course::get_list(db, cook_and_run_id, user_id);
 
-    let start_point = cook_and_run
-        .start_point
-        .map(|a| point::get_by_id(db, &a))
-        .transpose()?;
+    let start_point = cook_and_run.start_point.map(|a| point::get_by_id(db, a));
 
-    let end_point = cook_and_run
-        .end_point
-        .map(|a| point::get_by_id(db, &a))
-        .transpose()?;
+    let end_point = cook_and_run.end_point.map(|a| point::get_by_id(db, a));
 
     let share_team_config = cook_and_run
         .share_team_config
-        .map(|_| sharing::get_by_id(db, cook_and_run_id, user_id))
-        .transpose()?;
+        .map(|_| sharing::get_by_id(db, cook_and_run_id, user_id));
 
     let plan = cook_and_run
         .plan
-        .map(|_| plan::get_by_id(db, cook_and_run_id, user_id))
-        .transpose()?;
+        .map(|_| plan::get_by_id(db, cook_and_run_id, user_id));
 
     let plan_config = cook_and_run
         .plan_config
-        .map(|_| plan::get_config_by_id(db, cook_and_run_id, user_id))
-        .transpose()?;
+        .map(|_| plan::get_config_by_id(db, cook_and_run_id, user_id));
+
+    let start_point = match start_point {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let end_point = match end_point {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let share_team_config = match share_team_config {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let plan = match plan {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let plan_config = match plan_config {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
 
     Ok(CookAndRun::from(
         cook_and_run,
-        team,
-        course,
+        team.await?,
+        course.await?,
         start_point,
         end_point,
         share_team_config,
@@ -165,50 +178,58 @@ pub fn get_cook_and_run(
     ))
 }
 
-pub fn get_cook_and_run_meta(
+pub async fn get_cook_and_run_meta(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<CookAndRunMeta, AppError> {
     db.select_cook_and_run(cook_and_run_id, user_id)
+        .await
         .map(CookAndRunMeta::from)
 }
 
-pub fn create_cook_and_run(
+pub async fn create_cook_and_run(
     db: &mut Database,
-    cook_and_run: CookAndRunCreate,
+    cook_and_run: CookAndRunCreate<'_>,
 ) -> Result<(), AppError> {
-    db.create_cook_and_run(&cook_and_run.to())
+    let _ = cook_and_run;
+    db.create_cook_and_run(&cook_and_run.to()).await
 }
 
-pub fn delete_cook_and_run(
+pub async fn delete_cook_and_run(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_cook_and_run(cook_and_run_id, user_id)
+    db.delete_cook_and_run(cook_and_run_id, user_id).await
 }
 
-pub fn update_cook_and_run_meta(
+pub async fn update_cook_and_run_meta(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     meta: &CookAndRunMeta,
 ) -> Result<(), AppError> {
     db.update_cook_and_run_meta(cook_and_run_id, user_id, &meta.to_db())
+        .await
 }
 
-pub fn get_cook_and_run_start_point(
-    db: &mut Database,
+pub async fn get_cook_and_run_start_point(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<Option<Point>, AppError> {
-    db.select_cook_and_run_start_point_id(cook_and_run_id, user_id)?
-        .map(|point_id| point::get_by_id(db, &point_id))
-        .transpose()
+    let point = match db
+        .select_cook_and_run_start_point_id(cook_and_run_id, user_id)
+        .await?
+    {
+        Some(point_id) => Some(point::get_by_id(db, point_id).await?),
+        None => None,
+    };
+    Ok(point)
 }
 
-pub fn set_cook_and_run_start_point(
+pub async fn set_cook_and_run_start_point(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
@@ -220,20 +241,26 @@ pub fn set_cook_and_run_start_point(
         &point.to_db(),
         &point.address.to_db(),
     )
+    .await
 }
 
-pub fn get_cook_and_run_end_point(
-    db: &mut Database,
+pub async fn get_cook_and_run_end_point(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<Option<Point>, AppError> {
-    db.select_cook_and_run_end_point_id(cook_and_run_id, user_id)?
-        .map(|point_id| point::get_by_id(db, &point_id))
-        .transpose()
+    let point = match db
+        .select_cook_and_run_end_point_id(cook_and_run_id, user_id)
+        .await?
+    {
+        Some(point_id) => Some(point::get_by_id(db, point_id).await?),
+        None => None,
+    };
+    Ok(point)
 }
 
-pub fn set_cook_and_run_end_point(
-    db: &mut Database,
+pub async fn set_cook_and_run_end_point(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     point: &Point,
@@ -244,20 +271,23 @@ pub fn set_cook_and_run_end_point(
         &point.to_db(),
         &point.address.to_db(),
     )
+    .await
 }
 
-pub fn delete_cook_and_run_start_point(
+pub async fn delete_cook_and_run_start_point(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
     db.delete_cook_and_run_start_point(cook_and_run_id, user_id)
+        .await
 }
 
-pub fn delete_cook_and_run_end_point(
+pub async fn delete_cook_and_run_end_point(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
     db.delete_cook_and_run_end_point(cook_and_run_id, user_id)
+        .await
 }

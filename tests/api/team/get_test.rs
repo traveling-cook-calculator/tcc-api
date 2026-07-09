@@ -1,6 +1,6 @@
 use std::sync::{Mutex, OnceLock};
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde_json::Number;
 use uuid::Uuid;
@@ -334,25 +334,23 @@ pub fn assert_team_json(
         assert!(json.get("address").is_none(), "address should be none");
     }
 
-    let created = json
+    let created_str = json
         .get("created")
         .and_then(|v| v.as_str())
         .expect("Missing created");
 
-    let edited = json
+    let edited_str = json
         .get("edited")
         .and_then(|v| v.as_str())
         .expect("Missing edited");
 
-    assert!(
-        NaiveDateTime::parse_from_str(created, "%Y-%m-%dT%H:%M").is_ok(),
-        "Created is not a valid NaiveTime: {}",
-        created
-    );
+    let _created: DateTime<Utc> = created_str.parse().expect(&format!(
+        "Created is not a valid DateTime<Utc>: {}",
+        created_str
+    ));
 
-    assert!(
-        NaiveDateTime::parse_from_str(edited, "%Y-%m-%dT%H:%M").is_ok(),
-        "Edited is not a valid NaiveTime: {}",
-        edited
-    );
+    let _edited: DateTime<Utc> = edited_str.parse().expect(&format!(
+        "Edited is not a valid DateTime<Utc>: {}",
+        edited_str
+    ));
 }

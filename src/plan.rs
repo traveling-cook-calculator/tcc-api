@@ -153,25 +153,25 @@ impl Plan {
     }
 }
 
-pub fn get_by_id(
-    db: &mut Database,
+pub async fn get_by_id(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<Plan, AppError> {
-    let db_plan = db.select_plan(cook_and_run_id, user_id)?;
+    let db_plan = db.select_plan(cook_and_run_id, user_id).await?;
     Ok(Plan::from(db_plan))
 }
 
-pub fn get_config_by_id(
-    db: &mut Database,
+pub async fn get_config_by_id(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<PlanConfig, AppError> {
-    let db_plan_config = db.select_plan_config(cook_and_run_id, user_id)?;
+    let db_plan_config = db.select_plan_config(cook_and_run_id, user_id).await?;
     Ok(PlanConfig::from(db_plan_config))
 }
 
-pub fn create_or_update(
+pub async fn create_or_update(
     db: &mut Database,
     plan: Plan,
     cook_and_run_id: &Uuid,
@@ -179,9 +179,10 @@ pub fn create_or_update(
 ) -> Result<(), AppError> {
     let plan_id = Uuid::new_v4();
     db.create_plan(plan.to_db(plan_id), cook_and_run_id, user_id)
+        .await
 }
 
-pub fn create_or_update_config(
+pub async fn create_or_update_config(
     db: &mut Database,
     plan_config: PlanConfig,
     cook_and_run_id: &Uuid,
@@ -189,16 +190,21 @@ pub fn create_or_update_config(
 ) -> Result<(), AppError> {
     let plan_config_id = Uuid::new_v4();
     db.create_plan_config(plan_config.to_db(plan_config_id), cook_and_run_id, user_id)
+        .await
 }
 
-pub fn delete(db: &mut Database, cook_and_run_id: &Uuid, user_id: &str) -> Result<(), AppError> {
-    db.delete_plan(cook_and_run_id, user_id)
-}
-
-pub fn delete_config(
+pub async fn delete(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_plan_config(cook_and_run_id, user_id)
+    db.delete_plan(cook_and_run_id, user_id).await
+}
+
+pub async fn delete_config(
+    db: &mut Database,
+    cook_and_run_id: &Uuid,
+    user_id: &str,
+) -> Result<(), AppError> {
+    db.delete_plan_config(cook_and_run_id, user_id).await
 }

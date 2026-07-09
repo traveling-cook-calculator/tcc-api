@@ -7,7 +7,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
@@ -84,12 +84,12 @@ impl AuthenticatedUser for CookAndRunListResponse {
 pub struct UpdateMetaRequest {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
     pub name: String,
-    pub occur: NaiveDateTime,
+    pub occur: DateTime<Utc>,
 }
 
 impl UpdateMetaRequest {
     fn to_domain(&self) -> crate::cook_and_run::CookAndRunMeta {
-        let now = chrono::Utc::now().naive_utc();
+        let now = chrono::Utc::now();
         crate::cook_and_run::CookAndRunMeta {
             id: Uuid::nil(),
             user_id: String::new(),
@@ -172,17 +172,17 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 #[tracing::instrument(skip(claims, state))]
 async fn list_cook_and_run_projects(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Query(params): Query<ListCookAndRunQuery>,
 ) -> Result<CookAndRunListResponse, AppError> {
     params.validate()?;
     is_user_authenticated(&params, Some(&claims.sub))?;
 
-    let result: Vec<CookAndRunMeta> =
-        get_list_of_cook_and_run_meta(&mut state.db, &params.user_id)?
-            .iter()
-            .map(CookAndRunMeta::from)
-            .collect();
+    let result: Vec<CookAndRunMeta> = get_list_of_cook_and_run_meta(&state.db, &params.user_id)
+        .await?
+        .iter()
+        .map(CookAndRunMeta::from)
+        .collect();
 
     let len = result.len();
     Ok(CookAndRunListResponse {
@@ -206,11 +206,12 @@ async fn create_cook_and_run_project(
     ValidatedJson(payload): ValidatedJson<CookAndRunCreateData>,
 ) -> Result<(), AppError> {
     is_user_authenticated(&payload, Some(&claims.sub))?;
-    let time = chrono::Utc::now().naive_utc();
+    let time = chrono::Utc::now();
     create_cook_and_run(
         &mut state.db,
         payload.to_cook_and_run_create(&cook_and_run_id, &time),
     )
+    .await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -219,11 +220,9 @@ async fn get_cook_and_run_project(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<CookAndRun, AppError> {
-    Ok(CookAndRun::from(get_cook_and_run(
-        &mut state.db,
-        &cook_and_run_id,
-        &claims.sub,
-    )?))
+    Ok(CookAndRun::from(
+        get_cook_and_run(&mut state.db, &cook_and_run_id, &claims.sub).await?,
+    ))
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -232,11 +231,9 @@ async fn get_cook_and_run_project_meta(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<CookAndRunMeta, AppError> {
-    Ok(CookAndRunMeta::from(&get_cook_and_run_meta(
-        &mut state.db,
-        &cook_and_run_id,
-        &claims.sub,
-    )?))
+    Ok(CookAndRunMeta::from(
+        &get_cook_and_run_meta(&mut state.db, &cook_and_run_id, &claims.sub).await?,
+    ))
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -245,7 +242,7 @@ async fn delete_cook_and_run_project(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    delete_cook_and_run(&mut state.db, &cook_and_run_id, &claims.sub)
+    delete_cook_and_run(&mut state.db, &cook_and_run_id, &claims.sub).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -261,6 +258,7 @@ async fn patch_cook_and_run_meta(
         &claims.sub,
         &payload.to_domain(),
     )
+    .await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -269,7 +267,7 @@ async fn get_start_point(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<Point, AppError> {
-    match get_cook_and_run_start_point(&mut state.db, &cook_and_run_id, &claims.sub)? {
+    match get_cook_and_run_start_point(&mut state.db, &cook_and_run_id, &claims.sub).await? {
         Some(p) => Ok(Point::from(p)),
         None => Err(AppError::StartPointNotFound(cook_and_run_id)),
     }
@@ -282,7 +280,7 @@ async fn patch_start_point(
     Path(cook_and_run_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<Point>,
 ) -> Result<(), AppError> {
-    set_cook_and_run_start_point(&mut state.db, &cook_and_run_id, &claims.sub, &payload.to())
+    set_cook_and_run_start_point(&mut state.db, &cook_and_run_id, &claims.sub, &payload.to()).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -291,7 +289,7 @@ async fn get_end_point(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<Point, AppError> {
-    match get_cook_and_run_end_point(&mut state.db, &cook_and_run_id, &claims.sub)? {
+    match get_cook_and_run_end_point(&mut state.db, &cook_and_run_id, &claims.sub).await? {
         Some(p) => Ok(Point::from(p)),
         None => Err(AppError::EndPointNotFound(cook_and_run_id)),
     }
@@ -304,7 +302,7 @@ async fn patch_end_point(
     Path(cook_and_run_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<Point>,
 ) -> Result<(), AppError> {
-    set_cook_and_run_end_point(&mut state.db, &cook_and_run_id, &claims.sub, &payload.to())
+    set_cook_and_run_end_point(&mut state.db, &cook_and_run_id, &claims.sub, &payload.to()).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -313,7 +311,7 @@ async fn delete_start_point(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    delete_cook_and_run_start_point(&mut state.db, &cook_and_run_id, &claims.sub)
+    delete_cook_and_run_start_point(&mut state.db, &cook_and_run_id, &claims.sub).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -322,5 +320,5 @@ async fn delete_end_point(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    delete_cook_and_run_end_point(&mut state.db, &cook_and_run_id, &claims.sub)
+    delete_cook_and_run_end_point(&mut state.db, &cook_and_run_id, &claims.sub).await
 }

@@ -89,11 +89,12 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 #[tracing::instrument(skip(claims, state))]
 async fn list_courses(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
     Query(_): Query<ListCoursesQuery>,
 ) -> Result<CourseListResponse, AppError> {
-    let result: Vec<Course> = course::get_list(&mut state.db, &cook_and_run_id, &claims.sub)?
+    let result: Vec<Course> = course::get_list(&state.db, &cook_and_run_id, &claims.sub)
+        .await?
         .into_iter()
         .map(Course::from)
         .collect();
@@ -118,16 +119,17 @@ async fn create_course(
         &claims.sub,
         &payload.to(&cook_and_run_id, &course_id),
     )
+    .await
 }
 
 /// Get course details
 #[tracing::instrument(skip(claims, state))]
 async fn get_course(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path((cook_and_run_id, course_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Course, AppError> {
-    let result = course::get(&mut state.db, &cook_and_run_id, &claims.sub, &course_id)?;
+    let result = course::get(&state.db, &cook_and_run_id, &claims.sub, &course_id).await?;
     Ok(Course::from(result))
 }
 
@@ -144,6 +146,7 @@ async fn update_course(
         &claims.sub,
         &payload.to(&cook_and_run_id, &course_id),
     )
+    .await
 }
 
 /// Delete course for cook and run project
@@ -153,5 +156,5 @@ async fn delete_course(
     State(mut state): State<AppState>,
     Path((cook_and_run_id, course_id)): Path<(Uuid, Uuid)>,
 ) -> Result<(), AppError> {
-    course::delete(&mut state.db, &cook_and_run_id, &claims.sub, &course_id)
+    course::delete(&mut state.db, &cook_and_run_id, &claims.sub, &course_id).await
 }

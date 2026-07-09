@@ -36,44 +36,52 @@ impl Course {
     }
 }
 
-pub(crate) fn get_list(
-    db: &mut Database,
+pub(crate) async fn get_list(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<Vec<Course>, AppError> {
     let course_list = db
-        .select_all_course(cook_and_run_id, user_id)?
+        .select_all_course(cook_and_run_id, user_id)
+        .await?
         .into_iter()
         .map(Course::from)
         .collect();
     Ok(course_list)
 }
 
-pub(crate) fn get(
-    db: &mut Database,
+pub(crate) async fn get(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     course_id: &Uuid,
 ) -> Result<Course, AppError> {
-    let course = db.select_course(course_id, cook_and_run_id, user_id)?;
+    let course = db
+        .select_course(course_id, cook_and_run_id, user_id)
+        .await?;
     Ok(Course::from(course))
 }
 
-pub(crate) fn delete(
+pub(crate) async fn delete(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     course_id: &Uuid,
 ) -> Result<(), AppError> {
-    db.delete_course(course_id, cook_and_run_id, user_id)?;
+    db.delete_course(course_id, cook_and_run_id, user_id)
+        .await?;
     Ok(())
 }
 
-pub(crate) fn update(db: &mut Database, user_id: &str, data: &Course) -> Result<(), AppError> {
-    db.update_course(&data.to(), user_id)
+pub(crate) async fn update(
+    db: &mut Database,
+    user_id: &str,
+    data: &Course,
+) -> Result<(), AppError> {
+    db.update_course(&data.to(), user_id).await
 }
 
-pub fn create(db: &mut Database, user_id: &str, data: &Course) -> Result<(), AppError> {
-    let _ = get_cook_and_run(db, &data.cook_and_run_id, user_id)?;
-    db.create_course(&data.to())
+pub async fn create(db: &mut Database, user_id: &str, data: &Course) -> Result<(), AppError> {
+    let _ = get_cook_and_run(db, &data.cook_and_run_id, user_id).await?;
+    db.create_course(&data.to()).await
 }

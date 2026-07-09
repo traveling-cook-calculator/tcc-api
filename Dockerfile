@@ -1,15 +1,9 @@
-FROM debian:bookworm-slim
+FROM gcr.io/distroless/static-debian12
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        libpq5 \
-    && rm -rf /var/lib/apt/lists/*
+COPY tcc_api /usr/local/bin/tcc_api
 
-RUN useradd --no-create-home --shell /bin/false tcc
+USER nonroot:nonroot
 
-COPY --chmod=755 tcc_api /usr/local/bin/tcc_api
-
-USER tcc
 EXPOSE 3000
+
 ENTRYPOINT ["/usr/local/bin/tcc_api"]

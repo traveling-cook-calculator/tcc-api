@@ -93,11 +93,12 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
 #[tracing::instrument(skip(claims, state))]
 async fn list_teams(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
     Query(_params): Query<ListTeamsQuery>,
 ) -> Result<TeamListResponse, AppError> {
-    let result: Vec<Team> = team::get_list(&mut state.db, &cook_and_run_id, &claims.sub)?
+    let result: Vec<Team> = team::get_list(&state.db, &cook_and_run_id, &claims.sub)
+        .await?
         .into_iter()
         .map(Team::from)
         .collect();
@@ -120,12 +121,13 @@ async fn create_team(
 ) -> Result<(), AppError> {
     let user_id = get_user_id(&auth, &state.auth);
     is_user_authenticated(&payload, user_id.as_deref())?;
-    let time = chrono::Utc::now().naive_utc();
+    let time = chrono::Utc::now();
     team::create(
         &mut state.db,
         &user_id,
         &payload.to(&cook_and_run_id, &team_id, &time),
     )
+    .await
 }
 
 fn get_user_id(
@@ -142,15 +144,12 @@ fn get_user_id(
 #[tracing::instrument(skip(claims, state))]
 async fn get_team(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path((cook_and_run_id, team_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Team, AppError> {
-    Ok(Team::from(team::get(
-        &mut state.db,
-        &cook_and_run_id,
-        &claims.sub,
-        &team_id,
-    )?))
+    Ok(Team::from(
+        team::get(&state.db, &cook_and_run_id, &claims.sub, &team_id).await?,
+    ))
 }
 
 /// Update a team. Ownership is enforced at the database layer via `claims.sub`.
@@ -161,12 +160,13 @@ async fn update_team(
     Path((cook_and_run_id, team_id)): Path<(Uuid, Uuid)>,
     ValidatedJson(payload): ValidatedJson<TeamUpdateData>,
 ) -> Result<(), AppError> {
-    let time = chrono::Utc::now().naive_utc();
+    let time = chrono::Utc::now();
     team::update(
         &mut state.db,
         &claims.sub,
         &payload.to(&cook_and_run_id, &team_id, &claims.sub, &time),
     )
+    .await
 }
 
 /// Delete a team.
@@ -176,5 +176,5 @@ async fn delete_team(
     State(mut state): State<AppState>,
     Path((cook_and_run_id, team_id)): Path<(Uuid, Uuid)>,
 ) -> Result<(), AppError> {
-    team::delete(&mut state.db, &cook_and_run_id, &claims.sub, &team_id)
+    team::delete(&mut state.db, &cook_and_run_id, &claims.sub, &team_id).await
 }

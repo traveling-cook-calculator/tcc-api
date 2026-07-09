@@ -233,7 +233,7 @@ fn test_create_deadline_okay() {
             "diets".to_string(),
         ],
         &None,
-        &Some(chrono::Local::now().naive_local() + chrono::Duration::days(1)),
+        &Some((chrono::Local::now() + chrono::Duration::days(1)).into()),
     );
 
     let team_id = Uuid::new_v4();
@@ -261,7 +261,7 @@ fn test_create_deadline_over() {
             "diets".to_string(),
         ],
         &None,
-        &Some(chrono::Local::now().naive_local() - chrono::Duration::days(1)),
+        &Some((chrono::Local::now() - chrono::Duration::days(1)).into()),
     );
 
     let team_id = Uuid::new_v4();

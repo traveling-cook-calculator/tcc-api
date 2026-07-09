@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
@@ -111,7 +111,7 @@ pub fn create_share_config(
     default_needs_check: bool,
     required_fields: &Vec<String>,
     max_teams: &Option<u32>,
-    registration_deadline: &Option<NaiveDateTime>,
+    registration_deadline: &Option<DateTime<Utc>>,
 ) {
     let payload = get_share_create_json(
         needs_login,
@@ -129,7 +129,7 @@ pub fn get_share_create_json(
     default_needs_check: bool,
     required_fields: &Vec<String>,
     max_teams: &Option<u32>,
-    registration_deadline: &Option<NaiveDateTime>,
+    registration_deadline: &Option<DateTime<Utc>>,
 ) -> serde_json::Value {
     let mut json_map = serde_json::Map::new();
 

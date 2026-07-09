@@ -1,5 +1,4 @@
-use chrono::NaiveDateTime;
-use diesel::result::DatabaseErrorKind;
+use chrono::{DateTime, Utc};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -16,8 +15,8 @@ pub struct ShareTeamConfig {
     pub default_needs_check: bool,
     pub required_fields: Vec<RequiredField>,
     pub max_teams: Option<u32>,
-    pub registration_deadline: Option<NaiveDateTime>,
-    pub created: NaiveDateTime,
+    pub registration_deadline: Option<DateTime<Utc>>,
+    pub created: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,23 +93,25 @@ impl ShareTeamConfig {
             required_fields: vec![],
             max_teams: None,
             registration_deadline: None,
-            created: chrono::Utc::now().naive_utc(),
+            created: chrono::Utc::now(),
         }
     }
 }
 
-pub fn create(
+pub async fn create(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
-    match db.create_share(cook_and_run_id, user_id, &data.to_db()) {
+    match db
+        .create_share(cook_and_run_id, user_id, &data.to_db())
+        .await
+    {
         Ok(_) => Ok(()),
-        Err(AppError::DatabaseError(diesel::result::Error::DatabaseError(
-            DatabaseErrorKind::UniqueViolation,
-            _,
-        ))) => {
+        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
+            if db_err.is_unique_violation() =>
+        {
             warn!(
                 operation = "Create Share",
                 "Could not create share in database due to unique violation"
@@ -121,37 +122,41 @@ pub fn create(
     }
 }
 
-pub fn update(
+pub async fn update(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
-    match db.update_share(cook_and_run_id, user_id, &data.to_db()) {
+    match db
+        .update_share(cook_and_run_id, user_id, &data.to_db())
+        .await
+    {
         Ok(_) => Ok(()),
-        Err(AppError::DatabaseError(diesel::result::Error::DatabaseError(
-            DatabaseErrorKind::UniqueViolation,
-            _,
-        ))) => Ok(()),
+        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
+            if db_err.is_unique_violation() =>
+        {
+            Ok(())
+        }
         Err(e) => Err(e),
     }
 }
 
-pub fn get_by_id(
-    db: &mut Database,
+pub async fn get_by_id(
+    db: &Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<ShareTeamConfig, AppError> {
-    let config = db.select_share(cook_and_run_id, user_id)?;
+    let config = db.select_share(cook_and_run_id, user_id).await?;
 
     Ok(ShareTeamConfig::from(config))
 }
 
-pub(crate) fn delete(
+pub(crate) async fn delete(
     db: &mut Database,
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_share(cook_and_run_id, user_id)?;
+    db.delete_share(cook_and_run_id, user_id).await?;
     Ok(())
 }

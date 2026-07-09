@@ -13,6 +13,9 @@ mod team;
 use std::time::Duration;
 
 use axum::http::{HeaderName, HeaderValue};
+use opentelemetry::{global, KeyValue};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
 use reqwest::{
     header::{AUTHORIZATION, CONTENT_TYPE},
     Method, StatusCode,
@@ -26,6 +29,7 @@ use tower_http::{
     set_header::SetResponseHeaderLayer, timeout::TimeoutLayer, trace::TraceLayer,
 };
 use tracing::{debug, error, info, warn, Span};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
 use crate::{db::Database, rest::auth::AuthState};
 
@@ -60,9 +64,47 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+    // 1. OTLP Exporter konfigurieren (Zielt auf deinen OTel-Collector)
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://localhost:4317") // Passe Host/Port an dein Docker Setup an
+        .build()
+        .expect("test");
+
+    // 1. Resource über den Builder erstellen
+    let resource = Resource::builder()
+        // Hier kannst du deinen Vektor mit Attributen übergeben
+        .with_attributes(vec![
+            KeyValue::new("service.name", "my-rust-service"),
+            KeyValue::new("environment", "development"), // Optional: Weitere nützliche Metadaten
+        ])
+        .build();
+
+    // 2. Tracer Provider mit der neuen Resource zusammenbauen
+    let tracer_provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(resource)
+        .build();
+
+    // 3. Provider global registrieren
+    global::set_tracer_provider(tracer_provider.clone());
+
+    // 4. Einen Tracer für den Subscriber erstellen
+    let tracer = global::tracer("my-rust-service");
+
+    // 5. OpenTelemetry-Layer für tracing konfigurieren
+    let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    // 6. Tracing Subscriber zusammenbauen (OTel + Konsolen-Output)
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    Registry::default()
+        .with(env_filter)
+        .with(telemetry_layer)
+        .with(tracing_subscriber::fmt::layer()) // Für lokales Debugging in stdout
         .init();
+    /*tracing_subscriber::fmt()
+    .with_max_level(tracing::Level::DEBUG)
+    .init();*/
     info!("Loading environment variables...");
 
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {

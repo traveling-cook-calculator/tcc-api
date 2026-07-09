@@ -6,7 +6,8 @@ use axum::{
     routing::{delete, get, patch, post},
     Extension, Router,
 };
-use chrono::NaiveDateTime;
+
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
@@ -35,15 +36,11 @@ pub struct CreateShareConfigRequest {
     pub required_fields: Vec<RequiredField>,
     #[validate(range(min = 1, max = 10_000, message = "must be between 1 and 10,000"))]
     pub max_teams: Option<u32>,
-    pub registration_deadline: Option<NaiveDateTime>,
+    pub registration_deadline: Option<DateTime<Utc>>,
 }
 
 impl CreateShareConfigRequest {
-    pub fn to(
-        &self,
-        share_id: &Uuid,
-        time: &chrono::NaiveDateTime,
-    ) -> crate::sharing::ShareTeamConfig {
+    pub fn to(&self, share_id: &Uuid, time: &DateTime<Utc>) -> crate::sharing::ShareTeamConfig {
         crate::sharing::ShareTeamConfig {
             id: *share_id,
             invite_text: self.invite_text.clone(),
@@ -121,13 +118,14 @@ async fn create_share_config(
     Path(cook_and_run_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<CreateShareConfigRequest>,
 ) -> Result<(), AppError> {
-    let time = chrono::Utc::now().naive_utc();
+    let time = chrono::Utc::now();
     sharing::create(
         &mut state.db,
         &cook_and_run_id,
         &claims.sub,
         &payload.to(&Uuid::new_v4(), &time),
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -141,14 +139,15 @@ async fn update_share_config(
     Path(cook_and_run_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<CreateShareConfigRequest>,
 ) -> Result<(), AppError> {
-    let existing = sharing::get_by_id(&mut state.db, &cook_and_run_id, &claims.sub)?;
-    let time = chrono::Utc::now().naive_utc();
+    let existing = sharing::get_by_id(&mut state.db, &cook_and_run_id, &claims.sub).await?;
+    let time = chrono::Utc::now();
     sharing::update(
         &mut state.db,
         &cook_and_run_id,
         &claims.sub,
         &payload.to(&existing.id, &time),
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -156,14 +155,12 @@ async fn update_share_config(
 #[tracing::instrument(skip(claims, state))]
 async fn get_share_config(
     Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<ShareTeamConfig, AppError> {
-    Ok(ShareTeamConfig::from(sharing::get_by_id(
-        &mut state.db,
-        &cook_and_run_id,
-        &claims.sub,
-    )?))
+    Ok(ShareTeamConfig::from(
+        sharing::get_by_id(&state.db, &cook_and_run_id, &claims.sub).await?,
+    ))
 }
 
 /// Delete the team sharing configuration.
@@ -173,6 +170,6 @@ async fn delete_share_config(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    sharing::delete(&mut state.db, &cook_and_run_id, &claims.sub)?;
+    sharing::delete(&mut state.db, &cook_and_run_id, &claims.sub).await?;
     Ok(())
 }
