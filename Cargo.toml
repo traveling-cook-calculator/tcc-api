@@ -34,9 +34,9 @@ validator = { version = "0.20", features = ["derive"] }
 governor = "0.10.4"
 tower_governor = { version = "0.8", features = ["axum"] }
 tower = "0.5"
-regex = "1.12"
+regex = "1.13"
 thiserror = "2.0.18"
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 
 # OpenTelemetry & Brücken-Crates (Aktuellste Versionen)
 tracing-opentelemetry = "0.33"
