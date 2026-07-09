@@ -62,10 +62,7 @@ where
 }
 
 #[tracing::instrument(skip(executor))]
-pub async fn delete_address<'e, E>(
-    executor: E,
-    to_delete_address_id: &Uuid,
-) -> Result<(), AppError>
+pub async fn delete_address<'e, E>(executor: E, to_delete_address_id: &Uuid) -> Result<(), AppError>
 where
     E: sqlx::PgExecutor<'e>,
 {

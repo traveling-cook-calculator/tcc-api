@@ -178,7 +178,8 @@ pub async fn create_or_update(
     user_id: &str,
 ) -> Result<(), AppError> {
     let plan_id = Uuid::new_v4();
-    db.create_plan(plan.to_db(plan_id), cook_and_run_id, user_id).await
+    db.create_plan(plan.to_db(plan_id), cook_and_run_id, user_id)
+        .await
 }
 
 pub async fn create_or_update_config(
@@ -188,10 +189,15 @@ pub async fn create_or_update_config(
     user_id: &str,
 ) -> Result<(), AppError> {
     let plan_config_id = Uuid::new_v4();
-    db.create_plan_config(plan_config.to_db(plan_config_id), cook_and_run_id, user_id).await
+    db.create_plan_config(plan_config.to_db(plan_config_id), cook_and_run_id, user_id)
+        .await
 }
 
-pub async fn delete(db: &mut Database, cook_and_run_id: &Uuid, user_id: &str) -> Result<(), AppError> {
+pub async fn delete(
+    db: &mut Database,
+    cook_and_run_id: &Uuid,
+    user_id: &str,
+) -> Result<(), AppError> {
     db.delete_plan(cook_and_run_id, user_id).await
 }
 

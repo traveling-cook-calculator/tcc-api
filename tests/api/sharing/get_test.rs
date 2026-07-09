@@ -175,12 +175,18 @@ pub fn assert_share_config_json(
     assert_eq!(invite_text, "Join our amazing Cook & Run event! Register your share_config and get ready for a culinary adventure.", "share_config invite text does not match");
 
     let parsed_time = created.parse::<DateTime<Utc>>();
-    assert!(parsed_time.is_ok(), "Cook and Run created time does not match");
+    assert!(
+        parsed_time.is_ok(),
+        "Cook and Run created time does not match"
+    );
 
     if let Some(registration_deadline) = registration_deadline {
         let parsed_time = registration_deadline.parse::<DateTime<Utc>>();
-        assert!(parsed_time.is_ok(), "Cook and Run registration deadline time does not match");
-   
+        assert!(
+            parsed_time.is_ok(),
+            "Cook and Run registration deadline time does not match"
+        );
+
         assert_eq!(
             expected_registration_deadline
                 .expect("registration_deadline is None, but expected is Some"),

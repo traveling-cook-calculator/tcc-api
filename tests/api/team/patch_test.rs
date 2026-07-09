@@ -161,15 +161,13 @@ fn assert_team_json(
     assert_eq!(name, "TestTeam2", "team name does not match");
 
     assert!(
-           DateTime::parse_from_rfc3339(&format!("{}", created))
-                .is_ok(),
+        DateTime::parse_from_rfc3339(&format!("{}", created)).is_ok(),
         "Created is not a valid NaiveTime: {}",
         created
     );
 
     assert!(
-           DateTime::parse_from_rfc3339(&format!("{}", edited))
-                .is_ok(),
+        DateTime::parse_from_rfc3339(&format!("{}", edited)).is_ok(),
         "Edited is not a valid NaiveTime: {}",
         edited
     );

@@ -17,12 +17,7 @@ fn test_patch_meta_cook_and_run() {
     let (token, user_id) = get_user_1();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload, &token);
-    patch_meta_cook_and_run(
-        &cook_and_run_id,
-        &token,
-        "New Name",
-        &Utc::now(),
-    );
+    patch_meta_cook_and_run(&cook_and_run_id, &token, "New Name", &Utc::now());
 }
 
 #[test]
@@ -30,18 +25,8 @@ fn test_patch_patched_meta_cook_and_run() {
     let (token, user_id) = get_user_1();
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload, &token);
-    patch_meta_cook_and_run(
-        &cook_and_run_id,
-        &token,
-        "New Name",
-        &Utc::now(),
-    );
-    patch_meta_cook_and_run(
-        &cook_and_run_id,
-        &token,
-        "New Name",
-        &Utc::now(),
-    );
+    patch_meta_cook_and_run(&cook_and_run_id, &token, "New Name", &Utc::now());
+    patch_meta_cook_and_run(&cook_and_run_id, &token, "New Name", &Utc::now());
 }
 
 #[test]
@@ -51,12 +36,7 @@ fn test_patch_cook_and_run_wrong_user() {
     let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
     create_cook_and_run(&cook_and_run_id, payload, &token_1);
 
-    let res = execute_patch_meta(
-        &cook_and_run_id,
-        &token_2,
-        "New Name",
-        &Utc::now(),
-    );
+    let res = execute_patch_meta(&cook_and_run_id, &token_2, "New Name", &Utc::now());
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
     get_cook_and_run(&cook_and_run_id, &token_1);
@@ -123,6 +103,12 @@ fn assert_cook_and_run_json(
         "Cook and Run ID does not match"
     );
     assert_eq!(name, expected_name, "Cook and Run name does not match");
-    let parsed_time = occure.parse::<DateTime<Utc>>().expect("Failed to parse occur time");
-    assert_eq!(parsed_time.timestamp(), expected_time.timestamp(), "Cook and Run occure time does not match");
+    let parsed_time = occure
+        .parse::<DateTime<Utc>>()
+        .expect("Failed to parse occur time");
+    assert_eq!(
+        parsed_time.timestamp(),
+        expected_time.timestamp(),
+        "Cook and Run occure time does not match"
+    );
 }

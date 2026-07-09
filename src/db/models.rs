@@ -98,7 +98,6 @@ pub struct Share {
     pub registration_deadline: Option<DateTime<Utc>>,
 }
 
- 
 // ========================================
 // Plan config
 // ========================================

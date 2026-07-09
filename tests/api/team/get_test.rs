@@ -344,11 +344,13 @@ pub fn assert_team_json(
         .and_then(|v| v.as_str())
         .expect("Missing edited");
 
-    let _created: DateTime<Utc> = created_str
-        .parse()
-        .expect(&format!("Created is not a valid DateTime<Utc>: {}", created_str));
+    let _created: DateTime<Utc> = created_str.parse().expect(&format!(
+        "Created is not a valid DateTime<Utc>: {}",
+        created_str
+    ));
 
-    let _edited: DateTime<Utc> = edited_str
-        .parse()
-        .expect(&format!("Edited is not a valid DateTime<Utc>: {}", edited_str));
+    let _edited: DateTime<Utc> = edited_str.parse().expect(&format!(
+        "Edited is not a valid DateTime<Utc>: {}",
+        edited_str
+    ));
 }

@@ -134,17 +134,15 @@ impl super::Database {
         id_filter: &Uuid,
         user_id_filter: &str,
     ) -> Result<Option<Uuid>, AppError> {
-        sqlx::query_scalar(
-            "SELECT start_point FROM cook_and_run WHERE id = $1 AND user_id = $2",
-        )
-        .bind(id_filter)
-        .bind(user_id_filter)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::ProjectNotFound(Uuid::nil()),
-            other => AppError::DatabaseError(other),
-        })
+        sqlx::query_scalar("SELECT start_point FROM cook_and_run WHERE id = $1 AND user_id = $2")
+            .bind(id_filter)
+            .bind(user_id_filter)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => AppError::ProjectNotFound(Uuid::nil()),
+                other => AppError::DatabaseError(other),
+            })
     }
 
     #[tracing::instrument(skip(self, point, address))]
@@ -160,16 +158,15 @@ impl super::Database {
         crate::db::address::create_address(&mut *tx, address).await?;
         create_point(&mut *tx, point).await?;
 
-        let affected = sqlx::query(
-            "UPDATE cook_and_run SET start_point = $1 WHERE id = $2 AND user_id = $3",
-        )
-        .bind(point.id)
-        .bind(id_filter)
-        .bind(user_id_filter)
-        .execute(&mut *tx)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE cook_and_run SET start_point = $1 WHERE id = $2 AND user_id = $3")
+                .bind(point.id)
+                .bind(id_filter)
+                .bind(user_id_filter)
+                .execute(&mut *tx)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .rows_affected();
 
         if affected == 0 {
             tx.rollback().await.map_err(AppError::DatabaseError)?;
@@ -223,17 +220,15 @@ impl super::Database {
         id_filter: &Uuid,
         user_id_filter: &str,
     ) -> Result<Option<Uuid>, AppError> {
-        sqlx::query_scalar(
-            "SELECT end_point FROM cook_and_run WHERE id = $1 AND user_id = $2",
-        )
-        .bind(id_filter)
-        .bind(user_id_filter)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::ProjectNotFound(Uuid::nil()),
-            other => AppError::DatabaseError(other),
-        })
+        sqlx::query_scalar("SELECT end_point FROM cook_and_run WHERE id = $1 AND user_id = $2")
+            .bind(id_filter)
+            .bind(user_id_filter)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => AppError::ProjectNotFound(Uuid::nil()),
+                other => AppError::DatabaseError(other),
+            })
     }
 
     #[tracing::instrument(skip(self, point, address))]
@@ -249,16 +244,15 @@ impl super::Database {
         crate::db::address::create_address(&mut *tx, address).await?;
         create_point(&mut *tx, point).await?;
 
-        let affected = sqlx::query(
-            "UPDATE cook_and_run SET end_point = $1 WHERE id = $2 AND user_id = $3",
-        )
-        .bind(point.id)
-        .bind(id_filter)
-        .bind(user_id_filter)
-        .execute(&mut *tx)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE cook_and_run SET end_point = $1 WHERE id = $2 AND user_id = $3")
+                .bind(point.id)
+                .bind(id_filter)
+                .bind(user_id_filter)
+                .execute(&mut *tx)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .rows_affected();
 
         if affected == 0 {
             tx.rollback().await.map_err(AppError::DatabaseError)?;
@@ -285,15 +279,14 @@ impl super::Database {
 
         let mut tx = self.pool.begin().await.map_err(AppError::DatabaseError)?;
 
-        let affected = sqlx::query(
-            "UPDATE cook_and_run SET end_point = NULL WHERE id = $1 AND user_id = $2",
-        )
-        .bind(id_filter)
-        .bind(user_id_filter)
-        .execute(&mut *tx)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE cook_and_run SET end_point = NULL WHERE id = $1 AND user_id = $2")
+                .bind(id_filter)
+                .bind(user_id_filter)
+                .execute(&mut *tx)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .rows_affected();
 
         if affected == 0 {
             tx.rollback().await.map_err(AppError::DatabaseError)?;

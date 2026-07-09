@@ -48,10 +48,9 @@ impl super::Database {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::PlanConfigNotFound(
-                user_id_filter.to_string(),
-                *cook_and_run_id_filter,
-            ),
+            sqlx::Error::RowNotFound => {
+                AppError::PlanConfigNotFound(user_id_filter.to_string(), *cook_and_run_id_filter)
+            }
             other => AppError::DatabaseError(other),
         })
     }
@@ -75,16 +74,15 @@ impl super::Database {
             .await
             .map_err(AppError::DatabaseError)?;
 
-        let affected = sqlx::query(
-            "UPDATE cook_and_run SET plan = $1 WHERE id = $2 AND user_id = $3",
-        )
-        .bind(plan_id)
-        .bind(cook_and_run_id_filter)
-        .bind(user_id_filter)
-        .execute(&mut *tx)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE cook_and_run SET plan = $1 WHERE id = $2 AND user_id = $3")
+                .bind(plan_id)
+                .bind(cook_and_run_id_filter)
+                .bind(user_id_filter)
+                .execute(&mut *tx)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .rows_affected();
 
         if affected == 0 {
             tx.rollback().await.map_err(AppError::DatabaseError)?;
@@ -123,16 +121,15 @@ impl super::Database {
         .await
         .map_err(AppError::DatabaseError)?;
 
-        let affected = sqlx::query(
-            "UPDATE cook_and_run SET plan_config = $1 WHERE id = $2 AND user_id = $3",
-        )
-        .bind(plan_config_id)
-        .bind(cook_and_run_id_filter)
-        .bind(user_id_filter)
-        .execute(&mut *tx)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE cook_and_run SET plan_config = $1 WHERE id = $2 AND user_id = $3")
+                .bind(plan_config_id)
+                .bind(cook_and_run_id_filter)
+                .bind(user_id_filter)
+                .execute(&mut *tx)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .rows_affected();
 
         if affected == 0 {
             tx.rollback().await.map_err(AppError::DatabaseError)?;
@@ -152,15 +149,14 @@ impl super::Database {
         cook_and_run_id_filter: &Uuid,
         user_id_filter: &str,
     ) -> Result<(), AppError> {
-        let affected = sqlx::query(
-            "UPDATE cook_and_run SET plan = NULL WHERE id = $1 AND user_id = $2",
-        )
-        .bind(cook_and_run_id_filter)
-        .bind(user_id_filter)
-        .execute(&self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE cook_and_run SET plan = NULL WHERE id = $1 AND user_id = $2")
+                .bind(cook_and_run_id_filter)
+                .bind(user_id_filter)
+                .execute(&self.pool)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .rows_affected();
 
         if affected == 0 {
             return Err(AppError::PlanNotFound(

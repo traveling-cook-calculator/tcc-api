@@ -24,7 +24,11 @@ pub fn setup() -> Uuid {
             "diets".to_string(),
         ],
         &Some(5),
-        &Some(DateTime::parse_from_rfc3339("2015-09-05T23:56:00Z").unwrap().with_timezone(&Utc)),
+        &Some(
+            DateTime::parse_from_rfc3339("2015-09-05T23:56:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        ),
     );
     cook_and_run_id
 }

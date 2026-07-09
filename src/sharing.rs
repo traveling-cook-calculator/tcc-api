@@ -104,9 +104,14 @@ pub async fn create(
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
-    match db.create_share(cook_and_run_id, user_id, &data.to_db()).await {
+    match db
+        .create_share(cook_and_run_id, user_id, &data.to_db())
+        .await
+    {
         Ok(_) => Ok(()),
-      Err(AppError::DatabaseError(sqlx::Error::Database(db_err))) if db_err.is_unique_violation()=> {
+        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
+            if db_err.is_unique_violation() =>
+        {
             warn!(
                 operation = "Create Share",
                 "Could not create share in database due to unique violation"
@@ -123,12 +128,17 @@ pub async fn update(
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
-    match db.update_share(cook_and_run_id, user_id, &data.to_db()).await {
-    Ok(_) => Ok(()),
-    Err(AppError::DatabaseError(sqlx::Error::Database(db_err))) if db_err.is_unique_violation() => {
-        Ok(())
-    }
-    Err(e) => Err(e),
+    match db
+        .update_share(cook_and_run_id, user_id, &data.to_db())
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
+            if db_err.is_unique_violation() =>
+        {
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
 }
 

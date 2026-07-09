@@ -1,4 +1,3 @@
-
 use chrono::{DateTime, Utc};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -87,7 +86,11 @@ pub(crate) async fn get(
     team_id: &Uuid,
 ) -> Result<Team, AppError> {
     let (team, address) = db.select_team(team_id, cook_and_run_id, user_id).await?;
-    Ok(Team::from(team, address, get_list_by_team_id(db, team_id).await?))
+    Ok(Team::from(
+        team,
+        address,
+        get_list_by_team_id(db, team_id).await?,
+    ))
 }
 
 pub(crate) async fn delete(
@@ -100,39 +103,42 @@ pub(crate) async fn delete(
     Ok(())
 }
 
-pub(crate) async fn update(
-    db: &mut Database,
-    user_id: &str,
-    data: &Team
-) -> Result<(), AppError> {
-    db.update_team(&data.to(), &data.address.to_db(), user_id).await
+pub(crate) async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(), AppError> {
+    db.update_team(&data.to(), &data.address.to_db(), user_id)
+        .await
 }
 
 pub async fn create(
     db: &mut Database,
     user_id: &Option<String>,
-    data: &Team
+    data: &Team,
 ) -> Result<(), AppError> {
-match db.select_share_uncheckt(&data.cook_and_run_id).await {
-    Ok(share) => check_team_against_share(db, &ShareTeamConfig::from(share), user_id, data).await?,
-    Err(AppError::SharingConfigNotFound(_, _)) => {
-        let is_owner = if let Some(uid) = user_id {
-            get_cook_and_run(db, &data.cook_and_run_id, uid).await.is_ok()
-        } else {
-            false
-        };
-        if !is_owner {
-            return Err(AppError::SharingConfigNotFound(
-                user_id.clone().unwrap_or_else(|| "NONE".to_string()),
-                data.cook_and_run_id.clone(),
-            ));
+    match db.select_share_uncheckt(&data.cook_and_run_id).await {
+        Ok(share) => {
+            check_team_against_share(db, &ShareTeamConfig::from(share), user_id, data).await?
         }
+        Err(AppError::SharingConfigNotFound(_, _)) => {
+            let is_owner = if let Some(uid) = user_id {
+                get_cook_and_run(db, &data.cook_and_run_id, uid)
+                    .await
+                    .is_ok()
+            } else {
+                false
+            };
+            if !is_owner {
+                return Err(AppError::SharingConfigNotFound(
+                    user_id.clone().unwrap_or_else(|| "NONE".to_string()),
+                    data.cook_and_run_id.clone(),
+                ));
+            }
+        }
+        Err(e) => return Err(e),
     }
-    Err(e) => return Err(e),
-}
-    match db.create_team(&data.to(), &data.address.to_db()) .await{
+    match db.create_team(&data.to(), &data.address.to_db()).await {
         Ok(_) => Ok(()),
-        Err(AppError::DatabaseError(sqlx::Error::Database(db_err))) if db_err.is_unique_violation()=> {
+        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
+            if db_err.is_unique_violation() =>
+        {
             warn!(
                 project_id = %data.cook_and_run_id,
                 "Could not create team in database due to unique violation"
@@ -151,9 +157,10 @@ async fn check_team_against_share(
 ) -> Result<(), AppError> {
     debug!(share = ?share, "Checking team against share config");
 
-    
     let is_owner = if let Some(uid) = user_id {
-        get_cook_and_run(db, &data.cook_and_run_id, uid).await.is_ok()
+        get_cook_and_run(db, &data.cook_and_run_id, uid)
+            .await
+            .is_ok()
     } else {
         false
     };

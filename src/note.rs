@@ -38,7 +38,8 @@ impl Note {
 
 pub async fn get_list_by_team_id(db: &Database, team_id: &Uuid) -> Result<Vec<Note>, AppError> {
     let note_list = db
-        .select_note_with_filter(None, Some(team_id), None, None).await?
+        .select_note_with_filter(None, Some(team_id), None, None)
+        .await?
         .into_iter()
         .map(Note::from)
         .collect();
@@ -52,7 +53,8 @@ pub async fn get_list_by_cook_and_run_id_and_team_id(
     user_id: &str,
 ) -> Result<Vec<Note>, AppError> {
     let note_list = db
-        .select_note_with_filter(Some(cook_and_run_id), Some(team_id), None, Some(user_id)).await?
+        .select_note_with_filter(Some(cook_and_run_id), Some(team_id), None, Some(user_id))
+        .await?
         .into_iter()
         .map(Note::from)
         .collect();
@@ -72,7 +74,8 @@ pub async fn get(
             Some(team_id),
             Some(note_id),
             Some(user_id),
-        ).await?
+        )
+        .await?
         .into_iter()
         .map(Note::from)
         .collect();
@@ -94,7 +97,8 @@ pub(crate) async fn delete(
     note_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_note(cook_and_run_id, team_id, note_id, user_id).await?;
+    db.delete_note(cook_and_run_id, team_id, note_id, user_id)
+        .await?;
     Ok(())
 }
 
@@ -109,7 +113,9 @@ pub async fn create(
 
     match db.create_note(&data.to_db(team_id)).await {
         Ok(_) => Ok(()),
-       Err(AppError::DatabaseError(sqlx::Error::Database(db_err))) if db_err.is_unique_violation()=> {
+        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
+            if db_err.is_unique_violation() =>
+        {
             warn!(
                 operation = "Create Note",
                 "Could not create note in database due to unique violation"

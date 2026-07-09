@@ -115,7 +115,8 @@ pub async fn get_list_of_cook_and_run_meta(
     db: &Database,
     user_id: &str,
 ) -> Result<Vec<CookAndRunMeta>, AppError> {
-    db.select_all_cook_and_run(user_id).await
+    db.select_all_cook_and_run(user_id)
+        .await
         .map(|list| list.into_iter().map(CookAndRunMeta::from).collect())
 }
 
@@ -128,13 +129,9 @@ pub async fn get_cook_and_run(
     let team = team::get_list(db, cook_and_run_id, user_id);
     let course = course::get_list(db, cook_and_run_id, user_id);
 
-    let start_point = cook_and_run
-        .start_point
-        .map(|a| point::get_by_id(db, a));
+    let start_point = cook_and_run.start_point.map(|a| point::get_by_id(db, a));
 
-    let end_point = cook_and_run
-        .end_point
-        .map(|a| point::get_by_id(db, a));
+    let end_point = cook_and_run.end_point.map(|a| point::get_by_id(db, a));
 
     let share_team_config = cook_and_run
         .share_team_config
@@ -148,11 +145,26 @@ pub async fn get_cook_and_run(
         .plan_config
         .map(|_| plan::get_config_by_id(db, cook_and_run_id, user_id));
 
-    let start_point = match start_point { Some(f) => Some(f.await?), None => None };
-    let end_point = match end_point { Some(f) => Some(f.await?), None => None };
-    let share_team_config = match share_team_config { Some(f) => Some(f.await?), None => None };
-    let plan = match plan { Some(f) => Some(f.await?), None => None };
-    let plan_config = match plan_config { Some(f) => Some(f.await?), None => None };
+    let start_point = match start_point {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let end_point = match end_point {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let share_team_config = match share_team_config {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let plan = match plan {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
+    let plan_config = match plan_config {
+        Some(f) => Some(f.await?),
+        None => None,
+    };
 
     Ok(CookAndRun::from(
         cook_and_run,
@@ -171,7 +183,8 @@ pub async fn get_cook_and_run_meta(
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<CookAndRunMeta, AppError> {
-    db.select_cook_and_run(cook_and_run_id, user_id).await
+    db.select_cook_and_run(cook_and_run_id, user_id)
+        .await
         .map(CookAndRunMeta::from)
 }
 
@@ -197,7 +210,8 @@ pub async fn update_cook_and_run_meta(
     user_id: &str,
     meta: &CookAndRunMeta,
 ) -> Result<(), AppError> {
-    db.update_cook_and_run_meta(cook_and_run_id, user_id, &meta.to_db()).await
+    db.update_cook_and_run_meta(cook_and_run_id, user_id, &meta.to_db())
+        .await
 }
 
 pub async fn get_cook_and_run_start_point(
@@ -205,7 +219,10 @@ pub async fn get_cook_and_run_start_point(
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<Option<Point>, AppError> {
-    let point = match db.select_cook_and_run_start_point_id(cook_and_run_id, user_id).await? {
+    let point = match db
+        .select_cook_and_run_start_point_id(cook_and_run_id, user_id)
+        .await?
+    {
         Some(point_id) => Some(point::get_by_id(db, point_id).await?),
         None => None,
     };
@@ -223,7 +240,8 @@ pub async fn set_cook_and_run_start_point(
         user_id,
         &point.to_db(),
         &point.address.to_db(),
-    ).await
+    )
+    .await
 }
 
 pub async fn get_cook_and_run_end_point(
@@ -231,7 +249,10 @@ pub async fn get_cook_and_run_end_point(
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<Option<Point>, AppError> {
-        let point = match db.select_cook_and_run_end_point_id(cook_and_run_id, user_id).await? {
+    let point = match db
+        .select_cook_and_run_end_point_id(cook_and_run_id, user_id)
+        .await?
+    {
         Some(point_id) => Some(point::get_by_id(db, point_id).await?),
         None => None,
     };
@@ -249,7 +270,8 @@ pub async fn set_cook_and_run_end_point(
         user_id,
         &point.to_db(),
         &point.address.to_db(),
-    ).await
+    )
+    .await
 }
 
 pub async fn delete_cook_and_run_start_point(
@@ -257,7 +279,8 @@ pub async fn delete_cook_and_run_start_point(
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_cook_and_run_start_point(cook_and_run_id, user_id).await
+    db.delete_cook_and_run_start_point(cook_and_run_id, user_id)
+        .await
 }
 
 pub async fn delete_cook_and_run_end_point(
@@ -265,5 +288,6 @@ pub async fn delete_cook_and_run_end_point(
     cook_and_run_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_cook_and_run_end_point(cook_and_run_id, user_id).await
+    db.delete_cook_and_run_end_point(cook_and_run_id, user_id)
+        .await
 }

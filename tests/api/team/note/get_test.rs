@@ -216,5 +216,8 @@ fn assert_note_json(json: &serde_json::Value, expected_note_id: &Uuid) {
     );
 
     let parsed_time = created.parse::<DateTime<Utc>>();
-    assert!(parsed_time.is_ok(), "Cook and Run created time does not match");
+    assert!(
+        parsed_time.is_ok(),
+        "Cook and Run created time does not match"
+    );
 }

@@ -51,7 +51,8 @@ impl super::Database {
                 qb.push(" AND car.id = ").push_bind(*cook_and_run_id);
             }
             if let Some(user_id) = user_id_filter {
-                qb.push(" AND car.user_id = ").push_bind(user_id.to_string());
+                qb.push(" AND car.user_id = ")
+                    .push_bind(user_id.to_string());
             }
             if let Some(team_id) = team_id_filter {
                 qb.push(" AND t.id = ").push_bind(*team_id);
@@ -78,21 +79,16 @@ impl super::Database {
             qb
         };
 
-        let result = qb
-            .build_query_as::<Note>()
-            .fetch_all(&self.pool)
-            .await;
+        let result = qb.build_query_as::<Note>().fetch_all(&self.pool).await;
 
-        result.map_err(|e| {
-            match e {
-                sqlx::Error::RowNotFound => AppError::NoteNotFound(
-                    note_id_filter.copied().unwrap_or(Uuid::nil()),
-                    user_id_filter.unwrap_or("").to_string(),
-                    cook_and_run_id_filter.copied().unwrap_or(Uuid::nil()),
-                    team_id_filter.copied().unwrap_or(Uuid::nil()),
-                ),
-                other => AppError::DatabaseError(other),
-            }
+        result.map_err(|e| match e {
+            sqlx::Error::RowNotFound => AppError::NoteNotFound(
+                note_id_filter.copied().unwrap_or(Uuid::nil()),
+                user_id_filter.unwrap_or("").to_string(),
+                cook_and_run_id_filter.copied().unwrap_or(Uuid::nil()),
+                team_id_filter.copied().unwrap_or(Uuid::nil()),
+            ),
+            other => AppError::DatabaseError(other),
         })
     }
 

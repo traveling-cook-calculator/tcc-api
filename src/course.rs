@@ -42,7 +42,8 @@ pub(crate) async fn get_list(
     user_id: &str,
 ) -> Result<Vec<Course>, AppError> {
     let course_list = db
-        .select_all_course(cook_and_run_id, user_id).await?
+        .select_all_course(cook_and_run_id, user_id)
+        .await?
         .into_iter()
         .map(Course::from)
         .collect();
@@ -55,7 +56,9 @@ pub(crate) async fn get(
     user_id: &str,
     course_id: &Uuid,
 ) -> Result<Course, AppError> {
-    let course = db.select_course(course_id, cook_and_run_id, user_id).await?;
+    let course = db
+        .select_course(course_id, cook_and_run_id, user_id)
+        .await?;
     Ok(Course::from(course))
 }
 
@@ -65,11 +68,16 @@ pub(crate) async fn delete(
     user_id: &str,
     course_id: &Uuid,
 ) -> Result<(), AppError> {
-    db.delete_course(course_id, cook_and_run_id, user_id).await?;
+    db.delete_course(course_id, cook_and_run_id, user_id)
+        .await?;
     Ok(())
 }
 
-pub(crate) async fn update(db: &mut Database, user_id: &str, data: &Course) -> Result<(), AppError> {
+pub(crate) async fn update(
+    db: &mut Database,
+    user_id: &str,
+    data: &Course,
+) -> Result<(), AppError> {
     db.update_course(&data.to(), user_id).await
 }
 

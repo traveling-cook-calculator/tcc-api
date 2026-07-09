@@ -1,4 +1,4 @@
-use chrono::{DateTime,  Utc};
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;

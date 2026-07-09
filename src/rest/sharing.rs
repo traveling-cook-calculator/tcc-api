@@ -40,11 +40,7 @@ pub struct CreateShareConfigRequest {
 }
 
 impl CreateShareConfigRequest {
-    pub fn to(
-        &self,
-        share_id: &Uuid,
-        time: &DateTime<Utc>,
-    ) -> crate::sharing::ShareTeamConfig {
+    pub fn to(&self, share_id: &Uuid, time: &DateTime<Utc>) -> crate::sharing::ShareTeamConfig {
         crate::sharing::ShareTeamConfig {
             id: *share_id,
             invite_text: self.invite_text.clone(),
@@ -128,7 +124,8 @@ async fn create_share_config(
         &cook_and_run_id,
         &claims.sub,
         &payload.to(&Uuid::new_v4(), &time),
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -149,7 +146,8 @@ async fn update_share_config(
         &cook_and_run_id,
         &claims.sub,
         &payload.to(&existing.id, &time),
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -160,11 +158,9 @@ async fn get_share_config(
     State(state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<ShareTeamConfig, AppError> {
-    Ok(ShareTeamConfig::from(sharing::get_by_id(
-        &state.db,
-        &cook_and_run_id,
-        &claims.sub,
-    ).await?))
+    Ok(ShareTeamConfig::from(
+        sharing::get_by_id(&state.db, &cook_and_run_id, &claims.sub).await?,
+    ))
 }
 
 /// Delete the team sharing configuration.

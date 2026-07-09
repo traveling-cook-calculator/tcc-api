@@ -90,7 +90,8 @@ async fn get_team_notes(
         &cook_and_run_id,
         &team_id,
         &claims.sub,
-    ).await?
+    )
+    .await?
     .into_iter()
     .map(Note::from)
     .collect();
@@ -110,13 +111,7 @@ async fn get_note(
     State(state): State<AppState>,
     Path((cook_and_run_id, team_id, note_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<Note, AppError> {
-    let result = note::get(
-        &state.db,
-        &cook_and_run_id,
-        &team_id,
-        &note_id,
-        &claims.sub,
-    ).await?;
+    let result = note::get(&state.db, &cook_and_run_id, &team_id, &note_id, &claims.sub).await?;
 
     Ok(Note::from(result))
 }
@@ -136,7 +131,8 @@ async fn create_team_note(
         &team_id,
         &claims.sub,
         &payload.to(&note_id, time),
-    ).await
+    )
+    .await
 }
 
 /// Delete note for team
@@ -152,5 +148,6 @@ async fn delete_team_note(
         &team_id,
         &note_id,
         &claims.sub,
-    ).await
+    )
+    .await
 }

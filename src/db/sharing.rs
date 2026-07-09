@@ -130,10 +130,9 @@ impl super::Database {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::SharingConfigNotFound(
-                user_id_filter.to_string(),
-                *cook_and_run_id_filter,
-            ),
+            sqlx::Error::RowNotFound => {
+                AppError::SharingConfigNotFound(user_id_filter.to_string(), *cook_and_run_id_filter)
+            }
             other => AppError::DatabaseError(other),
         })
     }

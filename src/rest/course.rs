@@ -93,7 +93,8 @@ async fn list_courses(
     Path(cook_and_run_id): Path<Uuid>,
     Query(_): Query<ListCoursesQuery>,
 ) -> Result<CourseListResponse, AppError> {
-    let result: Vec<Course> = course::get_list(&state.db, &cook_and_run_id, &claims.sub).await?
+    let result: Vec<Course> = course::get_list(&state.db, &cook_and_run_id, &claims.sub)
+        .await?
         .into_iter()
         .map(Course::from)
         .collect();
@@ -117,7 +118,8 @@ async fn create_course(
         &mut state.db,
         &claims.sub,
         &payload.to(&cook_and_run_id, &course_id),
-    ).await
+    )
+    .await
 }
 
 /// Get course details
@@ -143,7 +145,8 @@ async fn update_course(
         &mut state.db,
         &claims.sub,
         &payload.to(&cook_and_run_id, &course_id),
-    ).await
+    )
+    .await
 }
 
 /// Delete course for cook and run project

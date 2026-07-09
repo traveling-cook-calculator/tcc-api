@@ -178,11 +178,11 @@ async fn list_cook_and_run_projects(
     params.validate()?;
     is_user_authenticated(&params, Some(&claims.sub))?;
 
-    let result: Vec<CookAndRunMeta> =
-        get_list_of_cook_and_run_meta(&state.db, &params.user_id).await?
-            .iter()
-            .map(CookAndRunMeta::from)
-            .collect();
+    let result: Vec<CookAndRunMeta> = get_list_of_cook_and_run_meta(&state.db, &params.user_id)
+        .await?
+        .iter()
+        .map(CookAndRunMeta::from)
+        .collect();
 
     let len = result.len();
     Ok(CookAndRunListResponse {
@@ -210,7 +210,8 @@ async fn create_cook_and_run_project(
     create_cook_and_run(
         &mut state.db,
         payload.to_cook_and_run_create(&cook_and_run_id, &time),
-    ).await
+    )
+    .await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -219,11 +220,9 @@ async fn get_cook_and_run_project(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<CookAndRun, AppError> {
-    Ok(CookAndRun::from(get_cook_and_run(
-        &mut state.db,
-        &cook_and_run_id,
-        &claims.sub,
-    ).await?))
+    Ok(CookAndRun::from(
+        get_cook_and_run(&mut state.db, &cook_and_run_id, &claims.sub).await?,
+    ))
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -232,11 +231,9 @@ async fn get_cook_and_run_project_meta(
     State(mut state): State<AppState>,
     Path(cook_and_run_id): Path<Uuid>,
 ) -> Result<CookAndRunMeta, AppError> {
-    Ok(CookAndRunMeta::from(&get_cook_and_run_meta(
-        &mut state.db,
-        &cook_and_run_id,
-        &claims.sub,
-    ).await?))
+    Ok(CookAndRunMeta::from(
+        &get_cook_and_run_meta(&mut state.db, &cook_and_run_id, &claims.sub).await?,
+    ))
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -260,7 +257,8 @@ async fn patch_cook_and_run_meta(
         &cook_and_run_id,
         &claims.sub,
         &payload.to_domain(),
-    ).await
+    )
+    .await
 }
 
 #[tracing::instrument(skip(claims, state))]
