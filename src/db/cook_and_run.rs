@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::db::models::{Address, CookAndRun, CookAndRunCreate, CookAndRunUpdate, Point};
+use crate::db::plan_staleness;
 use crate::db::point::{create_point, delete_point};
 use crate::error::AppError;
 
@@ -8,8 +9,9 @@ impl super::Database {
     #[tracing::instrument(skip(self, data))]
     pub async fn create_cook_and_run(&self, data: &CookAndRunCreate<'_>) -> Result<(), AppError> {
         let result = sqlx::query(
-            "INSERT INTO cook_and_run (id, user_id, name, created, edited, occur)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO cook_and_run
+                (id, user_id, name, created, edited, occur, admin_notification_email)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(data.id)
         .bind(data.user_id)
@@ -17,6 +19,7 @@ impl super::Database {
         .bind(data.created)
         .bind(data.edited)
         .bind(data.occur)
+        .bind(data.admin_notification_email)
         .execute(&self.pool)
         .await;
 
@@ -37,12 +40,13 @@ impl super::Database {
         meta_data: &CookAndRunUpdate<'_>,
     ) -> Result<(), AppError> {
         let affected = sqlx::query(
-            "UPDATE cook_and_run SET name = $1, edited = $2, occur = $3
-             WHERE id = $4 AND user_id = $5",
+            "UPDATE cook_and_run SET name = $1, edited = $2, occur = $3, admin_notification_email = $4
+             WHERE id = $5 AND user_id = $6",
         )
         .bind(meta_data.name)
         .bind(meta_data.edited)
         .bind(meta_data.occur)
+        .bind(meta_data.admin_notification_email)
         .bind(id_filter)
         .bind(user_id_filter)
         .execute(&self.pool)
@@ -63,7 +67,8 @@ impl super::Database {
     ) -> Result<Vec<CookAndRun>, AppError> {
         sqlx::query_as::<_, CookAndRun>(
             "SELECT id, user_id, name, created, edited, occur,
-                    start_point, end_point, share_team_config, plan, plan_config
+                    start_point, end_point, share_team_config, plan, plan_config,
+                    admin_notification_email
              FROM cook_and_run WHERE user_id = $1",
         )
         .bind(user_id_filter)
@@ -80,7 +85,8 @@ impl super::Database {
     ) -> Result<CookAndRun, AppError> {
         sqlx::query_as::<_, CookAndRun>(
             "SELECT id, user_id, name, created, edited, occur,
-                    start_point, end_point, share_team_config, plan, plan_config
+                    start_point, end_point, share_team_config, plan, plan_config,
+                    admin_notification_email
              FROM cook_and_run WHERE id = $1 AND user_id = $2",
         )
         .bind(id_filter)
@@ -173,6 +179,10 @@ impl super::Database {
             return Err(AppError::ProjectNotFound(*id_filter));
         }
 
+        // Start-/Endpunkt-Änderung macht eine Neuberechnung der Route nötig.
+        let time = chrono::Utc::now();
+        plan_staleness::mark_plan_stale(&mut tx, id_filter, &time).await?;
+
         tx.commit().await.map_err(AppError::DatabaseError)?;
         Ok(())
     }
@@ -209,6 +219,9 @@ impl super::Database {
         }
 
         delete_point(&mut *tx, &start_point_id).await?;
+
+        let time = chrono::Utc::now();
+        plan_staleness::mark_plan_stale(&mut tx, id_filter, &time).await?;
 
         tx.commit().await.map_err(AppError::DatabaseError)?;
         Ok(())
@@ -259,6 +272,9 @@ impl super::Database {
             return Err(AppError::ProjectNotFound(*id_filter));
         }
 
+        let time = chrono::Utc::now();
+        plan_staleness::mark_plan_stale(&mut tx, id_filter, &time).await?;
+
         tx.commit().await.map_err(AppError::DatabaseError)?;
         Ok(())
     }
@@ -294,6 +310,9 @@ impl super::Database {
         }
 
         delete_point(&mut *tx, &end_point_id).await?;
+
+        let time = chrono::Utc::now();
+        plan_staleness::mark_plan_stale(&mut tx, id_filter, &time).await?;
 
         tx.commit().await.map_err(AppError::DatabaseError)?;
         Ok(())

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="{{lang_attr}}">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{cook_and_run_name}}</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f4f4f5; font-family: Arial, Helvetica, sans-serif; color:#18181b;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+        style="background-color:#f4f4f5; padding:24px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%"
+                    style="max-width:560px; background-color:#ffffff; border-radius:8px; padding:32px;" cellpadding="0"
+                    cellspacing="0">
+                    <tr>
+                        <td>
+                            <h1 style="margin:0 0 16px 0; font-size:20px;">{{heading_prefix}} {{cook_and_run_name}}!
+                            </h1>
+                            <p style="margin:0 0 16px 0; line-height:1.5;">{{greeting_prefix}} {{team_name}},</p>
+                            <p style="margin:0 0 16px 0; line-height:1.5;">{{intro}}</p>
+                            {{#if requires_verification}}
+                            <p style="margin:0 0 16px 0; line-height:1.5;">{{verify_note}}</p>
+                            {{/if}}
+                            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+                                <tr>
+                                    <td style="border-radius:6px; background-color:#16a34a;">
+                                        <a href="{{deeplink_url}}"
+                                            style="display:inline-block; padding:12px 24px; color:#ffffff; text-decoration:none; font-weight:bold; border-radius:6px;">{{button_label}}</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="margin:16px 0 0 0; line-height:1.5; font-size:14px; color:#52525b;">
+                                {{fallback_note}}<br>{{deeplink_url}}</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

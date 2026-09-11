@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 
 use crate::{
@@ -127,6 +127,11 @@ impl Hosting {
 pub struct Plan {
     pub hosting_list: Vec<Hosting>,
     pub walking_path: HashMap<Uuid, Vec<Uuid>>,
+    /// Set once a change (new/removed team, changed address, changed
+    /// start/end point) has made this plan potentially inaccurate. `None`
+    /// means the plan is current. Populated separately in `get_by_id`
+    /// (see below) rather than stored on `db::models::Plan` itself.
+    pub stale_at: Option<DateTime<Utc>>,
 }
 
 impl Plan {
@@ -139,6 +144,7 @@ impl Plan {
                 .map(Hosting::from)
                 .collect(),
             walking_path: db_plan.data.walking_path,
+            stale_at: None,
         }
     }
 
@@ -159,7 +165,10 @@ pub async fn get_by_id(
     user_id: &str,
 ) -> Result<Plan, AppError> {
     let db_plan = db.select_plan(cook_and_run_id, user_id).await?;
-    Ok(Plan::from(db_plan))
+    let stale_at = db.select_plan_stale_at(cook_and_run_id, user_id).await?;
+    let mut plan = Plan::from(db_plan);
+    plan.stale_at = stale_at;
+    Ok(plan)
 }
 
 pub async fn get_config_by_id(
@@ -207,4 +216,15 @@ pub async fn delete_config(
     user_id: &str,
 ) -> Result<(), AppError> {
     db.delete_plan_config(cook_and_run_id, user_id).await
+}
+
+/// Confirms that the current plan is still valid despite intervening
+/// changes (e.g. a new start/end address). Only clears the staleness
+/// marker — the plan data itself is left untouched.
+pub async fn confirm_plan(
+    db: &mut Database,
+    cook_and_run_id: &Uuid,
+    user_id: &str,
+) -> Result<(), AppError> {
+    db.clear_plan_stale(cook_and_run_id, user_id).await
 }

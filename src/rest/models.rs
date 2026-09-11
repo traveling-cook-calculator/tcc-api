@@ -41,6 +41,22 @@ impl PaginationInfo {
             has_prev: false,
         }
     }
+
+    pub fn from_page(page: u32, limit: u32, total: u64) -> Self {
+        let total_pages = if limit == 0 {
+            0
+        } else {
+            ((total as f64) / (limit as f64)).ceil() as u32
+        };
+        PaginationInfo {
+            page,
+            limit,
+            total,
+            total_pages,
+            has_next: (page as u64) < total_pages as u64,
+            has_prev: page > 1,
+        }
+    }
 }
 
 // Address model
@@ -124,6 +140,7 @@ pub struct CookAndRunMeta {
     pub created: DateTime<Utc>,
     pub edited: DateTime<Utc>,
     pub occur: DateTime<Utc>,
+    pub admin_notification_email: Option<String>,
 }
 
 impl CookAndRunMeta {
@@ -135,6 +152,7 @@ impl CookAndRunMeta {
             created: cook_and_run.created,
             edited: cook_and_run.edited,
             occur: cook_and_run.occur,
+            admin_notification_email: cook_and_run.admin_notification_email.clone(),
         }
     }
 }
@@ -150,9 +168,11 @@ pub struct CookAndRunCreateData {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
     pub name: String,
     #[serde(rename = "userId")]
-    // user_id is provided by the client but cross-checked against the JWT subject — no length
-    // restriction needed beyond what Auth0 guarantees.
+    // user_id is provided by the client but cross-checked against the JWT
+    // subject — no length restriction needed beyond what Keycloak guarantees.
     pub user_id: String,
+    #[validate(email(message = "must be a valid email address"))]
+    pub admin_notification_email: String,
 }
 
 impl CookAndRunCreateData {
@@ -168,6 +188,7 @@ impl CookAndRunCreateData {
             created: time,
             edited: time,
             occur: time,
+            admin_notification_email: Some(&self.admin_notification_email),
         }
     }
 }
@@ -298,6 +319,25 @@ impl IntoResponse for Course {
     }
 }
 
+// Team status (REST representation)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TeamStatus {
+    Active,
+    Review,
+    Canceled,
+}
+
+impl TeamStatus {
+    fn from(status: crate::team::TeamStatus) -> Self {
+        match status {
+            crate::team::TeamStatus::Active => TeamStatus::Active,
+            crate::team::TeamStatus::Review => TeamStatus::Review,
+            crate::team::TeamStatus::Canceled => TeamStatus::Canceled,
+        }
+    }
+}
+
 // Team models
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct TeamCreateData {
@@ -315,8 +355,8 @@ pub struct TeamCreateData {
     pub members: Option<u32>,
     #[validate(length(max = 500, message = "must be at most 500 characters"))]
     pub diets: Option<String>,
-    #[serde(default)]
-    pub needs_check: bool,
+    // needs_check removed: status is now computed server-side from
+    // share.default_needs_check, not supplied by the client.
 }
 
 impl TeamCreateData {
@@ -339,7 +379,13 @@ impl TeamCreateData {
             phone: self.phone.clone(),
             members: self.members,
             diets: self.diets.clone(),
-            needs_check: self.needs_check,
+            status: crate::team::TeamStatus::Active, // possibly overridden in team::create()
+            canceled_at: None,
+            cancel_reason: None,
+            access_token: String::new(), // set in team::create()
+            email_verified_at: None,
+            verification_resend_count: 0,
+            last_route_hash: None,
             note_list: vec![],
         }
     }
@@ -352,22 +398,9 @@ impl TeamCreateData {
         created_by_user: &str,
         time: &DateTime<Utc>,
     ) -> crate::team::Team {
-        let address = self.address.to();
-        crate::team::Team {
-            id: *team_id,
-            cook_and_run_id: *cook_and_run_id,
-            created_by_user: Some(created_by_user.to_string()),
-            name: self.name.clone(),
-            created: *time,
-            edited: *time,
-            address,
-            mail: self.mail.clone(),
-            phone: self.phone.clone(),
-            members: self.members,
-            diets: self.diets.clone(),
-            needs_check: self.needs_check,
-            note_list: vec![],
-        }
+        let mut team = self.to(cook_and_run_id, team_id, time);
+        team.created_by_user = Some(created_by_user.to_string());
+        team
     }
 }
 
@@ -395,7 +428,8 @@ pub struct TeamUpdateData {
     pub members: Option<u32>,
     #[validate(length(max = 500, message = "must be at most 500 characters"))]
     pub diets: Option<String>,
-    pub needs_check: bool,
+    // needs_check removed: status transitions now go through dedicated
+    // endpoints (cancel/verify), not the generic update.
 }
 
 impl TeamUpdateData {
@@ -419,7 +453,16 @@ impl TeamUpdateData {
             phone: self.phone.clone(),
             members: self.members,
             diets: self.diets.clone(),
-            needs_check: self.needs_check,
+            // Ignored by db::update_team / update_team_by_token (only
+            // name/address/mail/phone/members/diets are written there) —
+            // pure placeholders to satisfy the struct constructor.
+            status: crate::team::TeamStatus::Active,
+            canceled_at: None,
+            cancel_reason: None,
+            access_token: String::new(),
+            email_verified_at: None,
+            verification_resend_count: 0,
+            last_route_hash: None,
             note_list: vec![],
         }
     }
@@ -428,6 +471,7 @@ impl TeamUpdateData {
 #[derive(Debug, Clone, Serialize)]
 pub struct Team {
     pub id: Uuid,
+    pub cook_and_run_id: Uuid,
     pub name: String,
     pub address: Address,
     pub mail: Option<String>,
@@ -438,13 +482,18 @@ pub struct Team {
     pub created_by_user: Option<String>,
     pub created: DateTime<Utc>,
     pub edited: DateTime<Utc>,
-    pub needs_check: bool,
+    pub status: TeamStatus,
+    pub canceled_at: Option<DateTime<Utc>>,
+    pub cancel_reason: Option<String>,
+    pub email_verified_at: Option<DateTime<Utc>>,
+    // access_token deliberately NOT included — see TeamCreateResponse.
 }
 
 impl Team {
     pub fn from(team: crate::team::Team) -> Self {
         Team {
             id: team.id,
+            cook_and_run_id: team.cook_and_run_id,
             name: team.name,
             address: Address::from(team.address),
             mail: team.mail,
@@ -455,7 +504,10 @@ impl Team {
             created_by_user: team.created_by_user,
             created: team.created,
             edited: team.edited,
-            needs_check: team.needs_check,
+            status: TeamStatus::from(team.status),
+            canceled_at: team.canceled_at,
+            cancel_reason: team.cancel_reason,
+            email_verified_at: team.email_verified_at,
         }
     }
 }
@@ -464,6 +516,69 @@ impl IntoResponse for Team {
     fn into_response(self) -> Response {
         (StatusCode::OK, Json(self)).into_response()
     }
+}
+
+/// Response to team creation. `access_link`/`warning` are only set when no
+/// email address was provided — in that case the response is the only way
+/// the creator ever gets the deeplink. With an email, the link is sent only
+/// by mail and not repeated here.
+#[derive(Debug, Clone, Serialize)]
+pub struct TeamCreateResponse {
+    #[serde(flatten)]
+    pub team: Team,
+    pub access_link: Option<String>,
+    pub warning: Option<String>,
+}
+
+impl TeamCreateResponse {
+    pub fn new(team: crate::team::Team, deeplink_base_url: &str) -> Self {
+        let has_mail = team.mail.is_some();
+        let cook_and_run_id = team.cook_and_run_id;
+        let team_id = team.id;
+        let access_token = team.access_token.clone();
+        let team_dto = Team::from(team);
+
+        if has_mail {
+            TeamCreateResponse { team: team_dto, access_link: None, warning: None }
+        } else {
+            TeamCreateResponse {
+                team: team_dto,
+                access_link: Some(crate::email::build_team_deeplink_url(
+                    deeplink_base_url, &cook_and_run_id, &team_id, &access_token,
+                )),
+                warning: Some(
+                    "No email address was provided: this link is the only way to access the \
+                     team later and will not be sent by email. Please keep it safe.".to_string(),
+                ),
+            }
+        }
+    }
+}
+
+impl IntoResponse for TeamCreateResponse {
+    fn into_response(self) -> Response {
+        (StatusCode::CREATED, Json(self)).into_response()
+    }
+}
+
+/// Response for the self-service GET endpoint (admin or participant).
+#[derive(Debug, Clone, Serialize)]
+pub struct TeamSelfServiceResponse {
+    #[serde(flatten)]
+    pub team: Team,
+    pub edit_deadline: Option<DateTime<Utc>>,
+}
+
+impl IntoResponse for TeamSelfServiceResponse {
+    fn into_response(self) -> Response {
+        (StatusCode::OK, Json(self)).into_response()
+    }
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CancelTeamRequest {
+    #[validate(length(max = 1000, message = "must be at most 1,000 characters"))]
+    pub reason: Option<String>,
 }
 
 // Note models
@@ -520,11 +635,14 @@ impl IntoResponse for Note {
 pub struct ShareTeamConfig {
     pub id: Uuid,
     pub invite_text: String,
-    pub needs_login: bool,
+    pub require_email_verification: bool,
     pub default_needs_check: bool,
     pub required_fields: Vec<RequiredField>,
     pub max_teams: Option<u32>,
     pub registration_deadline: Option<DateTime<Utc>>,
+    pub edit_deadline: Option<DateTime<Utc>>,
+    pub review_trigger_fields: Vec<RequiredField>,
+    pub notify_admin_on_review: bool,
     pub created: DateTime<Utc>,
 }
 
@@ -539,7 +657,7 @@ impl ShareTeamConfig {
         ShareTeamConfig {
             id: config.id,
             invite_text: config.invite_text,
-            needs_login: config.needs_login,
+            require_email_verification: config.require_email_verification,
             default_needs_check: config.default_needs_check,
             required_fields: config
                 .required_fields
@@ -548,6 +666,13 @@ impl ShareTeamConfig {
                 .collect(),
             max_teams: config.max_teams,
             registration_deadline: config.registration_deadline,
+            edit_deadline: config.edit_deadline,
+            review_trigger_fields: config
+                .review_trigger_fields
+                .into_iter()
+                .map(RequiredField::from)
+                .collect(),
+            notify_admin_on_review: config.notify_admin_on_review,
             created: config.created,
         }
     }
@@ -701,6 +826,11 @@ pub struct Plan {
     pub hosting_list: Vec<Hosting>,
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
     pub walking_path: HashMap<Uuid, Vec<Uuid>>,
+    /// Set when the plan has been marked stale by a change elsewhere
+    /// (added/removed team, changed address, changed start/end point).
+    /// Omitted from the JSON response entirely when the plan is current.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_since: Option<DateTime<Utc>>,
 }
 
 impl Plan {
@@ -708,6 +838,7 @@ impl Plan {
         Plan {
             hosting_list: plan.hosting_list.into_iter().map(Hosting::from).collect(),
             walking_path: plan.walking_path.clone(),
+            stale_since: plan.stale_at,
         }
     }
 
@@ -715,11 +846,71 @@ impl Plan {
         plan::Plan {
             hosting_list: self.hosting_list.iter().map(Hosting::to).collect(),
             walking_path: self.walking_path.clone(),
+            // Irrelevant on write — newly inserted plan rows always start
+            // fresh (see migration: stale_at has no default, new INSERTs
+            // via plan::create_or_update leave it NULL).
+            stale_at: None,
         }
     }
 }
 
 impl IntoResponse for Plan {
+    fn into_response(self) -> Response {
+        (StatusCode::OK, Json(self)).into_response()
+    }
+}
+
+// Audit log models
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditLogEntry {
+    pub id: Uuid,
+    pub actor_type: crate::db::models::AuditActorType,
+    pub actor_label: Option<String>,
+    pub action: crate::db::models::AuditAction,
+    pub changes: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+impl AuditLogEntry {
+    pub fn from(entry: crate::audit_log::AuditLogEntry) -> Self {
+        AuditLogEntry {
+            id: entry.id,
+            actor_type: entry.actor_type,
+            actor_label: entry.actor_label,
+            action: entry.action,
+            changes: entry.changes,
+            created_at: entry.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditLogResponse {
+    pub data: Vec<AuditLogEntry>,
+    pub pagination: PaginationInfo,
+}
+
+impl IntoResponse for AuditLogResponse {
+    fn into_response(self) -> Response {
+        (StatusCode::OK, Json(self)).into_response()
+    }
+}
+
+// Route-mail trigger models
+#[derive(Debug, Clone, Serialize)]
+pub struct RouteMailFailure {
+    pub team_id: Uuid,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RouteMailTriggerResponse {
+    pub sent_to_team_ids: Vec<Uuid>,
+    pub skipped_no_mail_team_ids: Vec<Uuid>,
+    pub failed: Vec<RouteMailFailure>,
+}
+
+impl IntoResponse for RouteMailTriggerResponse {
     fn into_response(self) -> Response {
         (StatusCode::OK, Json(self)).into_response()
     }

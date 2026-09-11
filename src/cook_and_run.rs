@@ -20,6 +20,7 @@ pub struct CookAndRunMeta {
     pub created: DateTime<Utc>,
     pub edited: DateTime<Utc>,
     pub occur: DateTime<Utc>,
+    pub admin_notification_email: Option<String>,
 }
 
 impl CookAndRunMeta {
@@ -31,6 +32,7 @@ impl CookAndRunMeta {
             created: cook_and_run.created,
             edited: cook_and_run.edited,
             occur: cook_and_run.occur,
+            admin_notification_email: cook_and_run.admin_notification_email,
         }
     }
     fn to_db(&self) -> CookAndRunUpdate<'_> {
@@ -38,6 +40,7 @@ impl CookAndRunMeta {
             name: &self.name,
             edited: &self.edited,
             occur: &self.occur,
+            admin_notification_email: self.admin_notification_email.as_deref(),
         }
     }
 }
@@ -49,6 +52,7 @@ pub struct CookAndRunCreate<'a> {
     pub created: &'a DateTime<Utc>,
     pub edited: &'a DateTime<Utc>,
     pub occur: &'a DateTime<Utc>,
+    pub admin_notification_email: Option<&'a str>,
 }
 
 impl<'a> CookAndRunCreate<'a> {
@@ -60,6 +64,7 @@ impl<'a> CookAndRunCreate<'a> {
             created: self.created,
             edited: self.edited,
             occur: self.occur,
+            admin_notification_email: self.admin_notification_email,
         }
     }
 }

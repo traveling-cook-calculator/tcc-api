@@ -31,33 +31,37 @@ pub struct CreateShareConfigRequest {
         message = "must be between 1 and 5,000 characters"
     ))]
     pub invite_text: String,
-    pub needs_login: bool,
+    pub require_email_verification: bool,
     pub default_needs_check: bool,
     pub required_fields: Vec<RequiredField>,
     #[validate(range(min = 1, max = 10_000, message = "must be between 1 and 10,000"))]
     pub max_teams: Option<u32>,
     pub registration_deadline: Option<DateTime<Utc>>,
+    pub edit_deadline: Option<DateTime<Utc>>,
+    pub review_trigger_fields: Vec<RequiredField>,
+    pub notify_admin_on_review: bool,
 }
 
 impl CreateShareConfigRequest {
     pub fn to(&self, share_id: &Uuid, time: &DateTime<Utc>) -> crate::sharing::ShareTeamConfig {
+        let map_field = |f: &RequiredField| match f {
+            RequiredField::Mail => crate::sharing::RequiredField::Mail,
+            RequiredField::Phone => crate::sharing::RequiredField::Phone,
+            RequiredField::Members => crate::sharing::RequiredField::Members,
+            RequiredField::Diets => crate::sharing::RequiredField::Diets,
+        };
+
         crate::sharing::ShareTeamConfig {
             id: *share_id,
             invite_text: self.invite_text.clone(),
-            needs_login: self.needs_login,
+            require_email_verification: self.require_email_verification,
             default_needs_check: self.default_needs_check,
-            required_fields: self
-                .required_fields
-                .iter()
-                .map(|f| match f {
-                    RequiredField::Mail => crate::sharing::RequiredField::Mail,
-                    RequiredField::Phone => crate::sharing::RequiredField::Phone,
-                    RequiredField::Members => crate::sharing::RequiredField::Members,
-                    RequiredField::Diets => crate::sharing::RequiredField::Diets,
-                })
-                .collect(),
+            required_fields: self.required_fields.iter().map(map_field).collect(),
             max_teams: self.max_teams,
             registration_deadline: self.registration_deadline,
+            edit_deadline: self.edit_deadline,
+            review_trigger_fields: self.review_trigger_fields.iter().map(map_field).collect(),
+            notify_admin_on_review: self.notify_admin_on_review,
             created: *time,
         }
     }

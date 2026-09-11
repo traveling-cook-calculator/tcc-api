@@ -1,0 +1,6 @@
+{{heading}}
+
+{{intro_prefix}} {{team_name}}{{intro_middle}}{{cook_and_run_name}}{{intro_suffix}}
+{{reason_summary}}
+
+{{button_label}}: {{admin_team_link_url}}

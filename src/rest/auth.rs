@@ -12,6 +12,7 @@ use tracing::{debug, warn};
 use crate::error::AppError;
 
 pub const USER_ROLE: &str = "user";
+pub const ACCESS_TOKEN_HEADER: &str = "x-access-token";
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -118,22 +119,6 @@ pub struct Jwks {
 // ---------------------------------------------------------------------------
 
 /// Server-side authentication state for Keycloak.
-///
-/// # Configuration
-/// | Field                | Example                         |
-/// |----------------------|---------------------------------|
-/// | `keycloak_domain`    | `https://auth.example.com`      |
-/// | `keycloak_realm`     | `myrealm`                       |
-/// | `keycloak_client_id` | `myapp-backend`                 |
-///
-/// The **JWKS URL** is constructed internally as
-/// `{domain}/realms/{realm}/protocol/openid-connect/certs`.
-///
-/// The **issuer** is validated as `{domain}/realms/{realm}`.
-///
-/// The **audience** is validated against `keycloak_client_id`. For this to
-/// work, an *Audience Mapper* must be configured in the Keycloak client so
-/// that the client ID is written into the `aud` claim.
 #[derive(Clone, Debug)]
 pub struct AuthState {
     pub keycloak_domain: String,
@@ -184,12 +169,6 @@ impl AuthState {
     }
 
     /// Verifies a Bearer token and returns the extracted claims on success.
-    ///
-    /// The following are validated:
-    /// - Signature (RS256, key looked up from JWKS via `kid`)
-    /// - Issuer (`{domain}/realms/{realm}`)
-    /// - Audience (`keycloak_client_id`)
-    /// - Expiry (`exp`)
     pub fn verify_token(&self, token: &str) -> Result<Claims, AppError> {
         debug!("Verifying Keycloak token.");
 
@@ -248,12 +227,6 @@ impl AuthState {
     }
 
     /// Checks whether the given claims contain a specific permission.
-    ///
-    /// Lookup order:
-    /// 1. **Client roles** in `resource_access.<client_id>.roles`
-    ///    (preferred, as they are more fine-grained)
-    /// 2. **Realm roles** in `realm_access.roles`
-    /// 3. **Scope** string as a fallback (OAuth2 standard)
     pub fn has_permission(&self, claims: &Claims, required_permission: &str) -> bool {
         debug!(
             user = %claims.sub,
@@ -261,14 +234,12 @@ impl AuthState {
             "Checking Keycloak permissions for user."
         );
 
-        // 1. Client-specific roles
         if let Some(client_access) = claims.resource_access.get(&self.keycloak_client_id) {
             if client_access.roles.iter().any(|r| r == required_permission) {
                 return true;
             }
         }
 
-        // 2. Realm-wide roles
         if claims
             .realm_access
             .roles
@@ -278,7 +249,6 @@ impl AuthState {
             return true;
         }
 
-        // 3. Fallback: scope string (OAuth2 standard)
         if let Some(scope) = &claims.scope {
             if scope.split_whitespace().any(|s| s == required_permission) {
                 return true;
@@ -294,21 +264,6 @@ impl AuthState {
 // ---------------------------------------------------------------------------
 
 /// Middleware factory that requires a specific permission string.
-///
-/// Validates the `Authorization: Bearer <token>` header, verifies the token,
-/// and ensures the claims contain the requested permission. On success the
-/// `Claims` are inserted as a request extension and are available to
-/// downstream handlers.
-///
-/// # Example
-/// ```rust
-/// Router::new()
-///     .route("/projects", post(create_project))
-///     .route_layer(middleware::from_fn_with_state(
-///         state.clone(),
-///         require_permission(CREATE_PERMISSION),
-///     ))
-/// ```
 #[allow(clippy::type_complexity)]
 pub fn require_permission(
     permission: &'static str,

@@ -49,9 +49,6 @@ pub enum AppError {
     #[error("Registration deadline for project {1} exceeded: {0}")]
     DeadlineExceeded(DateTime<Utc>, Uuid),
 
-    #[error("User needs to be logged in to create a team in project {0}")]
-    NeedLoginToCreateTeam(Uuid),
-
     #[error("Maximum number of teams exceeded: {0} for project {1}")]
     MaxTeamSizeExceeded(u32, Uuid),
 
@@ -63,6 +60,24 @@ pub enum AppError {
 
     #[error("Error while authorizing: {0}")]
     AuthorizationError(String),
+
+    #[error("No team found for the given access token")]
+    TeamNotFoundByToken,
+
+    #[error("Verification resend limit exceeded ({0} attempts)")]
+    VerificationResendLimitExceeded(i32),
+
+    #[error("Team is canceled and can no longer be edited")]
+    TeamCanceled,
+
+    #[error("Missing required header: {0}")]
+    MissingHeader(String),
+
+    #[error("Edit deadline exceeded: {0}")]
+    EditDeadlineExceeded(DateTime<Utc>),
+
+    #[error("Plan for project {0} is stale and must be confirmed or recomputed before sending route emails")]
+    PlanIsStale(Uuid),
 
     #[error(transparent)]
     JsonRejection(#[from] JsonRejection),
@@ -128,9 +143,6 @@ impl AppError {
             AppError::DeadlineExceeded(deadline, project_id) => {
                 tracing::warn!(project.id = %project_id, deadline = ?deadline, "Registration deadline exceeded");
             }
-            AppError::NeedLoginToCreateTeam(project_id) => {
-                tracing::warn!(project.id = %project_id, "User needs to be logged in to create a team");
-            }
             AppError::MaxTeamSizeExceeded(max_teams, project_id) => {
                 tracing::warn!(project.id = %project_id, max_teams = %max_teams, "Maximum number of teams exceeded");
             }
@@ -149,6 +161,24 @@ impl AppError {
             AppError::AuthorizationError(auth_error) => {
                 tracing::warn!(error = %auth_error, "Authorization error occurred");
             }
+            AppError::TeamNotFoundByToken => {
+                tracing::warn!("Team not found for given access token");
+            }
+            AppError::VerificationResendLimitExceeded(count) => {
+                tracing::warn!(attempts = %count, "Verification resend limit exceeded");
+            }
+            AppError::TeamCanceled => {
+                tracing::warn!("Attempted to edit a canceled team");
+            }
+            AppError::MissingHeader(header) => {
+                tracing::warn!(header = %header, "Missing required header");
+            }
+            AppError::EditDeadlineExceeded(deadline) => {
+                tracing::warn!(deadline = ?deadline, "Edit deadline exceeded");
+            }
+            AppError::PlanIsStale(project_id) => {
+                tracing::warn!(project.id = %project_id, "Attempted to send route mails with a stale plan");
+            }
         }
     }
 }
@@ -158,11 +188,13 @@ impl IntoResponse for AppError {
         self.log();
         let status = match self {
             AppError::DeadlineExceeded(_, _)
-            | AppError::NeedLoginToCreateTeam(_)
             | AppError::MaxTeamSizeExceeded(_, _)
             | AppError::MissingField(_, _)
             | AppError::ValidationError(_)
-            | AppError::JsonRejection(_) => StatusCode::BAD_REQUEST,
+            | AppError::JsonRejection(_)
+            | AppError::VerificationResendLimitExceeded(_)
+            | AppError::EditDeadlineExceeded(_)
+            | AppError::MissingHeader(_) => StatusCode::BAD_REQUEST,
             AppError::AddressNotFound(_)
             | AppError::ProjectNotFound(_)
             | AppError::CourseNotFound(_, _, _)
@@ -173,13 +205,16 @@ impl IntoResponse for AppError {
             | AppError::EndPointNotFound(_)
             | AppError::TeamNotFound(_, _, _)
             | AppError::NoteNotFound(_, _, _, _)
-            | AppError::SharingConfigNotFound(_, _) => StatusCode::NOT_FOUND,
+            | AppError::SharingConfigNotFound(_, _)
+            | AppError::TeamNotFoundByToken => StatusCode::NOT_FOUND,
             AppError::DatabaseError(_)
             | AppError::InternalError(_)
             | AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Unauthorized(_, _) | AppError::AuthorizationError(_) => {
                 StatusCode::UNAUTHORIZED
             }
+            AppError::TeamCanceled => StatusCode::CONFLICT,
+            AppError::PlanIsStale(_) => StatusCode::CONFLICT,
         };
 
         let error_message = match status.is_server_error() {
