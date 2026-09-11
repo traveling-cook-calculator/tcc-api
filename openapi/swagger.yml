@@ -1,73 +1,137 @@
-openapi: 3.0.0
+# NOTE ON SOURCES
+# This file was rewritten from scratch rather than incrementally patched.
+# It is based on:
+#   1. The full REST layer for cook_and_run, team, sharing, and plan
+#      (src/rest/cook_and_run.rs, team.rs, sharing.rs, plan.rs, auth.rs,
+#      models.rs) as finalized in the v0.2.0 email/self-service feature work.
+#   2. The previous swagger.yml, for the Courses and Team Notes sections
+#      ONLY — those REST handlers (src/rest/course.rs, note.rs) were not
+#      touched by this feature and were not reviewed source-by-source here,
+#      so their request/response shapes are carried forward as best-effort
+#      and should be spot-checked against src/rest/course.rs / note.rs /
+#      src/rest/health.rs before being treated as fully authoritative.
+# The previous document described several things that do not match the
+# actual implementation (Auth0 instead of Keycloak, a richer error body with
+# "message"/"details"/"timestamp" fields, 201/422 status codes on endpoints
+# that actually return 200/400 with an empty or minimal body). These have
+# been corrected below to match the real handler behavior.
+
+openapi: 3.0.3
+
 info:
-  version: 1.0.0
+  version: 0.2.0
   title: Traveling Cook Calculator API
   description: |
-    RESTful API for managing Cook and Run events - social cooking experiences where teams 
-    cook different courses at different locations and travel between them.
+    RESTful API for managing Cook and Run events — social cooking experiences
+    where teams cook different courses at different locations and travel
+    between them.
 
     ## Authentication
-    All endpoints require a valid JWT Bearer token from Auth0, except for public team registration 
-    via sharing links.
 
-    The JWT token should contain:
-    - `sub`: User ID (from Auth0)
-    - `aud`: Audience (matches AUTH0_AUDIENCE environment variable)
-    - `exp`: Token expiration time
-    - `iss`: Token issuer
+    Two independent authentication mechanisms are supported, depending on
+    the caller's role:
 
-    Include the token in the `Authorization` header:
-    ```
-    Authorization: Bearer {token}
-    ```
+    - **Organizer (admin) endpoints** require a Keycloak-issued JWT Bearer
+      token, validated against the configured realm's JWKS. The token must
+      contain a `sub` claim (used as the resource owner ID) and either the
+      `user` realm role or the equivalent client role.
+    - **Participant self-service endpoints** (accessing a team without a
+      Keycloak account) use a per-team, server-generated opaque token sent
+      as the `X-Access-Token` header. This token is delivered to the
+      participant via the invitation email (or, if no email address was
+      given at creation, returned directly in the team-creation response).
 
-    ## Rate Limiting
-    - 5 requests per second per IP address
+    Some endpoints accept **either** mechanism (see each operation's
+    `security` block); the JWT is checked first, and the request is treated
+    as a participant request only if no valid `Authorization` header is
+    present.
+
+    ## Rate limiting
+
+    - 5 requests/second per IP address (token bucket)
     - 20 request burst capacity per IP
+    - Exceeding the limit returns `429` with a `Retry-After` header.
 
-    ## Error Handling
-    All error responses follow this format:
+    ## Error handling
+
+    All error responses share a single, minimal shape:
+
     ```json
-    {
-      "error": "ERROR_CODE",
-      "message": "Human-readable message",
-      "details": [
-        {
-          "field": "field_name",
-          "message": "Specific field error"
-        }
-      ],
-      "timestamp": "2024-05-15T10:30:00Z"
-    }
+    { "error": "Human-readable error description" }
     ```
+
+    For `5xx` responses the `error` field is always the literal string
+    `"Internal Server Error"` (internal details are logged server-side but
+    never returned to the client). For `4xx` responses, `error` is a
+    specific, stable-ish description of what went wrong (not a machine
+    parseable error code) — do not pattern-match on its exact wording;
+    match on the HTTP status code instead.
 
 servers:
   - url: http://0.0.0.0:3000
     description: Local development server
   - url: https://api.traveling-cook.example.com
-    description: Production server (placeholder)
+    description: Production server (placeholder — replace with the real deployment URL)
 
 security:
   - bearerAuth: []
 
+tags:
+  - name: Cook and Run
+    description: Event/project management (organizer only).
+  - name: Locations
+    description: Start and end point of an event.
+  - name: Courses
+    description: Courses cooked during an event.
+  - name: Teams
+    description: Team creation, self-service, lifecycle, and audit history.
+  - name: Team Notes
+    description: Free-text notes attached to a team.
+  - name: Team Sharing
+    description: Public self-registration configuration for participants.
+  - name: Event Planning
+    description: Route/plan generation, staleness tracking, and route-mail dispatch.
+  - name: Health
+    description: Service liveness check.
+
 paths:
+  /health:
+    get:
+      summary: Health check
+      description: |
+        Liveness/readiness check. Response shape is not fully verified as
+        part of this document's review — spot-check against
+        `src/rest/health.rs` before relying on a specific body shape.
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Health
+
   /cook_and_run:
     get:
       summary: List all cook and run projects for a user
-      description: Returns a paginated list of all cook and run projects created by the authenticated user.
+      description: |
+        Returns all cook and run projects owned by the given user.
+        `page`/`limit`/`sort` are accepted but not currently applied to
+        filtering or true pagination — `pagination.total` reflects the
+        real result count, while `total_pages`/`has_next`/`has_prev` are
+        not computed for this endpoint (always `0`/`false`).
       operationId: listCookAndRunProjects
       parameters:
         - name: userId
           in: query
           required: true
-          description: ID of the user (must match the JWT subject for authorization)
+          description: ID of the user (must match the JWT `sub` claim)
           schema:
             type: string
-            example: "auth0|user123"
         - name: page
           in: query
           required: false
-          description: Page number for pagination (1-based)
           schema:
             type: integer
             minimum: 1
@@ -75,7 +139,6 @@ paths:
         - name: limit
           in: query
           required: false
-          description: Number of items per page
           schema:
             type: integer
             minimum: 1
@@ -84,18 +147,18 @@ paths:
         - name: sort
           in: query
           required: false
-          description: Sort field and direction
+          description: Accepted but not currently applied server-side.
           schema:
             type: string
             enum: [created_asc, created_desc, name_asc, name_desc, edited_asc, edited_desc]
-            default: created_desc
       responses:
         '200':
-          description: Successful list of cook and run projects
+          description: List of cook and run projects
           content:
             application/json:
               schema:
                 type: object
+                required: [data, pagination]
                 properties:
                   data:
                     type: array
@@ -103,15 +166,10 @@ paths:
                       $ref: '#/components/schemas/CookAndRunMeta'
                   pagination:
                     $ref: '#/components/schemas/PaginationInfo'
-                required:
-                  - data
-                  - pagination
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
         '429':
           $ref: '#/components/responses/RateLimitError'
         '500':
@@ -122,45 +180,43 @@ paths:
   /cook_and_run/{cookAndRunId}:
     post:
       summary: Create a new cook and run project
-      description: Creates a new cook and run project with the specified ID.
+      description: |
+        Creates a new project with the given ID. `admin_notification_email`
+        is mandatory as of v0.2.0 and seeds the address later used for
+        review/cancellation notifications — see the Team Sharing section.
       operationId: createCookAndRunProject
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       requestBody:
-        $ref: '#/components/requestBodies/CreateCookAndRunRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CookAndRunCreateRequest'
       responses:
-        '201':
-          description: Cook and Run project created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CookAndRun'
+        '200':
+          description: Project created successfully (idempotent — repeating the same ID does not error)
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
-        '409':
-          description: Cook and Run project with this ID already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Cook and Run
-
     get:
       summary: Get cook and run project details
-      description: Returns complete details of a cook and run project including all teams, courses, and configuration.
+      description: |
+        Returns the full aggregate: teams, courses, start/end point, share
+        configuration, plan (including staleness), and plan configuration.
       operationId: getCookAndRunProject
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
         '200':
-          description: Cook and Run project details
+          description: Full project details
           content:
             application/json:
               schema:
@@ -169,26 +225,27 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Cook and Run
-
     delete:
-      summary: Delete cook and run project
-      description: |
-        Permanently deletes a cook and run project and all associated data.
-        This action cannot be undone and requires DELETE permission.
+      summary: Delete a cook and run project
+      description: Permanently deletes the project and its start/end points. Cannot be undone.
       operationId: deleteCookAndRunProject
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
-        '204':
-          description: Cook and Run project deleted successfully
+        '200':
+          description: Project deleted successfully
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -196,14 +253,13 @@ paths:
 
   /cook_and_run/{cookAndRunId}/metadata:
     get:
-      summary: Get cook and run project metadata
-      description: Returns only the metadata of a cook and run project (name, dates, etc.)
+      summary: Get project metadata
       operationId: getCookAndRunMetadata
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
         '200':
-          description: Cook and Run metadata
+          description: Project metadata
           content:
             application/json:
               schema:
@@ -212,34 +268,38 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Cook and Run
-
     patch:
-      summary: Update cook and run project metadata
-      description: Updates the name and occurrence date of a cook and run project.
+      summary: Update project metadata
+      description: |
+        Full replacement of name, occurrence date, and
+        `admin_notification_email` (all three are mandatory in the request
+        body — this is not a partial patch).
       operationId: updateCookAndRunMetadata
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       requestBody:
-        $ref: '#/components/requestBodies/UpdateMetaRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMetaRequest'
       responses:
         '200':
           description: Metadata updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CookAndRunMeta'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -247,14 +307,13 @@ paths:
 
   /cook_and_run/{cookAndRunId}/start_point:
     get:
-      summary: Get the start point location
-      description: Returns the starting location for the cook and run event.
+      summary: Get the start point
       operationId: getStartPoint
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
         '200':
-          description: Start point location
+          description: Start point
           content:
             application/json:
               schema:
@@ -262,57 +321,58 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: Start point not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Locations
-
     patch:
-      summary: Set or update the start point location
-      description: Creates or updates the starting location for the cook and run event.
+      summary: Set or replace the start point
+      description: |
+        Creates or overwrites the start point. As of v0.2.0 this also marks
+        the project's plan as stale (see `Plan.stale_since`), since a
+        changed start location may invalidate previously computed routes.
       operationId: updateStartPoint
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       requestBody:
-        $ref: '#/components/requestBodies/UpdatePointRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Point'
       responses:
         '200':
           description: Start point updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Point'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Locations
-
     delete:
-      summary: Remove the start point location
-      description: Deletes the start point from the cook and run event.
+      summary: Remove the start point
+      description: Also marks the plan as stale, as with PATCH above.
       operationId: deleteStartPoint
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
-        '204':
+        '200':
           description: Start point deleted successfully
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -320,14 +380,13 @@ paths:
 
   /cook_and_run/{cookAndRunId}/end_point:
     get:
-      summary: Get the end point location
-      description: Returns the ending location for the cook and run event.
+      summary: Get the end point
       operationId: getEndPoint
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
         '200':
-          description: End point location
+          description: End point
           content:
             application/json:
               schema:
@@ -335,57 +394,55 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: End point not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Locations
-
     patch:
-      summary: Set or update the end point location
-      description: Creates or updates the ending location for the cook and run event.
+      summary: Set or replace the end point
+      description: Also marks the project's plan as stale (see start_point above).
       operationId: updateEndPoint
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       requestBody:
-        $ref: '#/components/requestBodies/UpdatePointRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Point'
       responses:
         '200':
           description: End point updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Point'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Locations
-
     delete:
-      summary: Remove the end point location
-      description: Deletes the end point from the cook and run event.
+      summary: Remove the end point
+      description: Also marks the plan as stale, as with PATCH above.
       operationId: deleteEndPoint
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
-        '204':
+        '200':
           description: End point deleted successfully
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -394,18 +451,16 @@ paths:
   /cook_and_run/{cookAndRunId}/courses:
     get:
       summary: List all courses
-      description: Returns all courses for a cook and run project with optional sorting.
+      description: 'Not part of the v0.2.0 feature work — carried forward, see the file header note.'
       operationId: listCourses
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
         - name: sort
           in: query
           required: false
-          description: Sort courses by time
           schema:
             type: string
             enum: [time_asc, time_desc]
-            default: time_asc
       responses:
         '200':
           description: List of courses
@@ -413,6 +468,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, pagination]
                 properties:
                   data:
                     type: array
@@ -420,13 +476,12 @@ paths:
                       $ref: '#/components/schemas/Course'
                   pagination:
                     $ref: '#/components/schemas/PaginationInfo'
-                required:
-                  - data
-                  - pagination
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -434,43 +489,35 @@ paths:
 
   /cook_and_run/{cookAndRunId}/course/{courseId}:
     post:
-      summary: Create a new course
-      description: Creates a new course for the cook and run event.
+      summary: Create a course
+      description: 'Client-generated ID (same pattern as team creation). Not part of the v0.2.0 feature work — see file header note.'
       operationId: createCourse
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
         - $ref: '#/components/parameters/CourseId'
       requestBody:
-        $ref: '#/components/requestBodies/CreateCourseRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseCreateRequest'
       responses:
-        '201':
+        '200':
           description: Course created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Course'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '409':
-          description: Course with this ID already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Courses
-
     get:
       summary: Get course details
-      description: Returns detailed information about a specific course.
       operationId: getCourse
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
@@ -486,54 +533,54 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Courses
-
     patch:
-      summary: Update course information
-      description: Updates the name, time, or configuration of a course.
+      summary: Update a course
       operationId: updateCourse
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
         - $ref: '#/components/parameters/CourseId'
       requestBody:
-        $ref: '#/components/requestBodies/UpdateCourseRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseUpdateRequest'
       responses:
         '200':
           description: Course updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Course'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Courses
-
     delete:
       summary: Delete a course
-      description: Permanently deletes a course from the cook and run event.
       operationId: deleteCourse
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
         - $ref: '#/components/parameters/CourseId'
       responses:
-        '204':
+        '200':
           description: Course deleted successfully
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -542,10 +589,237 @@ paths:
   /cook_and_run/{cookAndRunId}/teams:
     get:
       summary: List all teams
-      description: Returns all teams registered for a cook and run event with pagination.
+      description: |
+        `page`/`limit`/`sort` are currently accepted but not applied —
+        the response contains every team for the project, and
+        `pagination` is a fixed stub (not a real page count).
       operationId: listTeams
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [name_asc, name_desc, created_asc, created_desc]
+      responses:
+        '200':
+          description: List of teams
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Team'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationInfo'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Teams
+
+  /cook_and_run/{cookAndRunId}/team/{teamId}:
+    post:
+      summary: Create (register) a team
+      description: |
+        Client-generated `teamId`. Authentication is optional:
+
+        - **Authenticated (organizer-created team):** the team is linked to
+          the caller and always starts as `active`; share-config checks
+          (deadline, capacity, required fields) do not apply to the owner.
+        - **Unauthenticated (participant self-registration via a share
+          link):** the request is validated against the active
+          `ShareTeamConfig` for the project (registration deadline, max
+          team count, required fields). The initial `status` is `review` if
+          `ShareTeamConfig.default_needs_check` is `true`, otherwise
+          `active`.
+
+        `mail` is **not** mandatory unless the active share configuration
+        lists `mail` in `required_fields`. If no `mail` is supplied, the
+        response includes `access_link` — the only way to reach the team
+        afterwards, since no invitation email can be sent. If `mail` is
+        supplied, `access_link` is omitted and the deeplink is delivered by
+        email instead.
+
+        Retrying with the same `teamId` is idempotent.
+      operationId: createTeam
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - $ref: '#/components/parameters/TeamId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCreateRequest'
+      responses:
+        '201':
+          description: Team created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamCreateResponse'
+        '400':
+          description: Validation error, missing required field, registration deadline exceeded, or team capacity exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Teams
+    get:
+      summary: Get team details (dual authentication)
+      description: |
+        Callable either by the project organizer (`Authorization: Bearer`)
+        or by the team itself (`X-Access-Token`). When called with a
+        participant token, the response also includes `edit_deadline`
+        (derived from the active share configuration); this field is
+        omitted for organizer calls.
+
+        A token that does not belong to `teamId`/`cookAndRunId` returns
+        `404` (not `403`) to avoid revealing whether the IDs exist.
+      operationId: getTeam
+      security:
+        - bearerAuth: []
+        - participantAccessToken: []
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - $ref: '#/components/parameters/TeamId'
+      responses:
+        '200':
+          description: Team details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamSelfServiceResponse'
+        '400':
+          description: Missing X-Access-Token header (when no Authorization header is present either)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Teams
+    patch:
+      summary: Update team details (dual authentication)
+      description: |
+        Same dual-auth model as GET above. A team with `status = canceled`
+        can no longer be edited by anyone (`409`). For a participant call,
+        editing after `share.edit_deadline` has passed also fails (`400`).
+
+        If a field listed in the active `review_trigger_fields` changes via
+        a **participant** call, `status` becomes `review` and, if enabled,
+        the organizer receives an email notification. Organizer-initiated
+        edits never trigger this transition.
+      operationId: updateTeam
+      security:
+        - bearerAuth: []
+        - participantAccessToken: []
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - $ref: '#/components/parameters/TeamId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamUpdateRequest'
+      responses:
+        '200':
+          description: Team updated successfully
+        '400':
+          description: Validation error, missing X-Access-Token header, or edit deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Team is canceled and can no longer be edited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Teams
+    delete:
+      summary: Delete a team (organizer only, permanent)
+      description: |
+        Hard delete — distinct from participant cancellation. If the team
+        was part of a computed plan, the plan is marked stale as a side
+        effect. No audit-log entry is written for this action (it would be
+        cascade-deleted along with the team immediately).
+      operationId: deleteTeam
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - $ref: '#/components/parameters/TeamId'
+      responses:
+        '200':
+          description: Team deleted successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Teams
+
+  /cook_and_run/{cookAndRunId}/team/{teamId}/audit-log:
+    get:
+      summary: Get a team's change history
+      description: Organizer only. Records creation, updates (with before/after diffs), cancellation, and plan-invalidation events.
+      operationId: getTeamAuditLog
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - $ref: '#/components/parameters/TeamId'
         - name: page
           in: query
           required: false
@@ -559,150 +833,130 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 20
-        - name: sort
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [name_asc, name_desc, created_asc, created_desc]
-            default: created_asc
+            maximum: 200
+            default: 50
       responses:
         '200':
-          description: List of teams
+          description: Paginated audit log
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Team'
-                  pagination:
-                    $ref: '#/components/schemas/PaginationInfo'
-                required:
-                  - data
-                  - pagination
+                $ref: '#/components/schemas/AuditLogResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Teams
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}:
+  /cook_and_run/{cookAndRunId}/team/{teamId}/resend-verification:
     post:
-      summary: Create or register a team
+      summary: Resend the verification email (dual authentication)
       description: |
-        Creates a new team for the cook and run event. Can be called without authentication
-        if public team registration is enabled via sharing configuration. If authenticated, 
-        the user_id is verified against the JWT subject.
-      operationId: createTeam
+        Same URL for both roles; distinguished purely by which credential
+        is presented:
+
+        - **Organizer** (`Authorization: Bearer`): no attempt limit.
+        - **Participant** (`X-Access-Token`): limited to 3 resend attempts
+          per team; a 4th attempt returns `400`.
+      operationId: resendVerification
+      security:
+        - bearerAuth: []
+        - participantAccessToken: []
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - $ref: '#/components/parameters/TeamId'
+      responses:
+        '200':
+          description: Verification email re-enqueued
+        '400':
+          description: Missing X-Access-Token header, or the participant resend limit (3) was exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Teams
+
+  /cook_and_run/{cookAndRunId}/team/{teamId}/cancel:
+    post:
+      summary: Cancel the team (participant only)
+      description: |
+        Participant self-service only — the organizer cancels by deleting
+        the team instead (`DELETE .../team/{teamId}`). The team is never
+        removed; only its `status` changes to `canceled`. Idempotent: a
+        second call is a no-op and does not overwrite the recorded reason
+        or emit a duplicate notification/audit entry. If the active share
+        configuration has `notify_admin_on_review = true` and the project
+        has an `admin_notification_email`, the organizer is notified.
+      operationId: cancelTeam
+      security:
+        - participantAccessToken: []
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
         - $ref: '#/components/parameters/TeamId'
       requestBody:
-        $ref: '#/components/requestBodies/CreateTeamRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelTeamRequest'
       responses:
-        '201':
-          description: Team created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Team'
+        '200':
+          description: Team canceled (or already canceled — no-op)
         '400':
-          $ref: '#/components/responses/BadRequestError'
-        '401':
-          description: Unauthorized - user must be logged in for this project
+          description: Missing X-Access-Token header, edit deadline exceeded, or validation error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '409':
-          description: Team with this ID already exists or max teams exceeded
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Teams
+
+  /cook_and_run/{cookAndRunId}/team/{teamId}/verify:
+    post:
+      summary: Confirm the team's email address (participant only)
+      description: |
+        Deliberately a `POST` rather than a `GET`, so that email clients or
+        security scanners that prefetch links in the invitation email
+        cannot accidentally trigger verification just by opening the mail.
+      operationId: verifyTeamEmail
+      security:
+        - participantAccessToken: []
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - $ref: '#/components/parameters/TeamId'
+      responses:
+        '200':
+          description: Email address confirmed
+        '400':
+          description: Missing X-Access-Token header
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      tags:
-        - Teams
-
-    get:
-      summary: Get team details
-      description: Returns complete information about a specific team.
-      operationId: getTeam
-      parameters:
-        - $ref: '#/components/parameters/CookAndRunId'
-        - $ref: '#/components/parameters/TeamId'
-      responses:
-        '200':
-          description: Team details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Team'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      tags:
-        - Teams
-
-    patch:
-      summary: Update team information
-      description: Updates team details including name, address, contact info, and dietary requirements.
-      operationId: updateTeam
-      parameters:
-        - $ref: '#/components/parameters/CookAndRunId'
-        - $ref: '#/components/parameters/TeamId'
-      requestBody:
-        $ref: '#/components/requestBodies/UpdateTeamRequest'
-      responses:
-        '200':
-          description: Team updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Team'
-        '400':
-          $ref: '#/components/responses/BadRequestError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      tags:
-        - Teams
-
-    delete:
-      summary: Delete a team
-      description: Permanently removes a team from the cook and run event.
-      operationId: deleteTeam
-      parameters:
-        - $ref: '#/components/parameters/CookAndRunId'
-        - $ref: '#/components/parameters/TeamId'
-      responses:
-        '204':
-          description: Team deleted successfully
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -710,8 +964,8 @@ paths:
 
   /cook_and_run/{cookAndRunId}/team/{teamId}/notes:
     get:
-      summary: Get all notes for a team
-      description: Returns all notes and comments associated with a specific team.
+      summary: List all notes for a team
+      description: 'Not part of the v0.2.0 feature work — carried forward, see the file header note.'
       operationId: getTeamNotes
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
@@ -722,14 +976,14 @@ paths:
           schema:
             type: string
             enum: [created_asc, created_desc]
-            default: created_desc
       responses:
         '200':
-          description: List of team notes
+          description: List of notes
           content:
             application/json:
               schema:
                 type: object
+                required: [data, pagination]
                 properties:
                   data:
                     type: array
@@ -737,13 +991,12 @@ paths:
                       $ref: '#/components/schemas/Note'
                   pagination:
                     $ref: '#/components/schemas/PaginationInfo'
-                required:
-                  - data
-                  - pagination
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -751,8 +1004,7 @@ paths:
 
   /cook_and_run/{cookAndRunId}/team/{teamId}/note/{noteId}:
     get:
-      summary: Get a specific note
-      description: Returns details of a specific note for a team.
+      summary: Get a note
       operationId: getNote
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
@@ -769,62 +1021,57 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Team Notes
-
     post:
       summary: Create a note for a team
-      description: Creates a new note or comment for a team. Can include dietary requirements, logistics, or other relevant information.
+      description: 'Client-generated `noteId`, same pattern as team/course creation.'
       operationId: createTeamNote
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
         - $ref: '#/components/parameters/TeamId'
         - $ref: '#/components/parameters/NoteId'
       requestBody:
-        $ref: '#/components/requestBodies/CreateNoteRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreateRequest'
       responses:
-        '201':
+        '200':
           description: Note created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Note'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '409':
-          description: Note with this ID already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Team Notes
-
     delete:
       summary: Delete a note
-      description: Permanently removes a note from a team.
       operationId: deleteTeamNote
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
         - $ref: '#/components/parameters/TeamId'
         - $ref: '#/components/parameters/NoteId'
       responses:
-        '204':
+        '200':
           description: Note deleted successfully
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -832,78 +1079,100 @@ paths:
 
   /cook_and_run/{cookAndRunId}/share_team_config:
     post:
-      summary: Create team sharing configuration
+      summary: Create the team self-registration configuration
       description: |
-        Creates a public team registration configuration. This enables teams to self-register
-        for the event via a shared link without direct organizer involvement.
+        Enables participant self-registration via a share link, and
+        configures the self-service behavior for teams created under it
+        (verification requirement, review triggers, admin notifications,
+        deadlines). A project has at most one active configuration.
       operationId: createShareTeamConfig
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       requestBody:
-        $ref: '#/components/requestBodies/CreateShareConfigRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareTeamConfigCreateRequest'
       responses:
-        '201':
-          description: Sharing configuration created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ShareTeamConfigResponse'
+        '200':
+          description: Configuration created successfully
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '409':
-          description: Sharing configuration already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Team Sharing
-
     get:
-      summary: Get team sharing configuration
-      description: Returns the public team registration configuration for the event.
+      summary: Get the sharing configuration
       operationId: getShareTeamConfig
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
         '200':
-          description: Sharing configuration details
+          description: Sharing configuration
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ShareTeamConfigResponse'
+                $ref: '#/components/schemas/ShareTeamConfig'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Team Sharing
-
-    delete:
-      summary: Delete team sharing configuration
-      description: |
-        Disables public team registration by removing the sharing configuration.
-        Existing shared links will no longer work.
-      operationId: deleteShareTeamConfig
+    patch:
+      summary: Replace the sharing configuration
+      description: Full replacement; the existing configuration's stable ID is preserved internally.
+      operationId: updateShareTeamConfig
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareTeamConfigCreateRequest'
       responses:
-        '204':
-          description: Sharing configuration deleted successfully
+        '200':
+          description: Configuration updated successfully
+        '400':
+          $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Team Sharing
+    delete:
+      summary: Delete the sharing configuration
+      description: Disables self-registration; existing share links stop working. Does not affect already-created teams.
+      operationId: deleteShareTeamConfig
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+      responses:
+        '200':
+          description: Configuration deleted successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -911,8 +1180,11 @@ paths:
 
   /cook_and_run/{cookAndRunId}/plan:
     get:
-      summary: Get the event plan
-      description: Returns the generated plan including team assignments and walking routes.
+      summary: Get the computed plan
+      description: |
+        `stale_since` is present (non-null) if the plan may no longer be
+        accurate — see the Event Planning endpoints below for what causes
+        and resolves staleness.
       operationId: getPlan
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
@@ -927,52 +1199,128 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Event Planning
-
     patch:
-      summary: Update the event plan
-      description: Updates the complete event plan including team assignments and walking routes.
+      summary: Replace the plan
+      description: |
+        Full replacement (the frontend computes the new plan and submits it
+        as a whole; partial recompute logic lives client-side). The newly
+        inserted plan always starts fresh (`stale_since` absent), so
+        replacing the plan implicitly resolves any prior staleness — no
+        separate confirm call is needed after a full recompute.
       operationId: updatePlan
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       requestBody:
-        $ref: '#/components/requestBodies/UpdatePlanRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Plan'
       responses:
         '200':
-          description: Event plan updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Plan'
+          description: Plan updated successfully
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Event Planning
+    delete:
+      summary: Delete the plan
+      operationId: deletePlan
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+      responses:
+        '200':
+          description: Plan deleted successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Event Planning
 
-    delete:
-      summary: Delete the event plan
-      description: Removes the generated plan, allowing it to be regenerated with new parameters.
-      operationId: deletePlan
+  /cook_and_run/{cookAndRunId}/plan/confirm:
+    post:
+      summary: Confirm the current plan is still valid
+      description: |
+        Clears the plan's staleness marker **without** touching the plan
+        data itself. Used when the admin has reviewed a change that
+        triggered staleness (e.g. a changed team address) and determined
+        the existing plan is still accurate — as an alternative to
+        recomputing the plan from scratch via `PATCH .../plan`.
+      operationId: confirmPlan
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
-        '204':
-          description: Event plan deleted successfully
+        '200':
+          description: Plan confirmed (staleness cleared)
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      tags:
+        - Event Planning
+
+  /cook_and_run/{cookAndRunId}/plan/send-route-mails:
+    post:
+      summary: Send route emails to teams (smart update)
+      description: |
+        Computes each non-canceled team's route from the current plan,
+        compares it against the hash recorded at the last send, and
+        enqueues a route-update email **only** for teams whose route
+        actually changed. Teams without an email address are reported as
+        skipped rather than failed. Fails with `409` if the plan is
+        currently marked stale — recompute the plan or confirm it first.
+      operationId: sendRouteMails
+      parameters:
+        - $ref: '#/components/parameters/CookAndRunId'
+        - name: force
+          in: query
+          required: false
+          description: If true, sends to every team with an email address regardless of whether their route changed.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Dispatch summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteMailTriggerResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: The plan is currently stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -980,8 +1328,7 @@ paths:
 
   /cook_and_run/{cookAndRunId}/plan_config:
     get:
-      summary: Get plan configuration
-      description: Returns the configuration used for plan generation.
+      summary: Get the plan configuration
       operationId: getPlanConfig
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
@@ -996,52 +1343,53 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Event Planning
-
     patch:
-      summary: Update plan configuration
-      description: Updates the configuration parameters for plan generation.
+      summary: Replace the plan configuration
+      description: 'Note: `language` here is the single, central source of truth for what language participant emails (invitation, route-update) are sent in.'
       operationId: updatePlanConfig
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       requestBody:
-        $ref: '#/components/requestBodies/UpdatePlanConfigRequest'
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanConfig'
       responses:
         '200':
           description: Plan configuration updated successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PlanConfig'
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-        '422':
-          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
         - Event Planning
-
     delete:
-      summary: Delete plan configuration
-      description: Removes the plan configuration, resetting it to defaults.
+      summary: Delete the plan configuration
       operationId: deletePlanConfig
       parameters:
         - $ref: '#/components/parameters/CookAndRunId'
       responses:
-        '204':
+        '200':
           description: Plan configuration deleted successfully
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
@@ -1053,248 +1401,76 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Keycloak-issued JWT. Required for all organizer (admin) operations.
+    participantAccessToken:
+      type: apiKey
+      in: header
+      name: X-Access-Token
       description: |
-        JWT token from Auth0. Include in the Authorization header:
-        `Authorization: Bearer {token}`
+        Per-team opaque self-service token, issued at team creation and
+        delivered via email (or returned directly if no email was given).
 
   parameters:
     CookAndRunId:
       name: cookAndRunId
       in: path
       required: true
-      description: Unique identifier (UUID) for the cook and run project
       schema:
         type: string
         format: uuid
-      example: "123e4567-e89b-12d3-a456-426614174000"
-
-    CourseId:
-      name: courseId
-      in: path
-      required: true
-      description: Unique identifier (UUID) for the course
-      schema:
-        type: string
-        format: uuid
-      example: "456e7890-e12b-34c5-d678-901234567890"
-
     TeamId:
       name: teamId
       in: path
       required: true
-      description: Unique identifier (UUID) for the team
       schema:
         type: string
         format: uuid
-      example: "789e0123-e45f-67g8-h901-234567890123"
-
+    CourseId:
+      name: courseId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     NoteId:
       name: noteId
       in: path
       required: true
-      description: Unique identifier (UUID) for the note
       schema:
         type: string
         format: uuid
-      example: "012e3456-e78h-90i1-j234-567890123456"
-
-  requestBodies:
-    CreateCookAndRunRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/CookAndRunCreateRequest'
-          example:
-            name: "Summer Cook & Run 2024"
-            userId: "auth0|user123"
-
-    UpdateMetaRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - name
-              - occur
-            properties:
-              name:
-                type: string
-                minLength: 1
-                maxLength: 200
-                description: New name for the project
-              occur:
-                type: string
-                format: date-time
-                description: When the event takes place (ISO 8601 format YYYY-MM-DDTHH:MM)
-            example:
-              name: "Updated Cook & Run"
-              occur: "2024-06-15T18:00"
-
-    UpdatePointRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Point'
-          example:
-            address: "Marienplatz 1, 80331 München, Germany"
-            name: "Central Meeting Point"
-            time: "18:00"
-            latitude: 48.137154
-            longitude: 11.575490
-
-    CreateCourseRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - name
-              - time
-            properties:
-              name:
-                type: string
-                minLength: 1
-                maxLength: 200
-                description: Course name (e.g., "Appetizers", "Main Course", "Dessert")
-              time:
-                type: string
-                pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
-                description: Time when this course is served (HH:MM format)
-            example:
-              name: "Appetizers"
-              time: "18:00"
-
-    UpdateCourseRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              name:
-                type: string
-                minLength: 1
-                maxLength: 200
-              time:
-                type: string
-                pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
-              has_multiple_hosts:
-                type: boolean
-                description: Whether this course can have multiple host teams
-
-    CreateTeamRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/TeamCreateRequest'
-          example:
-            name: "The Cooking Ninjas"
-            userId: "auth0|user456"
-            address:
-              address: "Maximilianstrasse 10, 80539 München, Germany"
-              latitude: 48.158370
-              longitude: 11.579381
-            mail: "ninjas@example.com"
-            phone: "+49 89 123456789"
-            members: 4
-            diets: "2x vegetarian, 1x gluten-free"
-            needs_check: false
-
-    UpdateTeamRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/TeamUpdateRequest'
-
-    CreateNoteRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - headline
-              - content
-            properties:
-              headline:
-                type: string
-                minLength: 1
-                maxLength: 200
-                description: Short headline for the note
-              content:
-                type: string
-                minLength: 1
-                maxLength: 5000
-                description: Detailed content of the note
-            example:
-              headline: "Dietary Requirements"
-              content: "2 vegetarians, 1 gluten-free, no nuts"
-
-    CreateShareConfigRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/CreateShareConfigRequest'
-
-    UpdatePlanRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Plan'
-
-    UpdatePlanConfigRequest:
-      required: true
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/PlanConfig'
 
   responses:
     BadRequestError:
-      description: Invalid request parameters or format
+      description: Validation error or business-rule violation
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-
     UnauthorizedError:
-      description: Authentication required or token invalid/expired
+      description: Missing, invalid, or expired credentials
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-
     NotFoundError:
-      description: Resource not found
+      description: Resource not found (or not owned by the caller)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-
-    ValidationError:
-      description: Request validation failed
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-
     RateLimitError:
-      description: Rate limit exceeded
+      description: Rate limit exceeded (5 req/s, burst 20, per IP)
+      headers:
+        Retry-After:
+          schema:
+            type: integer
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-
     InternalServerError:
-      description: Unexpected server error
+      description: Unexpected server error. The response body never contains internal details.
       content:
         application/json:
           schema:
@@ -1303,66 +1479,38 @@ components:
   schemas:
     ErrorResponse:
       type: object
+      required: [error]
       properties:
         error:
           type: string
-          description: Machine-readable error code
-        message:
-          type: string
-          description: Human-readable error message
-        details:
-          type: array
-          items:
-            type: object
-            properties:
-              field:
-                type: string
-              message:
-                type: string
-        timestamp:
-          type: string
-          format: date-time
-          description: When the error occurred
-      required:
-        - error
-        - message
-        - timestamp
+          description: For 5xx responses this is always "Internal Server Error"; for 4xx it is a specific (but not machine-parseable) description.
 
     PaginationInfo:
       type: object
+      required: [page, limit, total, total_pages, has_next, has_prev]
       properties:
         page:
           type: integer
-          minimum: 1
         limit:
           type: integer
-          minimum: 1
         total:
           type: integer
-          minimum: 0
+          format: int64
         total_pages:
           type: integer
-          minimum: 0
         has_next:
           type: boolean
         has_prev:
           type: boolean
-      required:
-        - page
-        - limit
-        - total
-        - total_pages
-        - has_next
-        - has_prev
 
     Address:
       type: object
+      required: [address, latitude, longitude]
       properties:
         address:
           type: string
           minLength: 1
           maxLength: 500
-          description: Street address or location description
         latitude:
           type: number
           format: double
@@ -1373,13 +1521,10 @@ components:
           format: double
           minimum: -180
           maximum: 180
-      required:
-        - address
-        - latitude
-        - longitude
 
     Point:
       type: object
+      required: [address, name, time]
       properties:
         address:
           $ref: '#/components/schemas/Address'
@@ -1387,32 +1532,14 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-          description: Location name
         time:
           type: string
-          pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
-          description: Time in HH:MM format
-      required:
-        - address
-        - name
-        - time
-
-    CookAndRunCreateRequest:
-      type: object
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        userId:
-          type: string
-          description: User ID from JWT (must match JWT subject)
-      required:
-        - name
-        - userId
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: '18:30'
 
     CookAndRunMeta:
       type: object
+      required: [id, user_id, name, created, edited, occur]
       properties:
         id:
           type: string
@@ -1430,16 +1557,439 @@ components:
         occur:
           type: string
           format: date-time
+        admin_notification_email:
+          type: string
+          format: email
+          nullable: true
+
+    CookAndRunCreateRequest:
+      type: object
+      required: [name, userId, admin_notification_email]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        userId:
+          type: string
+        admin_notification_email:
+          type: string
+          format: email
+
+    UpdateMetaRequest:
+      type: object
+      required: [name, occur, admin_notification_email]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        occur:
+          type: string
+          format: date-time
+        admin_notification_email:
+          type: string
+          format: email
+
+    Course:
+      type: object
+      required: [id, name, time, has_multiple_hosts]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        time:
+          type: string
+        has_multiple_hosts:
+          type: boolean
+
+    CourseCreateRequest:
+      type: object
+      required: [name, time]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        time:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+
+    CourseUpdateRequest:
+      type: object
+      required: [name, time, has_multiple_hosts]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        time:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+        has_multiple_hosts:
+          type: boolean
+
+    TeamStatus:
+      type: string
+      enum: [active, review, canceled]
+      description: |
+        `active`: normal state. `review`: flagged for organizer attention
+        (either set at creation via `default_needs_check`, or by a
+        participant edit touching a `review_trigger_fields` field).
+        `canceled`: terminal — set only via `POST .../cancel`; the team is
+        never deleted and can no longer be edited by anyone.
+
+    Team:
+      type: object
+      required: [id, cook_and_run_id, name, address, note_list, created, edited, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        cook_and_run_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          $ref: '#/components/schemas/Address'
+        mail:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        members:
+          type: integer
+          nullable: true
+        diets:
+          type: string
+          nullable: true
+        note_list:
+          type: array
+          items:
+            $ref: '#/components/schemas/Note'
+        created_by_user:
+          type: string
+          nullable: true
+          description: Keycloak `sub` of the organizer, if created by the organizer.
+        created:
+          type: string
+          format: date-time
+        edited:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/TeamStatus'
+        canceled_at:
+          type: string
+          format: date-time
+          nullable: true
+        cancel_reason:
+          type: string
+          nullable: true
+        email_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    TeamCreateRequest:
+      type: object
+      required: [name, address]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        userId:
+          type: string
+          nullable: true
+          description: Only meaningful when the request is also authenticated; must match the JWT subject.
+        address:
+          $ref: '#/components/schemas/Address'
+        mail:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          maxLength: 50
+          nullable: true
+        members:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          nullable: true
+        diets:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    TeamUpdateRequest:
+      type: object
+      required: [name, address]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        address:
+          $ref: '#/components/schemas/Address'
+        mail:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          maxLength: 50
+          nullable: true
+        members:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          nullable: true
+        diets:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    TeamCreateResponse:
+      allOf:
+        - $ref: '#/components/schemas/Team'
+        - type: object
+          properties:
+            access_link:
+              type: string
+              format: uri
+              nullable: true
+              description: Present only when no `mail` was supplied at creation.
+            warning:
+              type: string
+              nullable: true
+              description: Human-readable warning accompanying `access_link`.
+
+    TeamSelfServiceResponse:
+      allOf:
+        - $ref: '#/components/schemas/Team'
+        - type: object
+          properties:
+            edit_deadline:
+              type: string
+              format: date-time
+              nullable: true
+              description: Present only for participant (`X-Access-Token`) calls.
+
+    CancelTeamRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 1000
+          nullable: true
+
+    Note:
+      type: object
+      required: [id, headline, content, created]
+      properties:
+        id:
+          type: string
+          format: uuid
+        headline:
+          type: string
+        content:
+          type: string
+        created:
+          type: string
+          format: date-time
+
+    NoteCreateRequest:
+      type: object
+      required: [headline, content]
+      properties:
+        headline:
+          type: string
+          minLength: 1
+          maxLength: 200
+        content:
+          type: string
+          minLength: 1
+          maxLength: 50000
+
+    RequiredField:
+      type: string
+      enum: [mail, phone, members, diets]
+
+    ShareTeamConfig:
+      type: object
       required:
         - id
-        - user_id
-        - name
+        - invite_text
+        - require_email_verification
+        - default_needs_check
+        - required_fields
+        - review_trigger_fields
+        - notify_admin_on_review
         - created
-        - edited
-        - occur
+      properties:
+        id:
+          type: string
+          format: uuid
+        invite_text:
+          type: string
+        require_email_verification:
+          type: boolean
+          description: Controls whether the invitation email includes a verification call-to-action. Does not gate team creation itself.
+        default_needs_check:
+          type: boolean
+          description: If true, self-registered teams start with status "review" instead of "active".
+        required_fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequiredField'
+        max_teams:
+          type: integer
+          nullable: true
+        registration_deadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: Cutoff for creating new teams via this share config.
+        edit_deadline:
+          type: string
+          format: date-time
+          nullable: true
+          description: Cutoff for participant self-service edits/cancellation. Independent from registration_deadline.
+        review_trigger_fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequiredField'
+          description: Self-service edits to any of these fields flip the team's status to "review".
+        notify_admin_on_review:
+          type: boolean
+          description: Also controls admin notifications on team cancellation.
+        created:
+          type: string
+          format: date-time
+
+    ShareTeamConfigCreateRequest:
+      type: object
+      required:
+        - invite_text
+        - require_email_verification
+        - default_needs_check
+        - required_fields
+        - review_trigger_fields
+        - notify_admin_on_review
+      properties:
+        invite_text:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        require_email_verification:
+          type: boolean
+        default_needs_check:
+          type: boolean
+        required_fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequiredField'
+        max_teams:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          nullable: true
+        registration_deadline:
+          type: string
+          format: date-time
+          nullable: true
+        edit_deadline:
+          type: string
+          format: date-time
+          nullable: true
+        review_trigger_fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequiredField'
+        notify_admin_on_review:
+          type: boolean
+
+    Hosting:
+      type: object
+      required: [id, name, host, guest_list]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          format: uuid
+          description: Course ID.
+        host:
+          type: string
+          format: uuid
+          description: Team ID of the hosting team.
+        guest_list:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            type: string
+            format: uuid
+          description: Team IDs of guest teams at this hosting.
+
+    Plan:
+      type: object
+      required: [hosting_list, walking_path]
+      properties:
+        hosting_list:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/Hosting'
+        walking_path:
+          type: object
+          description: Map of team ID to the ordered list of hosting IDs that team visits.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              format: uuid
+        stale_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Present only when the plan may be out of date (a referenced team
+            was added/canceled/had its address changed, or the project's
+            start/end point changed). Absent entirely when the plan is
+            current.
+
+    PlanConfig:
+      type: object
+      required: [title, description, date, language]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        date:
+          type: string
+          format: date
+        language:
+          type: string
+          enum: [deu, eng]
+          description: Central source of truth for the language participant emails are sent in.
 
     CookAndRun:
       type: object
+      required: [id, user_id, name, created, edited, occur, team_list, course_list]
       properties:
         id:
           type: string
@@ -1466,301 +2016,84 @@ components:
           items:
             $ref: '#/components/schemas/Course'
         start_point:
-          allOf:
-            - $ref: '#/components/schemas/Point'
+          $ref: '#/components/schemas/Point'
         end_point:
-          allOf:
-            - $ref: '#/components/schemas/Point'
+          $ref: '#/components/schemas/Point'
         share_team_config:
-          allOf:
-            - $ref: '#/components/schemas/ShareTeamConfig'
+          $ref: '#/components/schemas/ShareTeamConfig'
         plan:
-          allOf:
-            - $ref: '#/components/schemas/Plan'
+          $ref: '#/components/schemas/Plan'
         plan_config:
-          allOf:
-            - $ref: '#/components/schemas/PlanConfig'
-      required:
-        - id
-        - user_id
-        - name
-        - created
-        - edited
-        - occur
-        - team_list
-        - course_list
+          $ref: '#/components/schemas/PlanConfig'
 
-    Course:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-          maxLength: 200
-        time:
-          type: string
-          pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
-        has_multiple_hosts:
-          type: boolean
-      required:
-        - id
-        - name
-        - time
-        - has_multiple_hosts
-
-    TeamCreateRequest:
-      type: object
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        userId:
-          type: string
-        address:
-          $ref: '#/components/schemas/Address'
-        mail:
-          type: string
-          format: email
-          maxLength: 254
-        phone:
-          type: string
-          pattern: "^[\\+]?[1-9][\\d\\s\\-\\(\\)]{7,15}"
-          maxLength: 20
-        members:
-          type: integer
-          minimum: 1
-          maximum: 100
-        diets:
-          type: string
-          maxLength: 1000
-          description: Dietary requirements and allergies
-        needs_check:
-          type: boolean
-      required:
-        - name
-        - userId
-        - address
-        - needs_check
-
-    TeamUpdateRequest:
-      type: object
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 200
-        address:
-          $ref: '#/components/schemas/Address'
-        mail:
-          type: string
-          format: email
-          maxLength: 254
-        phone:
-          type: string
-          pattern: "^[\\+]?[1-9][\\d\\s\\-\\(\\)]{7,15}"
-          maxLength: 20
-        members:
-          type: integer
-          minimum: 1
-          maximum: 100
-        diets:
-          type: string
-          maxLength: 1000
-        needs_check:
-          type: boolean
-
-    Team:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        created_by_user:
-          type: string
-        name:
-          type: string
-        created:
-          type: string
-          format: date-time
-        edited:
-          type: string
-          format: date-time
-        address:
-          $ref: '#/components/schemas/Address'
-        mail:
-          type: string
-          format: email
-        phone:
-          type: string
-        members:
-          type: integer
-        diets:
-          type: string
-        needs_check:
-          type: boolean
-        note_list:
-          type: array
-          items:
-            $ref: '#/components/schemas/Note'
-      required:
-        - id
-        - created_by_user
-        - name
-        - created
-        - edited
-        - address
-        - needs_check
-        - note_list
-
-    Note:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        headline:
-          type: string
-          maxLength: 200
-        content:
-          type: string
-          maxLength: 5000
-        created:
-          type: string
-          format: date-time
-      required:
-        - id
-        - headline
-        - content
-        - created
-
-    RequiredField:
+    AuditActorType:
       type: string
-      enum: [mail, phone, members, diets]
+      enum: [admin, participant, system]
+      description: '"system" is used for automated events such as plan invalidation.'
 
-    CreateShareConfigRequest:
+    AuditAction:
+      type: string
+      enum: [created, updated, canceled, plan_invalidated]
+
+    AuditLogEntry:
       type: object
+      required: [id, actor_type, action, changes, created_at]
       properties:
-        invite_text:
+        id:
           type: string
-          minLength: 1
-          maxLength: 5000
-          description: Welcome message for team registration
-        needs_login:
-          type: boolean
-          description: Whether teams must create user accounts
-        default_needs_check:
-          type: boolean
-          description: Whether team registrations need manual approval
-        required_fields:
+          format: uuid
+        actor_type:
+          $ref: '#/components/schemas/AuditActorType'
+        actor_label:
+          type: string
+          nullable: true
+          description: Keycloak user ID for organizer actions; null for participant/system actions.
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        changes:
+          type: object
+          description: Free-form JSON diff/context; shape depends on `action` (e.g. `{before, after}` for "updated").
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+    AuditLogResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
           type: array
           items:
-            $ref: '#/components/schemas/RequiredField'
-          description: Fields teams must fill during registration
-        max_teams:
-          type: integer
-          minimum: 1
-          maximum: 10000
-          description: Maximum number of teams that can register
-        registration_deadline:
-          type: string
-          format: date-time
-          description: Deadline for team registration
-      required:
-        - invite_text
-        - needs_login
-        - default_needs_check
-        - required_fields
+            $ref: '#/components/schemas/AuditLogEntry'
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
 
-    ShareTeamConfig:
+    RouteMailFailure:
       type: object
+      required: [team_id, error]
       properties:
-        id:
+        team_id:
           type: string
           format: uuid
-        invite_text:
+        error:
           type: string
-          maxLength: 5000
-        needs_login:
-          type: boolean
-        default_needs_check:
-          type: boolean
-        required_fields:
+
+    RouteMailTriggerResponse:
+      type: object
+      required: [sent_to_team_ids, skipped_no_mail_team_ids, failed]
+      properties:
+        sent_to_team_ids:
           type: array
           items:
-            $ref: '#/components/schemas/RequiredField'
-        max_teams:
-          type: integer
-        registration_deadline:
-          type: string
-          format: date-time
-        created:
-          type: string
-          format: date-time
-      required:
-        - id
-        - invite_text
-        - needs_login
-        - default_needs_check
-        - required_fields
-        - created
-
-    ShareTeamConfigResponse:
-      allOf:
-        - $ref: '#/components/schemas/ShareTeamConfig'
-        - type: object
-          properties:
-            share_url:
-              type: string
-              format: uri
-              description: Public sharing link for team registration
-            registration_count:
-              type: integer
-              minimum: 0
-              description: Number of teams already registered
-
-    Plan:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        created:
-          type: string
-          format: date-time
-        edited:
-          type: string
-          format: date-time
-      description: Generated event plan with team assignments and routes
-
-    PlanConfig:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        created:
-          type: string
-          format: date-time
-        edited:
-          type: string
-          format: date-time
-      description: Configuration for plan generation algorithm
-
-tags:
-  - name: Cook and Run
-    description: Core project management for cook and run events
-  - name: Courses
-    description: Manage courses within events
-  - name: Teams
-    description: Team registration and management
-  - name: Team Notes
-    description: Notes and comments for teams
-  - name: Team Sharing
-    description: Public team registration and sharing
-  - name: Locations
-    description: Start and end point management
-  - name: Event Planning
-    description: Event planning and plan generation
+            type: string
+            format: uuid
+        skipped_no_mail_team_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        failed:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteMailFailure'

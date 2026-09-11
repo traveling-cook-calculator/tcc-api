@@ -11,15 +11,18 @@ use crate::{
 pub struct ShareTeamConfig {
     pub id: Uuid,
     pub invite_text: String,
-    pub needs_login: bool,
+    pub require_email_verification: bool,
     pub default_needs_check: bool,
     pub required_fields: Vec<RequiredField>,
     pub max_teams: Option<u32>,
     pub registration_deadline: Option<DateTime<Utc>>,
+    pub edit_deadline: Option<DateTime<Utc>>,
+    pub review_trigger_fields: Vec<RequiredField>,
+    pub notify_admin_on_review: bool,
     pub created: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequiredField {
     Mail,
     Phone,
@@ -43,6 +46,17 @@ impl RequiredField {
                 .collect()
         })
     }
+
+    /// Public because team.rs (domain) needs this for the review-trigger
+    /// check.
+    pub(crate) fn to_db(self) -> db::models::TeamFields {
+        match self {
+            RequiredField::Mail => db::models::TeamFields::Mail,
+            RequiredField::Phone => db::models::TeamFields::Phone,
+            RequiredField::Members => db::models::TeamFields::Members,
+            RequiredField::Diets => db::models::TeamFields::Diets,
+        }
+    }
 }
 
 impl ShareTeamConfig {
@@ -50,11 +64,14 @@ impl ShareTeamConfig {
         ShareTeamConfig {
             id: db_config.id,
             invite_text: db_config.invite_text,
-            needs_login: db_config.needs_login,
+            require_email_verification: db_config.require_email_verification,
             default_needs_check: db_config.default_needs_check,
             required_fields: RequiredField::from_list(db_config.required_fields),
             max_teams: db_config.max_teams.map(|m| m as u32),
             registration_deadline: db_config.registration_deadline,
+            edit_deadline: db_config.edit_deadline,
+            review_trigger_fields: RequiredField::from_list(db_config.review_trigger_fields),
+            notify_admin_on_review: db_config.notify_admin_on_review,
             created: db_config.created,
         }
     }
@@ -64,22 +81,18 @@ impl ShareTeamConfig {
             id: self.id,
             created: self.created,
             invite_text: self.invite_text.clone(),
-            needs_login: self.needs_login,
+            require_email_verification: self.require_email_verification,
             default_needs_check: self.default_needs_check,
             required_fields: Some(
-                self.required_fields
-                    .iter()
-                    .map(|f| match f {
-                        RequiredField::Mail => db::models::TeamFields::Mail,
-                        RequiredField::Phone => db::models::TeamFields::Phone,
-                        RequiredField::Members => db::models::TeamFields::Members,
-                        RequiredField::Diets => db::models::TeamFields::Diets,
-                    })
-                    .map(Some)
-                    .collect(),
+                self.required_fields.iter().map(|f| f.to_db()).map(Some).collect(),
             ),
             max_teams: self.max_teams.map(|m| m as i32),
             registration_deadline: self.registration_deadline,
+            edit_deadline: self.edit_deadline,
+            review_trigger_fields: Some(
+                self.review_trigger_fields.iter().map(|f| f.to_db()).map(Some).collect(),
+            ),
+            notify_admin_on_review: self.notify_admin_on_review,
         }
     }
 
@@ -88,11 +101,14 @@ impl ShareTeamConfig {
         ShareTeamConfig {
             id: Uuid::nil(),
             invite_text: String::new(),
-            needs_login: true,
+            require_email_verification: true,
             default_needs_check: true,
             required_fields: vec![],
             max_teams: None,
             registration_deadline: None,
+            edit_deadline: None,
+            review_trigger_fields: vec![],
+            notify_admin_on_review: false,
             created: chrono::Utc::now(),
         }
     }
@@ -148,7 +164,6 @@ pub async fn get_by_id(
     user_id: &str,
 ) -> Result<ShareTeamConfig, AppError> {
     let config = db.select_share(cook_and_run_id, user_id).await?;
-
     Ok(ShareTeamConfig::from(config))
 }
 

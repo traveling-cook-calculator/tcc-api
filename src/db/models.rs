@@ -33,6 +33,14 @@ pub struct Point {
 // ========================================
 // Team
 // ========================================
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "team_status", rename_all = "lowercase")]
+pub enum TeamStatus {
+    Active,
+    Review,
+    Canceled,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct Team {
     pub id: Uuid,
@@ -46,7 +54,13 @@ pub struct Team {
     pub phone: Option<String>,
     pub members: Option<i32>,
     pub diets: Option<String>,
-    pub needs_check: bool,
+    pub status: TeamStatus,
+    pub canceled_at: Option<DateTime<Utc>>,
+    pub cancel_reason: Option<String>,
+    pub access_token: String,
+    pub email_verified_at: Option<DateTime<Utc>>,
+    pub verification_resend_count: i32,
+    pub last_route_hash: Option<String>,
 }
 
 // ========================================
@@ -91,11 +105,14 @@ pub struct Share {
     pub id: Uuid,
     pub created: DateTime<Utc>,
     pub invite_text: String,
-    pub needs_login: bool,
+    pub require_email_verification: bool,
     pub default_needs_check: bool,
     pub required_fields: Option<Vec<Option<TeamFields>>>,
     pub max_teams: Option<i32>,
     pub registration_deadline: Option<DateTime<Utc>>,
+    pub edit_deadline: Option<DateTime<Utc>>,
+    pub review_trigger_fields: Option<Vec<Option<TeamFields>>>,
+    pub notify_admin_on_review: bool,
 }
 
 // ========================================
@@ -180,6 +197,7 @@ pub struct CookAndRun {
     pub share_team_config: Option<Uuid>,
     pub plan: Option<Uuid>,
     pub plan_config: Option<Uuid>,
+    pub admin_notification_email: Option<String>,
 }
 
 pub struct CookAndRunCreate<'a> {
@@ -189,10 +207,83 @@ pub struct CookAndRunCreate<'a> {
     pub created: &'a DateTime<Utc>,
     pub edited: &'a DateTime<Utc>,
     pub occur: &'a DateTime<Utc>,
+    pub admin_notification_email: Option<&'a str>,
 }
 
 pub struct CookAndRunUpdate<'a> {
     pub name: &'a str,
     pub edited: &'a DateTime<Utc>,
     pub occur: &'a DateTime<Utc>,
+    pub admin_notification_email: Option<&'a str>,
+}
+
+// ========================================
+// Team Audit Log
+// ========================================
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize)]
+#[sqlx(type_name = "audit_actor_type", rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+pub enum AuditActorType {
+    Admin,
+    Participant,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize)]
+#[sqlx(type_name = "audit_action", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum AuditAction {
+    Created,
+    Updated,
+    Canceled,
+    PlanInvalidated,
+}
+
+// ========================================
+// Email
+// ========================================
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(type_name = "email_type", rename_all = "snake_case")]
+pub enum EmailType {
+    Invitation,
+    RouteUpdate,
+    AdminNotification,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "email_status", rename_all = "snake_case")]
+pub enum EmailStatus {
+    Pending,
+    Sent,
+    Failed,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EmailOutboxRow {
+    pub id: Uuid,
+    pub team_id: Option<Uuid>,
+    pub recipient_email: String,
+    pub email_type: EmailType,
+    pub context: serde_json::Value,
+    pub status: EmailStatus,
+    pub attempts: i32,
+    pub last_error: Option<String>,
+    pub next_attempt_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub sent_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EmailProjectContextRow {
+    #[sqlx(rename = "name")]
+    pub cook_and_run_name: String,
+    pub language: Option<Language>,
+    pub admin_notification_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AdminNotificationTarget<'a> {
+    pub recipient_email: &'a str,
+    pub cook_and_run_name: &'a str,
+    pub admin_team_link_url: &'a str,
 }

@@ -1,12 +1,16 @@
 pub mod address;
 pub mod cook_and_run;
 mod course;
+mod email_context;
+mod email_outbox;
 pub mod models;
 mod note;
 mod plan;
+mod plan_staleness;
 mod point;
 mod sharing;
 mod team;
+pub mod team_audit_log;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tracing::info;

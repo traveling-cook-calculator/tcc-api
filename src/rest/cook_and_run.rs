@@ -78,13 +78,15 @@ impl AuthenticatedUser for CookAndRunListResponse {
     }
 }
 
-/// Metadata-only update payload. `id` and `user_id` come from the path and JWT
-/// respectively — they are never accepted from the request body.
+/// Metadata-only update payload. `id` and `user_id` come from the path and
+/// JWT respectively — they are never accepted from the request body.
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpdateMetaRequest {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
     pub name: String,
     pub occur: DateTime<Utc>,
+    #[validate(email(message = "must be a valid email address"))]
+    pub admin_notification_email: String,
 }
 
 impl UpdateMetaRequest {
@@ -97,12 +99,12 @@ impl UpdateMetaRequest {
             created: now,
             edited: now,
             occur: self.occur,
+            admin_notification_email: Some(self.admin_notification_email.clone()),
         }
     }
 }
 
 pub fn routes(app_state: AppState) -> Router<AppState> {
-    // Ein einzelner Router, keine Merge-Konflikte mehr!
     Router::new()
         .route(
             "/cook_and_run",
