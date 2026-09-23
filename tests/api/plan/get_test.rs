@@ -119,4 +119,12 @@ fn assert_plan_json(json: &serde_json::Value) {
             "Each walking_path entry should contain 2 items"
         );
     }
+
+    // A `PATCH .../plan` (full replace) always starts fresh — see feature
+    // MD §4.6 ("the new plan row starts with stale_since absent").
+    assert!(
+        json.get("stale_since").is_none_or(|v| v.is_null()),
+        "a freshly replaced plan should not be stale, got: {:#?}",
+        json.get("stale_since")
+    );
 }

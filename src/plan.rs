@@ -161,11 +161,11 @@ impl Plan {
 
 pub async fn get_by_id(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<Plan, AppError> {
-    let db_plan = db.select_plan(cook_and_run_id, user_id).await?;
-    let stale_at = db.select_plan_stale_at(cook_and_run_id, user_id).await?;
+    let db_plan = db.select_plan(project_id, user_id).await?;
+    let stale_at = db.select_plan_stale_at(project_id, user_id).await?;
     let mut plan = Plan::from(db_plan);
     plan.stale_at = stale_at;
     Ok(plan)
@@ -173,49 +173,49 @@ pub async fn get_by_id(
 
 pub async fn get_config_by_id(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<PlanConfig, AppError> {
-    let db_plan_config = db.select_plan_config(cook_and_run_id, user_id).await?;
+    let db_plan_config = db.select_plan_config(project_id, user_id).await?;
     Ok(PlanConfig::from(db_plan_config))
 }
 
 pub async fn create_or_update(
     db: &mut Database,
     plan: Plan,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
     let plan_id = Uuid::new_v4();
-    db.create_plan(plan.to_db(plan_id), cook_and_run_id, user_id)
+    db.create_plan(plan.to_db(plan_id), project_id, user_id)
         .await
 }
 
 pub async fn create_or_update_config(
     db: &mut Database,
     plan_config: PlanConfig,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
     let plan_config_id = Uuid::new_v4();
-    db.create_plan_config(plan_config.to_db(plan_config_id), cook_and_run_id, user_id)
+    db.create_plan_config(plan_config.to_db(plan_config_id), project_id, user_id)
         .await
 }
 
 pub async fn delete(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_plan(cook_and_run_id, user_id).await
+    db.delete_plan(project_id, user_id).await
 }
 
 pub async fn delete_config(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_plan_config(cook_and_run_id, user_id).await
+    db.delete_plan_config(project_id, user_id).await
 }
 
 /// Confirms that the current plan is still valid despite intervening
@@ -223,8 +223,8 @@ pub async fn delete_config(
 /// marker — the plan data itself is left untouched.
 pub async fn confirm_plan(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.clear_plan_stale(cook_and_run_id, user_id).await
+    db.clear_plan_stale(project_id, user_id).await
 }

@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     address::Address,
-    cook_and_run::get_cook_and_run,
+    project::get_project,
     db::{self, Database},
     email,
     email_templates::InvitationEmailContext,
@@ -13,12 +13,7 @@ use crate::{
     sharing::ShareTeamConfig,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TeamStatus {
-    Active,
-    Review,
-    Canceled,
-}
+
 
 impl TeamStatus {
     fn from(db_status: db::models::TeamStatus) -> Self {
@@ -38,34 +33,13 @@ impl TeamStatus {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Team {
-    pub id: Uuid,
-    pub cook_and_run_id: Uuid,
-    pub created_by_user: Option<String>,
-    pub name: String,
-    pub created: DateTime<Utc>,
-    pub edited: DateTime<Utc>,
-    pub address: Address,
-    pub mail: Option<String>,
-    pub phone: Option<String>,
-    pub members: Option<u32>,
-    pub diets: Option<String>,
-    pub status: TeamStatus,
-    pub canceled_at: Option<DateTime<Utc>>,
-    pub cancel_reason: Option<String>,
-    pub access_token: String,
-    pub email_verified_at: Option<DateTime<Utc>>,
-    pub verification_resend_count: u32,
-    pub last_route_hash: Option<String>,
-    pub note_list: Vec<Note>,
-}
+
 
 impl Team {
     fn from(db_team: db::models::Team, address: db::models::Address, note_list: Vec<Note>) -> Self {
         Team {
             id: db_team.id,
-            cook_and_run_id: db_team.cook_and_run_id,
+            project_id: db_team.project_id,
             created_by_user: db_team.created_by_user,
             name: db_team.name,
             created: db_team.created,
@@ -89,7 +63,7 @@ impl Team {
     fn to(&self) -> db::models::Team {
         db::models::Team {
             id: self.id,
-            cook_and_run_id: self.cook_and_run_id,
+            project_id: self.project_id,
             created_by_user: self.created_by_user.clone(),
             name: self.name.clone(),
             created: self.created,
@@ -112,10 +86,10 @@ impl Team {
 
 pub(crate) async fn get_list(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<Vec<Team>, AppError> {
-    let teams = db.select_all_team(cook_and_run_id, user_id).await?;
+    let teams = db.select_all_team(project_id, user_id).await?;
     let mut team_list = Vec::with_capacity(teams.len());
     for team_address in teams {
         let note_list = get_list_by_team_id(db, &team_address.0.id).await?;
@@ -126,11 +100,11 @@ pub(crate) async fn get_list(
 
 pub(crate) async fn get(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
     team_id: &Uuid,
 ) -> Result<Team, AppError> {
-    let (team, address) = db.select_team(team_id, cook_and_run_id, user_id).await?;
+    let (team, address) = db.select_team(team_id, project_id, user_id).await?;
     Ok(Team::from(
         team,
         address,
@@ -159,11 +133,11 @@ pub(crate) async fn get_by_token_with_deadline(
 
 pub(crate) async fn delete(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
     team_id: &Uuid,
 ) -> Result<(), AppError> {
-    db.delete_team(team_id, cook_and_run_id, user_id).await?;
+    db.delete_team(team_id, project_id, user_id).await?;
     Ok(())
 }
 
@@ -182,7 +156,7 @@ pub(crate) async fn update_by_token(
     check_edit_deadline(db, access_token).await?;
 
     let review_trigger_fields: Vec<db::models::TeamFields> =
-        match db.select_share_uncheckt(&data.cook_and_run_id).await {
+        match db.select_share_uncheckt(&data.project_id).await {
             Ok(share) => ShareTeamConfig::from(share)
                 .review_trigger_fields
                 .into_iter()
@@ -194,7 +168,7 @@ pub(crate) async fn update_by_token(
 
     let admin_target = resolve_admin_notification_target(
         db,
-        &data.cook_and_run_id,
+        &data.project_id,
         &data.id,
         admin_team_link_base_url,
     )
@@ -202,7 +176,7 @@ pub(crate) async fn update_by_token(
     let admin_notification_target = admin_target.as_ref().map(|(mail, name, link)| {
         db::models::AdminNotificationTarget {
             recipient_email: mail,
-            cook_and_run_name: name,
+            project_name: name,
             admin_team_link_url: link,
         }
     });
@@ -229,7 +203,7 @@ pub(crate) async fn cancel_by_token(
 
     let admin_target = resolve_admin_notification_target(
         db,
-        &existing.cook_and_run_id,
+        &existing.project_id,
         &existing.id,
         admin_team_link_base_url,
     )
@@ -237,7 +211,7 @@ pub(crate) async fn cancel_by_token(
     let admin_notification_target = admin_target.as_ref().map(|(mail, name, link)| {
         db::models::AdminNotificationTarget {
             recipient_email: mail,
-            cook_and_run_name: name,
+            project_name: name,
             admin_team_link_url: link,
         }
     });
@@ -282,11 +256,11 @@ pub(crate) async fn request_verification_resend(
 /// trigger) and cancel_by_token (cancellation) — both use the same toggle.
 async fn resolve_admin_notification_target(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     admin_team_link_base_url: &str,
 ) -> Result<Option<(String, String, String)>, AppError> {
-    let notify_admin = match db.select_share_uncheckt(cook_and_run_id).await {
+    let notify_admin = match db.select_share_uncheckt(project_id).await {
         Ok(share) => ShareTeamConfig::from(share).notify_admin_on_review,
         Err(AppError::SharingConfigNotFound(_, _)) => false,
         Err(e) => return Err(e),
@@ -295,13 +269,13 @@ async fn resolve_admin_notification_target(
         return Ok(None);
     }
 
-    let project = email::get_project_context(db, cook_and_run_id).await?;
+    let project = email::get_project_context(db, project_id).await?;
     let Some(recipient_email) = project.admin_notification_email else {
         return Ok(None);
     };
     let admin_team_link_url =
-        email::build_admin_team_link_url(admin_team_link_base_url, cook_and_run_id, team_id);
-    Ok(Some((recipient_email, project.cook_and_run_name, admin_team_link_url)))
+        email::build_admin_team_link_url(admin_team_link_base_url, project_id, team_id);
+    Ok(Some((recipient_email, project.project_name, admin_team_link_url)))
 }
 
 pub async fn create(
@@ -315,14 +289,13 @@ pub async fn create(
 
     // Default true — guaranteed by the early return in the
     // SharingConfigNotFound branch below if there is no owner.
-    let mut is_owner = true;
+    let is_owner = is_project_owner(db, &data.project_id, user_id).await;
     let mut requires_verification = false;
 
-    match db.select_share_uncheckt(&data.cook_and_run_id).await {
+    match db.select_share_uncheckt(&data.project_id).await {
         Ok(share) => {
             let share_config = ShareTeamConfig::from(share);
             requires_verification = share_config.require_email_verification;
-            is_owner = is_cook_and_run_owner(db, &data.cook_and_run_id, user_id).await;
 
             if !is_owner {
                 check_team_against_share(db, &share_config, &data).await?;
@@ -334,10 +307,10 @@ pub async fn create(
             }
         }
         Err(AppError::SharingConfigNotFound(_, _)) => {
-            if !is_cook_and_run_owner(db, &data.cook_and_run_id, user_id).await {
+            if !is_owner{
                 return Err(AppError::SharingConfigNotFound(
                     user_id.clone().unwrap_or_else(|| "NONE".to_string()),
-                    data.cook_and_run_id,
+                    data.project_id,
                 ));
             }
         }
@@ -352,17 +325,17 @@ pub async fn create(
     let actor_label = if is_owner { user_id.as_deref() } else { None };
 
     let email_to_enqueue = if let Some(mail) = data.mail.clone() {
-        let project = email::get_project_context(db, &data.cook_and_run_id).await?;
+        let project = email::get_project_context(db, &data.project_id).await?;
         let deeplink_url = email::build_team_deeplink_url(
             team_deeplink_base_url,
-            &data.cook_and_run_id,
+            &data.project_id,
             &data.id,
             &data.access_token,
         );
         let context = InvitationEmailContext {
             language: project.language,
             team_name: data.name.clone(),
-            cook_and_run_name: project.cook_and_run_name,
+            project_name: project.project_name,
             deeplink_url,
             requires_verification,
         };
@@ -384,7 +357,7 @@ pub async fn create(
             if db_err.is_unique_violation() =>
         {
             warn!(
-                project_id = %data.cook_and_run_id,
+                project_id = %data.project_id,
                 "Could not create team in database due to unique violation, returning existing team"
             );
             let (existing_db_team, existing_address) =
@@ -396,13 +369,13 @@ pub async fn create(
     }
 }
 
-async fn is_cook_and_run_owner(
+async fn is_project_owner(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &Option<String>,
 ) -> bool {
     if let Some(uid) = user_id {
-        get_cook_and_run(db, cook_and_run_id, uid).await.is_ok()
+        get_project(db, project_id, uid).await.is_ok()
     } else {
         false
     }
@@ -418,16 +391,16 @@ async fn check_team_against_share(
     let deadline = share.registration_deadline;
     if let Some(deadline) = deadline {
         if deadline < chrono::Utc::now() {
-            return Err(AppError::DeadlineExceeded(deadline, data.cook_and_run_id));
+            return Err(AppError::DeadlineExceeded(deadline, data.project_id));
         }
     }
 
     if let Some(max_team_size) = share.max_teams {
-        let team_size = db.count_teams(&data.cook_and_run_id).await?;
+        let team_size = db.count_teams(&data.project_id).await?;
         if team_size >= max_team_size as i64 {
             return Err(AppError::MaxTeamSizeExceeded(
                 max_team_size,
-                data.cook_and_run_id,
+                data.project_id,
             ));
         }
     }
@@ -438,7 +411,7 @@ async fn check_team_against_share(
                 if data.mail.is_none() {
                     return Err(AppError::MissingField(
                         "mail".to_string(),
-                        data.cook_and_run_id,
+                        data.project_id,
                     ));
                 }
             }
@@ -446,7 +419,7 @@ async fn check_team_against_share(
                 if data.phone.is_none() {
                     return Err(AppError::MissingField(
                         "phone".to_string(),
-                        data.cook_and_run_id,
+                        data.project_id,
                     ));
                 }
             }
@@ -454,7 +427,7 @@ async fn check_team_against_share(
                 if data.members.is_none() {
                     return Err(AppError::MissingField(
                         "members".to_string(),
-                        data.cook_and_run_id,
+                        data.project_id,
                     ));
                 }
             }
@@ -462,7 +435,7 @@ async fn check_team_against_share(
                 if data.diets.is_none() {
                     return Err(AppError::MissingField(
                         "diets".to_string(),
-                        data.cook_and_run_id,
+                        data.project_id,
                     ));
                 }
             }

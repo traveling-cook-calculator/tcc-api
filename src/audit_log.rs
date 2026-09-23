@@ -40,7 +40,7 @@ const MAX_LIMIT: i64 = 200;
 pub(crate) async fn get_for_team(
     db: &Database,
     team_id: &Uuid,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
     page: u32,
     limit: u32,
@@ -51,7 +51,7 @@ pub(crate) async fn get_for_team(
     let offset = (page - 1) * limit;
 
     let (rows, total) = db
-        .select_audit_log_for_team(team_id, cook_and_run_id, user_id, limit, offset)
+        .select_audit_log_for_team(team_id, project_id, user_id, limit, offset)
         .await?;
 
     Ok(AuditLogPage {

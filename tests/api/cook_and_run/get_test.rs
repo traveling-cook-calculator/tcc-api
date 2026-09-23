@@ -165,7 +165,11 @@ pub fn get_cook_and_run_meta_list(user_id: &str, token: &str, expected_cook_and_
     );
 }
 
-fn execute_get_meta(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
+/// Made `pub` so other test files can fetch the metadata response directly
+/// (e.g. to assert on `admin_notification_email` after a PATCH) without
+/// going through `get_cook_and_run_meta`, which asserts against the fixed
+/// fixture default.
+pub fn execute_get_meta(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
@@ -234,5 +238,18 @@ fn assert_cook_and_run_meta_json(json: serde_json::Value, cook_and_run_id: &Uuid
         cook_and_run_id.to_string(),
         "Expected Cook and Run ID {} not found in JSON data",
         cook_and_run_id
+    );
+
+    // `admin_notification_email` is new in v0.2.0 (`CookAndRunMeta`).
+    // Every fixture created via `get_cook_and_run_create_json` uses the
+    // shared default, so it should always round-trip unchanged here.
+    let admin_notification_email = json
+        .get("admin_notification_email")
+        .and_then(|v| v.as_str())
+        .expect("Missing admin_notification_email");
+    assert_eq!(
+        admin_notification_email,
+        crate::cook_and_run::DEFAULT_ADMIN_NOTIFICATION_EMAIL,
+        "admin_notification_email does not match the fixture default"
     );
 }

@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::{
-    cook_and_run::get_cook_and_run,
+    project::get_project,
     db::Database,
     email,
     email_templates::{RouteStopEmailContext, RouteUpdateEmailContext},
@@ -24,29 +24,29 @@ pub struct RouteMailSummary {
 /// alle Teams mit E-Mail-Adresse, unabhängig vom Hash-Vergleich.
 pub async fn trigger_route_mails(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
     team_deeplink_base_url: &str,
     force: bool,
 ) -> Result<RouteMailSummary, AppError> {
-    let cook_and_run = get_cook_and_run(db, cook_and_run_id, user_id).await?;
+    let project = get_project(db, project_id, user_id).await?;
 
-    let is_stale = cook_and_run
+    let is_stale = project
         .plan
         .as_ref()
         .and_then(|p| p.stale_at)
         .is_some();
     if is_stale {
-        return Err(AppError::PlanIsStale(*cook_and_run_id));
+        return Err(AppError::PlanIsStale(*project_id));
     }
 
-    let routes = route::build_team_routes(&cook_and_run)?;
-    let project = email::get_project_context(db, cook_and_run_id).await?;
+    let routes = route::build_team_routes(&project)?;
+    let project = email::get_project_context(db, project_id).await?;
 
     let mut summary = RouteMailSummary::default();
 
     for team_route in routes {
-        let Some(team) = cook_and_run
+        let Some(team) = project
             .team_list
             .iter()
             .find(|t| t.id == team_route.team_id)
@@ -67,7 +67,7 @@ pub async fn trigger_route_mails(
 
         let deeplink_url = email::build_team_deeplink_url(
             team_deeplink_base_url,
-            cook_and_run_id,
+            project_id,
             &team_route.team_id,
             &team.access_token,
         );
@@ -89,7 +89,7 @@ pub async fn trigger_route_mails(
         let context = RouteUpdateEmailContext {
             language: project.language,
             team_name: team_route.team_name.clone(),
-            cook_and_run_name: project.cook_and_run_name.clone(),
+            project_name: project.project_name.clone(),
             deeplink_url,
             stops,
         };

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::{cook_and_run::CookAndRun, error::AppError, team::TeamStatus};
+use crate::{project::Project, error::AppError, team::TeamStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopRole {
@@ -37,17 +37,17 @@ pub struct TeamRoute {
 /// Stationen auf. Liefert eine leere Liste, wenn noch kein Plan berechnet
 /// wurde (kein Fehler — das ist ein normaler Zwischenzustand vor der
 /// Routenberechnung).
-pub fn build_team_routes(cook_and_run: &CookAndRun) -> Result<Vec<TeamRoute>, AppError> {
-    let Some(plan) = &cook_and_run.plan else {
+pub fn build_team_routes(project: &Project) -> Result<Vec<TeamRoute>, AppError> {
+    let Some(plan) = &project.plan else {
         return Ok(vec![]);
     };
 
     let hostings_by_id: HashMap<Uuid, &crate::plan::Hosting> =
         plan.hosting_list.iter().map(|h| (h.id, h)).collect();
     let courses_by_id: HashMap<Uuid, &crate::course::Course> =
-        cook_and_run.course_list.iter().map(|c| (c.id, c)).collect();
+        project.course_list.iter().map(|c| (c.id, c)).collect();
     let teams_by_id: HashMap<Uuid, &crate::team::Team> =
-        cook_and_run.team_list.iter().map(|t| (t.id, t)).collect();
+        project.team_list.iter().map(|t| (t.id, t)).collect();
 
     let mut routes = Vec::with_capacity(plan.walking_path.len());
 

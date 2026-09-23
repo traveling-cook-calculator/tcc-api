@@ -116,12 +116,12 @@ impl ShareTeamConfig {
 
 pub async fn create(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
     match db
-        .create_share(cook_and_run_id, user_id, &data.to_db())
+        .create_share(project_id, user_id, &data.to_db())
         .await
     {
         Ok(_) => Ok(()),
@@ -140,12 +140,12 @@ pub async fn create(
 
 pub async fn update(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
     match db
-        .update_share(cook_and_run_id, user_id, &data.to_db())
+        .update_share(project_id, user_id, &data.to_db())
         .await
     {
         Ok(_) => Ok(()),
@@ -160,18 +160,18 @@ pub async fn update(
 
 pub async fn get_by_id(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<ShareTeamConfig, AppError> {
-    let config = db.select_share(cook_and_run_id, user_id).await?;
+    let config = db.select_share(project_id, user_id).await?;
     Ok(ShareTeamConfig::from(config))
 }
 
 pub(crate) async fn delete(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_share(cook_and_run_id, user_id).await?;
+    db.delete_share(project_id, user_id).await?;
     Ok(())
 }

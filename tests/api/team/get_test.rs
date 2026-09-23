@@ -114,6 +114,9 @@ pub fn execute_get(
 pub fn get_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token: &str) {
     let res = execute_get(cook_and_run_id, team_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
+    // Organizer-created teams (as used throughout this fixture) always
+    // start "active" — `default_needs_check` only affects non-owner,
+    // self-service creation (see the sharing tests, once migrated).
     assert_team_json(
         &res.json().expect("Failed to parse JSON"),
         team_id,
@@ -124,7 +127,7 @@ pub fn get_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token: &s
         true,
         true,
         true,
-        true,
+        "active",
     );
 }
 
@@ -161,7 +164,7 @@ pub fn get_team_list(cook_and_run_id: &Uuid, expected_team_id: &[(Uuid, String)]
             true,
             true,
             true,
-            true,
+            "active",
         );
     }
 }
@@ -183,11 +186,16 @@ fn assert_cook_and_run_json(json: &serde_json::Value, expected_team_id: &[(Uuid,
             true,
             true,
             true,
-            true,
+            "active",
         );
     }
 }
 
+/// `expected_status` replaces the old `expected_needs_check: bool` — the
+/// `team.status` enum (`active`/`review`/`canceled`) fully replaced the
+/// `needs_check` boolean in v0.2.0. See `team::assert_team_json` in
+/// `mod.rs` for the backward-compatible wrapper used by callers that
+/// haven't been migrated yet.
 #[allow(clippy::too_many_arguments)]
 pub fn assert_team_json(
     json: &serde_json::Value,
@@ -199,7 +207,7 @@ pub fn assert_team_json(
     expected_mail: bool,
     expected_phone: bool,
     expected_diets: bool,
-    expected_needs_check: bool,
+    expected_status: &str,
 ) {
     //ID
     let id = json.get("id").and_then(|v| v.as_str()).expect("Missing id");
@@ -296,13 +304,13 @@ pub fn assert_team_json(
         );
     }
 
-    //Needs_check
-    let needs_check = json
-        .get("needs_check")
-        .and_then(|v| v.as_bool())
-        .expect("Missing needs_check");
+    //Status
+    let status = json
+        .get("status")
+        .and_then(|v| v.as_str())
+        .expect("Missing status");
 
-    assert_eq!(needs_check, expected_needs_check);
+    assert_eq!(status, expected_status, "team status does not match");
 
     //Address
     if expected_address {

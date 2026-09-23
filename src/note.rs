@@ -3,7 +3,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    cook_and_run::get_cook_and_run,
+    project::get_project,
     db::{self, Database},
     error::AppError,
 };
@@ -46,14 +46,14 @@ pub async fn get_list_by_team_id(db: &Database, team_id: &Uuid) -> Result<Vec<No
     Ok(note_list)
 }
 
-pub async fn get_list_by_cook_and_run_id_and_team_id(
+pub async fn get_list_by_project_id_and_team_id(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     user_id: &str,
 ) -> Result<Vec<Note>, AppError> {
     let note_list = db
-        .select_note_with_filter(Some(cook_and_run_id), Some(team_id), None, Some(user_id))
+        .select_note_with_filter(Some(project_id), Some(team_id), None, Some(user_id))
         .await?
         .into_iter()
         .map(Note::from)
@@ -63,14 +63,14 @@ pub async fn get_list_by_cook_and_run_id_and_team_id(
 
 pub async fn get(
     db: &Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     note_id: &Uuid,
     user_id: &str,
 ) -> Result<Note, AppError> {
     let note_list: Vec<Note> = db
         .select_note_with_filter(
-            Some(cook_and_run_id),
+            Some(project_id),
             Some(team_id),
             Some(note_id),
             Some(user_id),
@@ -83,7 +83,7 @@ pub async fn get(
         return Err(AppError::NoteNotFound(
             *note_id,
             user_id.to_string(),
-            *cook_and_run_id,
+            *project_id,
             *team_id,
         ));
     }
@@ -92,24 +92,24 @@ pub async fn get(
 
 pub(crate) async fn delete(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     note_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_note(cook_and_run_id, team_id, note_id, user_id)
+    db.delete_note(project_id, team_id, note_id, user_id)
         .await?;
     Ok(())
 }
 
 pub async fn create(
     db: &mut Database,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     user_id: &str,
     data: &Note,
 ) -> Result<(), AppError> {
-    let _ = get_cook_and_run(db, cook_and_run_id, user_id).await?;
+    let _ = get_project(db, project_id, user_id).await?;
 
     match db.create_note(&data.to_db(team_id)).await {
         Ok(_) => Ok(()),
