@@ -6,19 +6,20 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 
 pub mod auth;
-mod project;
+pub mod common;
 mod course;
 mod health;
-mod models;
 mod note;
 mod plan;
+mod project;
 mod sharing;
 mod team;
 mod validated_json;
 
-// HH:MM format (00:00 – 23:59).
-static TIME_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^([01]\d|2[0-3]):[0-5]\d$").unwrap());
-
+// HH:MM format (00:00 – 23:59). Shared by every resource that validates a
+// time-of-day string (project points, courses, ...).
+pub(crate) static TIME_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^([01]\d|2[0-3]):[0-5]\d$").unwrap());
 
 #[allow(dead_code)]
 pub struct Rest {}
@@ -31,7 +32,7 @@ impl Rest {
 }
 
 pub fn get_routes(app_state: AppState) -> Router<AppState> {
-    axum::Router::new()
+    Router::new()
         .merge(health::routes(app_state.clone()))
         .merge(project::routes(app_state.clone()))
         .merge(course::routes(app_state.clone()))
@@ -41,7 +42,7 @@ pub fn get_routes(app_state: AppState) -> Router<AppState> {
         .merge(plan::routes(app_state.clone()))
 }
 
-
+/// Shared by every list endpoint's response envelope.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationInfo {
     pub page: u32,
@@ -78,5 +79,11 @@ impl PaginationInfo {
             has_next: (page as u64) < total_pages as u64,
             has_prev: page > 1,
         }
+    }
+}
+
+impl Default for PaginationInfo {
+    fn default() -> Self {
+        Self::new()
     }
 }

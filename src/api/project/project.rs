@@ -1,63 +1,28 @@
-use axum::{
-    extract::{Path, Query, State},
-    handler::Handler,
-    http::StatusCode,
-    middleware::from_fn_with_state,
-    response::{IntoResponse, Json, Response},
-    routing::get,
-    Extension, Router,
-};
+use axum::{extract::{Path, State}, Extension};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    project::{
-        create_project, delete_project, delete_project_end_point,
-        delete_project_start_point, get_project, get_project_end_point,
-        get_project_meta, get_project_start_point, get_list_of_project_meta,
-        set_project_end_point, set_project_start_point, update_project_meta,
+    api::{
+        auth::{is_user_authenticated, AuthUser, AuthenticatedUser, Claims},
+        validated_json::ValidatedJson,
     },
     error::AppError,
-    api::{
-        auth::{
-            is_user_authenticated, require_permission, AuthUser, AuthenticatedUser, Claims,
-            USER_ROLE,
-        },
-        models::{Project, ProjectCreateData, ProjectMeta, PaginationInfo, Point},
-        validated_json::ValidatedJson,
+    project::{
+        create_project, delete_project, delete_project_end_point, delete_project_start_point,
+        set_project_end_point, set_project_start_point, update_project_meta,
     },
     AppState,
 };
 
-
-
-impl AuthenticatedUser for ListProjectQuery {
-    fn user_id(&self) -> AuthUser {
-        AuthUser::Id(self.user_id.clone())
-    }
-}
-
-
-
-
-impl IntoResponse for ProjectListResponse {
-    fn into_response(self) -> Response {
-        (StatusCode::OK, Json(self)).into_response()
-    }
-}
-
-impl AuthenticatedUser for ProjectListResponse {
-    fn user_id(&self) -> AuthUser {
-        AuthUser::AllOf(self.data.iter().map(|item| item.user_id.clone()).collect())
-    }
-}
+use super::get::PointDTO;
 
 /// Metadata-only update payload. `id` and `user_id` come from the path and
 /// JWT respectively — they are never accepted from the request body.
 #[derive(Debug, Deserialize, Validate)]
-pub struct UpdateMetaRequest {
+pub struct UpdateMetaRequestDTO {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
     pub name: String,
     pub occur: DateTime<Utc>,
@@ -65,11 +30,11 @@ pub struct UpdateMetaRequest {
     pub admin_notification_email: String,
 }
 
-impl UpdateMetaRequest {
-    fn to_domain(&self) -> crate::project::ProjectMeta {
+impl UpdateMetaRequestDTO {
+    fn to_domain(&self, project_id: &Uuid) -> crate::project::ProjectMeta {
         let now = chrono::Utc::now();
         crate::project::ProjectMeta {
-            id: Uuid::nil(),
+            id: *project_id,
             user_id: String::new(),
             name: self.name.clone(),
             created: now,
@@ -80,10 +45,8 @@ impl UpdateMetaRequest {
     }
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-pub struct ProjectCreateData {
+pub struct ProjectCreateDTO {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
     pub name: String,
     #[serde(rename = "userId")]
@@ -94,7 +57,7 @@ pub struct ProjectCreateData {
     pub admin_notification_email: String,
 }
 
-impl ProjectCreateData {
+impl ProjectCreateDTO {
     pub fn to_project_create<'a>(
         &'a self,
         project_id: &'a Uuid,
@@ -112,37 +75,26 @@ impl ProjectCreateData {
     }
 }
 
-impl AuthenticatedUser for ProjectCreateData {
+impl AuthenticatedUser for ProjectCreateDTO {
     fn user_id(&self) -> AuthUser {
         AuthUser::Id(self.user_id.clone())
     }
 }
 
-
-
-
 #[tracing::instrument(skip(claims, state))]
-async fn create_project_project(
+pub(super) async fn create_project_project(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    ValidatedJson(payload): ValidatedJson<ProjectCreateData>,
+    ValidatedJson(payload): ValidatedJson<ProjectCreateDTO>,
 ) -> Result<(), AppError> {
     is_user_authenticated(&payload, Some(&claims.sub))?;
     let time = chrono::Utc::now();
-    create_project(
-        &mut state.db,
-        payload.to_project_create(&project_id, &time),
-    )
-    .await
+    create_project(&mut state.db, payload.to_project_create(&project_id, &time)).await
 }
 
-
-
-
-
 #[tracing::instrument(skip(claims, state))]
-async fn delete_project_project(
+pub(super) async fn delete_project_project(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
@@ -151,47 +103,37 @@ async fn delete_project_project(
 }
 
 #[tracing::instrument(skip(claims, state))]
-async fn patch_project_meta(
+pub(super) async fn patch_project_meta(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    ValidatedJson(payload): ValidatedJson<UpdateMetaRequest>,
+    ValidatedJson(payload): ValidatedJson<UpdateMetaRequestDTO>,
 ) -> Result<(), AppError> {
-    update_project_meta(
-        &mut state.db,
-        &project_id,
-        &claims.sub,
-        &payload.to_domain(),
-    )
-    .await
+    update_project_meta(&mut state.db, &claims.sub, &payload.to_domain(&project_id)).await
 }
 
-
-
 #[tracing::instrument(skip(claims, state))]
-async fn patch_start_point(
+pub(super) async fn patch_start_point(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    ValidatedJson(payload): ValidatedJson<Point>,
+    ValidatedJson(payload): ValidatedJson<PointDTO>,
 ) -> Result<(), AppError> {
-    set_project_start_point(&mut state.db, &project_id, &claims.sub, &payload.to()).await
+    set_project_start_point(&mut state.db, &project_id, &claims.sub, &payload.to_domain()).await
 }
 
-
-
 #[tracing::instrument(skip(claims, state))]
-async fn patch_end_point(
+pub(super) async fn patch_end_point(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    ValidatedJson(payload): ValidatedJson<Point>,
+    ValidatedJson(payload): ValidatedJson<PointDTO>,
 ) -> Result<(), AppError> {
-    set_project_end_point(&mut state.db, &project_id, &claims.sub, &payload.to()).await
+    set_project_end_point(&mut state.db, &project_id, &claims.sub, &payload.to_domain()).await
 }
 
 #[tracing::instrument(skip(claims, state))]
-async fn delete_start_point(
+pub(super) async fn delete_start_point(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
@@ -200,7 +142,7 @@ async fn delete_start_point(
 }
 
 #[tracing::instrument(skip(claims, state))]
-async fn delete_end_point(
+pub(super) async fn delete_end_point(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,

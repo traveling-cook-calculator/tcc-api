@@ -9,6 +9,79 @@ use crate::infrastructure::db::address::AddressEntity;
 
 pub struct TeamRepository;
 
+/// DB-layer mirror of `domain::team::TeamStatus`. Kept separate so the
+/// domain type stays free of sqlx; this is the only enum sqlx needs to
+/// know how to encode/decode against the Postgres `team_status` type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "team_status", rename_all = "snake_case")]
+enum TeamStatusEntity {
+    Active,
+    Review,
+    Canceled,
+}
+
+impl TeamStatusEntity {
+    fn from_domain(status: TeamStatus) -> Self {
+        match status {
+            TeamStatus::Active => TeamStatusEntity::Active,
+            TeamStatus::Review => TeamStatusEntity::Review,
+            TeamStatus::Canceled => TeamStatusEntity::Canceled,
+        }
+    }
+
+    fn to_domain(&self) -> TeamStatus {
+        match self {
+            TeamStatusEntity::Active => TeamStatus::Active,
+            TeamStatusEntity::Review => TeamStatus::Review,
+            TeamStatusEntity::Canceled => TeamStatus::Canceled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct TeamMetaEntity {
+    id: Uuid,
+    project_id: Uuid,
+    created_by_user: Option<String>,
+    name: String,
+    created: DateTime<Utc>,
+    edited: DateTime<Utc>,
+    mail: Option<String>,
+    phone: Option<String>,
+    members: Option<i32>,
+    diets: Option<String>,
+    status: TeamStatusEntity,
+    canceled_at: Option<DateTime<Utc>>,
+    email_verified_at: Option<DateTime<Utc>>,
+    verification_resend_count: i32,
+}
+
+impl TeamMetaEntity {
+    fn to_domain(&self) -> Team {
+        Team {
+            id: self.id,
+            project_id: self.project_id,
+            created_by_user: self.created_by_user.clone(),
+            name: self.name.clone(),
+            created: self.created,
+            edited: self.edited,
+            address: Address::default(),
+            mail: self.mail.clone(),
+            phone: self.phone.clone(),
+            members: self.members.map(|m| m as u32),
+            diets: self.diets.clone(),
+            status: self.status.to_domain(),
+            canceled_at: self.canceled_at,
+            cancel_reason: None,
+            access_token: "".to_string(),
+            email_verified_at: self.email_verified_at,
+            verification_resend_count: self.verification_resend_count as u32,
+            last_route_hash: None,
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, FromRow)]
 struct TeamEntity {
     id: Uuid,
@@ -22,7 +95,7 @@ struct TeamEntity {
     phone: Option<String>,
     members: Option<i32>,
     diets: Option<String>,
-    status: TeamStatus,
+    status: TeamStatusEntity,
     canceled_at: Option<DateTime<Utc>>,
     cancel_reason: Option<String>,
     access_token: String,
@@ -45,7 +118,7 @@ impl TeamEntity {
             phone: team.phone.clone(),
             members: team.members.map(|m| m as i32),
             diets: team.diets.clone(),
-            status: team.status,
+            status: TeamStatusEntity::from_domain(team.status),
             canceled_at: team.canceled_at,
             cancel_reason: team.cancel_reason.clone(),
             access_token: team.access_token.clone(),
@@ -55,6 +128,10 @@ impl TeamEntity {
         }
     }
 
+    /// `domain::team::Team` carries a fully populated `Address`, not just a
+    /// foreign key, so building one always needs the joined `AddressEntity`
+    /// at hand. Every read path below joins `address` for exactly this
+    /// reason.
     fn to_domain(&self, address: &AddressEntity) -> Team {
         Team {
             id: self.id,
@@ -68,23 +145,42 @@ impl TeamEntity {
             phone: self.phone.clone(),
             members: self.members.map(|m| m as u32),
             diets: self.diets.clone(),
-            status: self.status,
+            status: self.status.to_domain(),
             canceled_at: self.canceled_at,
             cancel_reason: self.cancel_reason.clone(),
             access_token: self.access_token.clone(),
             email_verified_at: self.email_verified_at,
             verification_resend_count: self.verification_resend_count as u32,
             last_route_hash: self.last_route_hash.clone(),
-            note_list: Vec::new(),
         }
     }
 }
 
-const TEAM_COLUMNS: &str = "
-    id, project_id, created_by_user, name, created, edited,
-    address, mail, phone, members, diets,
-    status, canceled_at, cancel_reason, access_token,
-    email_verified_at, verification_resend_count, last_route_hash";
+/// Row shape shared by every read query in this module: `team` joined to
+/// its `address`. There is no `TeamEntity::to_domain` without an
+/// `AddressEntity`, so a plain (unjoined) team select can never produce a
+/// `Team` — this row is the one and only shape reads decode into.
+#[derive(FromRow)]
+struct TeamWithAddressRow {
+    #[sqlx(flatten)]
+    team: TeamEntity,
+    #[sqlx(flatten)]
+    address: AddressEntity,
+}
+
+impl TeamWithAddressRow {
+    fn to_domain(&self) -> Team {
+        self.team.to_domain(&self.address)
+    }
+}
+
+const TEAM_ADDRESS_COLUMNS: &str = "
+    t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
+    t.address, t.mail, t.phone, t.members, t.diets,
+    t.status, t.canceled_at, t.cancel_reason, t.access_token,
+    t.email_verified_at, t.verification_resend_count, t.last_route_hash,
+    a.id AS a_id, a.address_text AS a_address_text,
+    a.latitude AS a_latitude, a.longitude AS a_longitude";
 
 impl TeamRepository {
     /// Idempotent on a unique-constraint clash (23505), matching the other
@@ -155,6 +251,37 @@ impl TeamRepository {
         .map_err(AppError::DatabaseError)
     }
 
+    /// Backs `team::get_list` (admin team list in `get.rs`).
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn select_all_meta_for_project<'e, E>(
+        &self,
+        executor: E,
+        project_id_filter: &Uuid,
+        user_id_filter: &str,
+    ) -> Result<Vec<Team>, AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        let query = "SELECT 
+            t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
+            t.mail, t.phone, t.members, t.diets,
+            t.status, t.canceled_at,  
+            t.email_verified_at, t.verification_resend_count
+            FROM team t
+            INNER JOIN project car ON car.id = t.project_id
+            WHERE car.id = $1 AND car.user_id = $2
+            ORDER BY t.created ASC";
+
+        let rows: Vec<TeamWithAddressRow> = sqlx::query_as(&query)
+            .bind(project_id_filter)
+            .bind(user_id_filter)
+            .fetch_all(executor)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(rows.iter().map(TeamWithAddressRow::to_domain).collect())
+    }
+
     #[tracing::instrument(skip(self, executor))]
     pub async fn select_all_for_project<'e, E>(
         &self,
@@ -169,20 +296,23 @@ impl TeamRepository {
             "SELECT {}
              FROM team t
              INNER JOIN project car ON car.id = t.project_id
+             INNER JOIN address a ON a.id = t.address
              WHERE car.id = $1 AND car.user_id = $2
              ORDER BY t.created ASC",
-            TEAM_COLUMNS
+            TEAM_ADDRESS_COLUMNS
         );
 
-        sqlx::query_as::<_, TeamEntity>(&query)
+        let rows: Vec<TeamWithAddressRow> = sqlx::query_as(&query)
             .bind(project_id_filter)
             .bind(user_id_filter)
             .fetch_all(executor)
             .await
-            .map_err(AppError::DatabaseError)
-            .map(|rows| rows.iter().map(TeamEntity::to_domain).collect())
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(rows.iter().map(TeamWithAddressRow::to_domain).collect())
     }
 
+    /// Backs `team::get` (admin single-team lookup in `get.rs`).
     #[tracing::instrument(skip(self, executor))]
     pub async fn select<'e, E>(
         &self,
@@ -198,11 +328,12 @@ impl TeamRepository {
             "SELECT {}
              FROM team t
              INNER JOIN project car ON car.id = t.project_id
+             INNER JOIN address a ON a.id = t.address
              WHERE t.id = $1 AND car.id = $2 AND car.user_id = $3",
-            TEAM_COLUMNS
+            TEAM_ADDRESS_COLUMNS
         );
 
-        sqlx::query_as::<_, TeamEntity>(&query)
+        let row: TeamWithAddressRow = sqlx::query_as(&query)
             .bind(id_filter)
             .bind(project_id_filter)
             .bind(user_id_filter)
@@ -215,12 +346,15 @@ impl TeamRepository {
                     *project_id_filter,
                 ),
                 other => AppError::DatabaseError(other),
-            })
-            .map(|row| row.to_domain())
+            })?;
+
+        Ok(row.to_domain())
     }
 
     /// Self-service access for participants: lookup purely via the
-    /// deeplink token, without knowing project_id/user_id.
+    /// deeplink token, without knowing project_id/user_id. Backs
+    /// `team::get_by_token_with_deadline` in `get.rs`, alongside
+    /// `select_edit_deadline_by_token` below.
     #[tracing::instrument(skip(self, executor))]
     pub async fn select_by_token<'e, E>(
         &self,
@@ -231,19 +365,23 @@ impl TeamRepository {
         E: sqlx::PgExecutor<'e>,
     {
         let query = format!(
-            "SELECT {} FROM team t WHERE t.access_token = $1",
-            TEAM_COLUMNS
+            "SELECT {}
+             FROM team t
+             INNER JOIN address a ON a.id = t.address
+             WHERE t.access_token = $1",
+            TEAM_ADDRESS_COLUMNS
         );
 
-        sqlx::query_as::<_, TeamEntity>(&query)
+        let row: TeamWithAddressRow = sqlx::query_as(&query)
             .bind(access_token)
             .fetch_one(executor)
             .await
             .map_err(|e| match e {
                 sqlx::Error::RowNotFound => AppError::TeamNotFoundByToken,
                 other => AppError::DatabaseError(other),
-            })
-            .map(|row| row.to_domain())
+            })?;
+
+        Ok(row.to_domain())
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -255,9 +393,15 @@ impl TeamRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let query = format!("SELECT {} FROM team t WHERE t.id = $1", TEAM_COLUMNS);
+        let query = format!(
+            "SELECT {}
+             FROM team t
+             INNER JOIN address a ON a.id = t.address
+             WHERE t.id = $1",
+            TEAM_ADDRESS_COLUMNS
+        );
 
-        sqlx::query_as::<_, TeamEntity>(&query)
+        let row: TeamWithAddressRow = sqlx::query_as(&query)
             .bind(id)
             .fetch_one(executor)
             .await
@@ -266,8 +410,9 @@ impl TeamRepository {
                     AppError::TeamNotFound(*id, "NONE".to_string(), Uuid::nil())
                 }
                 other => AppError::DatabaseError(other),
-            })
-            .map(|row| row.to_domain())
+            })?;
+
+        Ok(row.to_domain())
     }
 
     /// Row-locking variant of `select`, for callers that need to read the
@@ -288,6 +433,7 @@ impl TeamRepository {
         let query = format!(
             "SELECT {}
              FROM team t
+             INNER JOIN address a ON a.id = t.address
              WHERE t.id = $1
                AND (
                    t.project_id IN (
@@ -296,17 +442,18 @@ impl TeamRepository {
                    OR t.created_by_user = $3
                )
              FOR UPDATE OF t",
-            TEAM_COLUMNS
+            TEAM_ADDRESS_COLUMNS
         );
 
-        sqlx::query_as::<_, TeamEntity>(&query)
+        let row: Option<TeamWithAddressRow> = sqlx::query_as(&query)
             .bind(id_filter)
             .bind(project_id_filter)
             .bind(user_id_filter)
             .fetch_optional(executor)
             .await
-            .map_err(AppError::DatabaseError)
-            .map(|row| row.map(|r| r.to_domain()))
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(row.map(|r| r.to_domain()))
     }
 
     /// Row-locking lookup by token, for the self-service update path.
@@ -320,16 +467,21 @@ impl TeamRepository {
         E: sqlx::PgExecutor<'e>,
     {
         let query = format!(
-            "SELECT {} FROM team t WHERE t.access_token = $1 FOR UPDATE OF t",
-            TEAM_COLUMNS
+            "SELECT {}
+             FROM team t
+             INNER JOIN address a ON a.id = t.address
+             WHERE t.access_token = $1
+             FOR UPDATE OF t",
+            TEAM_ADDRESS_COLUMNS
         );
 
-        sqlx::query_as::<_, TeamEntity>(&query)
+        let row: Option<TeamWithAddressRow> = sqlx::query_as(&query)
             .bind(access_token)
             .fetch_optional(executor)
             .await
-            .map_err(AppError::DatabaseError)
-            .map(|row| row.map(|r| r.to_domain()))
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(row.map(|r| r.to_domain()))
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -533,173 +685,15 @@ impl TeamRepository {
     }
 }
 
-// ============================================================
-// Read-only join projections
-// ============================================================
-// These return (Team, Address) pairs the way most callers actually need
-// them. They stay as plain, generic-executor functions outside
-// `TeamRepository` (same idea as `email_context.rs`): a join across two
-// entities for read convenience is not entity persistence, so it does not
-// belong inside either `TeamRepository` or `AddressRepository`. Callers
-// that don't need the address can use the plain `TeamRepository` methods
-// above and avoid the join entirely.
-
-#[derive(FromRow)]
-struct TeamAddressRow {
-    #[sqlx(flatten)]
-    team: TeamEntity,
-    #[sqlx(flatten)]
-    address: AddressEntity,
-}
-
-const TEAM_ADDRESS_COLUMNS: &str = "
-    t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
-    t.address, t.mail, t.phone, t.members, t.diets,
-    t.status, t.canceled_at, t.cancel_reason, t.access_token,
-    t.email_verified_at, t.verification_resend_count, t.last_route_hash,
-    a.id AS a_id, a.address_text AS a_address_text,
-    a.latitude AS a_latitude, a.longitude AS a_longitude";
-
-impl From<TeamAddressRow> for (Team, Address) {
-    fn from(row: TeamAddressRow) -> Self {
-        let address = AddressEntity {
-            id: row.a_id,
-            address_text: row.a_address_text,
-            latitude: row.a_latitude,
-            longitude: row.a_longitude,
-        }
-        .to_domain();
-
-        let mut team = row.team.to_domain(&row.address);
-        team.address = address.clone();
-
-        (team, address)
-    }
-}
-
-#[tracing::instrument(skip(executor))]
-pub async fn select_all_teams_with_address<'e, E>(
-    executor: E,
-    project_id_filter: &Uuid,
-    user_id_filter: &str,
-) -> Result<Vec<(Team, Address)>, AppError>
-where
-    E: sqlx::PgExecutor<'e>,
-{
-    let query = format!(
-        "SELECT {}
-         FROM team t
-         INNER JOIN project car ON car.id = t.project_id
-         INNER JOIN address a ON a.id = t.address
-         WHERE car.id = $1 AND car.user_id = $2
-         ORDER BY t.created ASC",
-        TEAM_ADDRESS_COLUMNS
-    );
-    let rows: Vec<TeamAddressRow> = sqlx::query_as(&query)
-        .bind(project_id_filter)
-        .bind(user_id_filter)
-        .fetch_all(executor)
-        .await
-        .map_err(AppError::DatabaseError)?;
-
-    Ok(rows.into_iter().map(Into::into).collect())
-}
-
-#[tracing::instrument(skip(executor))]
-pub async fn select_team_with_address<'e, E>(
-    executor: E,
-    id_filter: &Uuid,
-    project_id_filter: &Uuid,
-    user_id_filter: &str,
-) -> Result<(Team, Address), AppError>
-where
-    E: sqlx::PgExecutor<'e>,
-{
-    let query = format!(
-        "SELECT {}
-         FROM team t
-         INNER JOIN project car ON car.id = t.project_id
-         INNER JOIN address a ON a.id = t.address
-         WHERE t.id = $1 AND car.id = $2 AND car.user_id = $3",
-        TEAM_ADDRESS_COLUMNS
-    );
-    let row: TeamAddressRow = sqlx::query_as(&query)
-        .bind(id_filter)
-        .bind(project_id_filter)
-        .bind(user_id_filter)
-        .fetch_one(executor)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => {
-                AppError::TeamNotFound(*id_filter, user_id_filter.to_string(), *project_id_filter)
-            }
-            other => AppError::DatabaseError(other),
-        })?;
-
-    Ok(row.into())
-}
-
-/// Self-service access for participants: lookup purely via the deeplink
-/// token, without knowing project_id/user_id.
-#[tracing::instrument(skip(executor))]
-pub async fn select_team_with_address_by_token<'e, E>(
-    executor: E,
-    access_token: &str,
-) -> Result<(Team, Address), AppError>
-where
-    E: sqlx::PgExecutor<'e>,
-{
-    let query = format!(
-        "SELECT {}
-         FROM team t
-         INNER JOIN address a ON a.id = t.address
-         WHERE t.access_token = $1",
-        TEAM_ADDRESS_COLUMNS
-    );
-    let row: TeamAddressRow = sqlx::query_as(&query)
-        .bind(access_token)
-        .fetch_one(executor)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::TeamNotFoundByToken,
-            other => AppError::DatabaseError(other),
-        })?;
-
-    Ok(row.into())
-}
-
-#[tracing::instrument(skip(executor))]
-pub async fn select_team_with_address_by_id_unchecked<'e, E>(
-    executor: E,
-    id: &Uuid,
-) -> Result<(Team, Address), AppError>
-where
-    E: sqlx::PgExecutor<'e>,
-{
-    let query = format!(
-        "SELECT {}
-         FROM team t
-         INNER JOIN address a ON a.id = t.address
-         WHERE t.id = $1",
-        TEAM_ADDRESS_COLUMNS
-    );
-    let row: TeamAddressRow = sqlx::query_as(&query)
-        .bind(id)
-        .fetch_one(executor)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => {
-                AppError::TeamNotFound(*id, "NONE".to_string(), Uuid::nil())
-            }
-            other => AppError::DatabaseError(other),
-        })?;
-
-    Ok(row.into())
-}
-
 /// Edit deadline that applies to a team's self-service token, derived from
 /// its project's share configuration. `None` if there is no deadline
 /// configured (or no share config at all for that project).
+///
+/// Deliberately separate from `TeamRepository::select_by_token`: this joins
+/// `project`/`share`, not `address`, so it doesn't fit the
+/// `TeamWithAddressRow` shape the rest of this module reads into. The
+/// `team::get_by_token_with_deadline` service used by `get.rs` is expected
+/// to call this alongside `select_by_token` and combine the two results.
 #[tracing::instrument(skip(executor))]
 pub async fn select_edit_deadline_by_token<'e, E>(
     executor: E,

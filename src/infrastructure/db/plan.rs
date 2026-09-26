@@ -81,15 +81,16 @@ impl PlanEntity {
     /// stored inline in `data.hosting_list`.
     fn to_domain(&self) -> Plan {
         Plan {
+            id: self.id,
             hosting_list: self.data.to_domain(),
             walking_path: self.data.walking_path.clone(),
             stale_at: self.stale_at,
         }
     }
 
-    fn from_domain(id: &Uuid, plan: &Plan) -> Self {
+    fn from_domain(plan: &Plan) -> Self {
         PlanEntity {
-            id: *id,
+            id: plan.id,
             data: Json(PlanDataEntity::from_domain(plan)),
             stale_at: plan.stale_at,
         }
@@ -102,9 +103,10 @@ impl PlanRepository {
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
+        let plan_entity = PlanEntity::from_domain(data);
         sqlx::query("INSERT INTO plan (id, data) VALUES ($1, $2)")
-            .bind(data.id)
-            .bind(Json(&data.data))
+            .bind(plan_entity.id)
+            .bind(Json(&plan_entity.data))
             .execute(executor)
             .await
             .map_err(AppError::DatabaseError)?;
@@ -208,6 +210,29 @@ impl AccessEntity {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "access", rename_all = "snake_case")]
+pub enum LanguageEntity {
+    Deutsch,
+    English,
+}
+
+impl LanguageEntity {
+    pub fn from_domain(lang: &Language) -> Self {
+        match lang {
+            Language::Deutsch => Self::Deutsch,
+            Language::English => Self::English,
+        }
+    }
+
+    pub fn to_domain(&self) -> Language {
+        match self {
+            Self::Deutsch => Language::Deutsch,
+            Self::English => Language::English,
+        }
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct PlanConfigEntity {
     id: Uuid,
@@ -215,7 +240,7 @@ struct PlanConfigEntity {
     title: String,
     description: String,
     date: chrono::NaiveDate,
-    language: Language,
+    language: LanguageEntity,
 }
 
 impl PlanConfigEntity {
@@ -226,17 +251,17 @@ impl PlanConfigEntity {
             title: config.title.clone(),
             description: config.description.clone(),
             date: config.date,
-            language: config.language,
+            language: LanguageEntity::from_domain(&config.language),
         }
     }
 
     fn to_domain(&self) -> PlanConfig {
         PlanConfig {
-            access: self.access.to_domain(),
+            access: AccessEntity::to_domain_list(&self.access),
             title: self.title.clone(),
             description: self.description.clone(),
             date: self.date,
-            language: self.language,
+            language: self.language.to_domain(),
         }
     }
 }

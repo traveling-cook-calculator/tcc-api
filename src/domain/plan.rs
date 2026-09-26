@@ -34,6 +34,7 @@ pub struct Hosting {
 
 #[derive(Debug, Clone)]
 pub struct Plan {
+    pub id: Uuid,
     pub hosting_list: Vec<Hosting>,
     pub walking_path: HashMap<Uuid, Vec<Uuid>>,
     /// Set once a change (new/removed team, changed address, changed

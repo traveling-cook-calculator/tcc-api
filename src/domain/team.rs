@@ -23,7 +23,6 @@ pub struct Team {
     pub email_verified_at: Option<DateTime<Utc>>,
     pub verification_resend_count: u32,
     pub last_route_hash: Option<String>,
-    pub note_list: Vec<Note>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

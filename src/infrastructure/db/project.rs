@@ -32,12 +32,14 @@ impl ProjectEntity {
             created: self.created,
             edited: self.edited,
             occur: self.occur,
-            start_point: self.start_point,
-            end_point: self.end_point,
-            share_team_config: self.share_team_config,
-            plan: self.plan,
-            plan_config: self.plan_config,
+            start_point: None,
+            end_point: None,
+            share_team_config: None,
+            plan: None,
+            plan_config: None,
             admin_notification_email: self.admin_notification_email.clone(),
+            team_list: Vec::new(),
+            course_list: Vec::new(),
         }
     }
 }
