@@ -1,8 +1,7 @@
 use sqlx::prelude::FromRow;
-use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
-use crate::domain::note::Note;
+use crate::domain::team::Note;
 use crate::error::AppError;
 
 pub struct NoteRepository;
@@ -17,10 +16,10 @@ struct NoteEntity {
 }
 
 impl NoteEntity {
-    fn from_domain(note: &Note) -> Self {
+    fn from_domain(note: &Note, team_id: &Uuid) -> Self {
         NoteEntity {
             id: note.id,
-            team_id: note.team_id,
+            team_id: team_id.clone(),
             headline: note.headline.clone(),
             content: note.content.clone(),
             created: note.created,
@@ -30,7 +29,6 @@ impl NoteEntity {
     fn to_domain(&self) -> Note {
         Note {
             id: self.id,
-            team_id: self.team_id,
             headline: self.headline.clone(),
             content: self.content.clone(),
             created: self.created,
@@ -40,11 +38,16 @@ impl NoteEntity {
 
 impl NoteRepository {
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn insert<'e, E>(&self, executor: E, data: &Note) -> Result<(), AppError>
+    pub async fn insert<'e, E>(
+        &self,
+        executor: E,
+        data: &Note,
+        team_id: &Uuid,
+    ) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
-        let note = NoteEntity::from_domain(data);
+        let note = NoteEntity::from_domain(data, team_id);
 
         let result = sqlx::query(
             "INSERT INTO note (id, team_id, headline, content, created)
@@ -71,69 +74,34 @@ impl NoteRepository {
     pub async fn select_with_filter<'e, E>(
         &self,
         executor: E,
-        project_id_filter: Option<&Uuid>,
-        team_id_filter: Option<&Uuid>,
-        note_id_filter: Option<&Uuid>,
-        user_id_filter: Option<&str>,
+        project_id_filter: &Uuid,
+        team_id_filter: &Uuid,
+        user_id_filter: &str,
     ) -> Result<Vec<Note>, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let needs_join = project_id_filter.is_some() || user_id_filter.is_some();
-
-        let mut qb: QueryBuilder<Postgres> = if needs_join {
-            let mut qb = QueryBuilder::new(
-                "SELECT n.id, n.team_id, n.headline, n.content, n.created
-                 FROM note n
-                 INNER JOIN team t ON t.id = n.team_id
-                 INNER JOIN project car ON car.id = t.project_id
-                 WHERE 1 = 1",
-            );
-
-            if let Some(project_id) = project_id_filter {
-                qb.push(" AND car.id = ").push_bind(*project_id);
-            }
-            if let Some(user_id) = user_id_filter {
-                qb.push(" AND car.user_id = ")
-                    .push_bind(user_id.to_string());
-            }
-            if let Some(team_id) = team_id_filter {
-                qb.push(" AND t.id = ").push_bind(*team_id);
-            }
-            if let Some(note_id) = note_id_filter {
-                qb.push(" AND n.id = ").push_bind(*note_id);
-            }
-
-            qb.push(" ORDER BY n.created ASC");
-            qb
-        } else {
-            let mut qb = QueryBuilder::new(
-                "SELECT id, team_id, headline, content, created FROM note WHERE 1 = 1",
-            );
-
-            if let Some(team_id) = team_id_filter {
-                qb.push(" AND team_id = ").push_bind(*team_id);
-            }
-            if let Some(note_id) = note_id_filter {
-                qb.push(" AND id = ").push_bind(*note_id);
-            }
-
-            qb.push(" ORDER BY created ASC");
-            qb
-        };
-
-        let result = qb
-            .build_query_as::<NoteEntity>()
-            .fetch_all(executor)
-            .await;
+        let result = sqlx::query_as::<_, NoteEntity>(
+            "SELECT n.id, n.team_id, n.headline, n.content, n.created
+             FROM note n
+             INNER JOIN team t ON t.id = n.team_id
+             INNER JOIN project car ON car.id = t.project_id
+             WHERE car.id = $1 AND car.user_id = $2 AND t.id = $3
+             ORDER BY n.created ASC",
+        )
+        .bind(project_id_filter)
+        .bind(user_id_filter)
+        .bind(team_id_filter)
+        .fetch_all(executor)
+        .await;
 
         result
             .map_err(|e| match e {
                 sqlx::Error::RowNotFound => AppError::NoteNotFound(
-                    note_id_filter.copied().unwrap_or(Uuid::nil()),
-                    user_id_filter.unwrap_or("").to_string(),
-                    project_id_filter.copied().unwrap_or(Uuid::nil()),
-                    team_id_filter.copied().unwrap_or(Uuid::nil()),
+                    Uuid::nil(),
+                    user_id_filter.to_string(),
+                    *project_id_filter,
+                    *team_id_filter,
                 ),
                 other => AppError::DatabaseError(other),
             })

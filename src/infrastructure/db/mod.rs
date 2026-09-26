@@ -6,7 +6,6 @@ pub mod email_outbox;
 pub mod models;
 pub mod note;
 pub mod plan;
-pub mod plan_staleness;
 pub mod point;
 pub mod sharing;
 pub mod team;

@@ -3,7 +3,6 @@ use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::domain::team_audit_log::{AuditAction, AuditActorType, TeamAuditLogEntry};
 use crate::error::AppError;
 
 /// Snapshot der auditierbaren Team-Felder für Vorher/Nachher-Vergleiche.
@@ -21,11 +20,40 @@ pub(super) struct TeamAuditSnapshot {
     pub longitude: f64,
 }
 
-pub(super) fn diff_json(before: &TeamAuditSnapshot, after: &TeamAuditSnapshot) -> serde_json::Value {
+pub(super) fn diff_json(
+    before: &TeamAuditSnapshot,
+    after: &TeamAuditSnapshot,
+) -> serde_json::Value {
     json!({ "before": before, "after": after })
 }
 
 pub struct TeamAuditLogRepository;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize)]
+#[sqlx(type_name = "audit_actor_type", rename_all = "snake_case")]
+pub enum AuditActorType {
+    Admin,
+    Participant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize)]
+#[sqlx(type_name = "audit_action", rename_all = "snake_case")]
+pub enum AuditAction {
+    Created,
+    Updated,
+    Canceled,
+    PlanInvalidated,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TeamAuditLogEntry {
+    pub id: Uuid,
+    pub actor_type: AuditActorType,
+    pub actor_label: Option<String>,
+    pub action: AuditAction,
+    pub changes: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct TeamAuditLogEntity {
@@ -83,13 +111,6 @@ impl TeamAuditLogRepository {
         Ok(())
     }
 
-    /// Liefert eine paginierte Seite der Log-Einträge plus Gesamtanzahl für
-    /// `team_id`, in einer einzigen Query (Window-Funktion) — ein generisches
-    /// `E` ist nicht zwangsläufig `Copy` (z. B. `&mut Transaction`), zwei
-    /// sequenzielle Queries auf demselben `executor`-Wert wären daher nicht
-    /// ohne Weiteres möglich. Prüft KEIN Besitzverhältnis mehr — der
-    /// Aufrufer hat das Team i.d.R. bereits über `TeamRepository::select`
-    /// geladen und damit implizit geprüft.
     #[tracing::instrument(skip(self, executor))]
     pub async fn select_for_team<'e, E>(
         &self,

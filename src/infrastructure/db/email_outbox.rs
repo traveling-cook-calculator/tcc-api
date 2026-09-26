@@ -2,19 +2,63 @@ use chrono::{DateTime, Utc};
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-use crate::domain::email_outbox::{EmailOutbox, EmailStatus};
+use crate::domain::mail::{EmailOutbox, EmailStatus, EmailType};
 use crate::error::AppError;
 
 pub struct EmailOutboxRepository;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "email_type", rename_all = "snake_case")]
+enum EmailTypeEntity {
+    Invitation,
+    RouteUpdate,
+    AdminNotification,
+}
+
+impl EmailTypeEntity {
+    fn from_domain(email_type: EmailType) -> Self {
+        match email_type {
+            EmailType::Invitation => EmailTypeEntity::Invitation,
+            EmailType::RouteUpdate => EmailTypeEntity::RouteUpdate,
+            EmailType::AdminNotification => EmailTypeEntity::AdminNotification,
+        }
+    }
+
+    fn to_domain(self) -> EmailType {
+        match self {
+            EmailTypeEntity::Invitation => EmailType::Invitation,
+            EmailTypeEntity::RouteUpdate => EmailType::RouteUpdate,
+            EmailTypeEntity::AdminNotification => EmailType::AdminNotification,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "email_status", rename_all = "snake_case")]
+enum EmailStatusEntity {
+    Pending,
+    Sent,
+    Failed,
+}
+
+impl EmailStatusEntity {
+    fn to_domain(self) -> EmailStatus {
+        match self {
+            EmailStatusEntity::Pending => EmailStatus::Pending,
+            EmailStatusEntity::Sent => EmailStatus::Sent,
+            EmailStatusEntity::Failed => EmailStatus::Failed,
+        }
+    }
+}
 
 #[derive(Debug, Clone, FromRow)]
 struct EmailOutboxEntity {
     id: Uuid,
     team_id: Option<Uuid>,
     recipient_email: String,
-    email_type: EmailType,
+    email_type: EmailTypeEntity,
     context: serde_json::Value,
-    status: EmailStatus,
+    status: EmailStatusEntity,
     attempts: i32,
     last_error: Option<String>,
     next_attempt_at: DateTime<Utc>,
@@ -28,9 +72,9 @@ impl EmailOutboxEntity {
             id: self.id,
             team_id: self.team_id,
             recipient_email: self.recipient_email.clone(),
-            email_type: self.email_type,
+            email_type: self.email_type.to_domain(),
             context: self.context.clone(),
-            status: self.status,
+            status: self.status.to_domain(),
             attempts: self.attempts,
             last_error: self.last_error.clone(),
             next_attempt_at: self.next_attempt_at,
@@ -50,7 +94,7 @@ impl EmailOutboxRepository {
         executor: E,
         team_id: Option<Uuid>,
         recipient_email: &str,
-        email_type: crate::domain::email_outbox::EmailType,
+        email_type: EmailType,
         context: &serde_json::Value,
         time: &DateTime<Utc>,
     ) -> Result<(), AppError>
@@ -66,7 +110,7 @@ impl EmailOutboxRepository {
         .bind(Uuid::new_v4())
         .bind(team_id)
         .bind(recipient_email)
-        .bind(email_type)
+        .bind(EmailTypeEntity::from_domain(email_type))
         .bind(context)
         .bind(time)
         .execute(executor)

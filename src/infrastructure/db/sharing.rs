@@ -1,55 +1,124 @@
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-use crate::domain::sharing::{Share, TeamFields};
-use crate::error::AppError;
+use crate::{
+    domain::team::{RequiredField, ShareTeamConfig},
+    error::AppError,
+};
 
 pub struct ShareRepository;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "access", rename_all = "snake_case")]
+enum RequiredFieldEntity {
+    Mail,
+    Phone,
+    Members,
+    Diets,
+}
+
+impl RequiredFieldEntity {
+    fn from_domain(field: &RequiredField) -> Self {
+        match field {
+            RequiredField::Mail => Self::Mail,
+            RequiredField::Phone => Self::Phone,
+            RequiredField::Members => Self::Members,
+            RequiredField::Diets => Self::Diets,
+        }
+    }
+
+    fn to_domain(self) -> RequiredField {
+        match self {
+            Self::Mail => RequiredField::Mail,
+            Self::Phone => RequiredField::Phone,
+            Self::Members => RequiredField::Members,
+            Self::Diets => RequiredField::Diets,
+        }
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
-struct ShareEntity {
+struct ShareTeamConfigEntity {
     id: Uuid,
     created: chrono::DateTime<chrono::Utc>,
     invite_text: String,
     require_email_verification: bool,
     default_needs_check: bool,
-    required_fields: Option<Vec<Option<TeamFields>>>,
+    required_fields: Option<Vec<Option<RequiredFieldEntity>>>,
     max_teams: Option<i32>,
     registration_deadline: Option<chrono::DateTime<chrono::Utc>>,
     edit_deadline: Option<chrono::DateTime<chrono::Utc>>,
-    review_trigger_fields: Option<Vec<Option<TeamFields>>>,
+    review_trigger_fields: Option<Vec<Option<RequiredFieldEntity>>>,
     notify_admin_on_review: bool,
 }
 
-impl ShareEntity {
-    fn from_domain(share: &Share) -> Self {
-        ShareEntity {
+impl ShareTeamConfigEntity {
+    fn from_domain(share: &ShareTeamConfig) -> Self {
+        ShareTeamConfigEntity {
             id: share.id,
             created: share.created,
             invite_text: share.invite_text.clone(),
             require_email_verification: share.require_email_verification,
             default_needs_check: share.default_needs_check,
-            required_fields: share.required_fields.clone(),
-            max_teams: share.max_teams,
+            required_fields: Some(
+                share
+                    .required_fields
+                    .iter()
+                    .map(|field| Some(RequiredFieldEntity::from_domain(field)))
+                    .collect(),
+            ),
+            max_teams: share.max_teams.map(|max_teams| max_teams as i32),
             registration_deadline: share.registration_deadline,
             edit_deadline: share.edit_deadline,
-            review_trigger_fields: share.review_trigger_fields.clone(),
+            review_trigger_fields: Some(
+                share
+                    .review_trigger_fields
+                    .iter()
+                    .map(|field| Some(RequiredFieldEntity::from_domain(field)))
+                    .collect(),
+            ),
             notify_admin_on_review: share.notify_admin_on_review,
         }
     }
 
-    fn to_domain(&self) -> Share {
-        Share {
+    fn to_domain(&self) -> ShareTeamConfig {
+        ShareTeamConfig {
             id: self.id,
             created: self.created,
             invite_text: self.invite_text.clone(),
             require_email_verification: self.require_email_verification,
             default_needs_check: self.default_needs_check,
-            required_fields: self.required_fields.clone(),
-            max_teams: self.max_teams,
+            required_fields: self
+                .required_fields
+                .as_ref()
+                .map(|fields| {
+                    fields
+                        .iter()
+                        .filter_map(|field| {
+                            field
+                                .as_ref()
+                                .map(|field| RequiredFieldEntity::to_domain(*field))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            max_teams: self.max_teams.map(|max_teams| max_teams as u32),
             registration_deadline: self.registration_deadline,
             edit_deadline: self.edit_deadline,
-            review_trigger_fields: self.review_trigger_fields.clone(),
+            review_trigger_fields: self
+                .review_trigger_fields
+                .as_ref()
+                .map(|fields| {
+                    fields
+                        .iter()
+                        .filter_map(|field| {
+                            field
+                                .as_ref()
+                                .map(|field| RequiredFieldEntity::to_domain(*field))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             notify_admin_on_review: self.notify_admin_on_review,
         }
     }
@@ -62,11 +131,11 @@ const SHARE_COLUMNS: &str = "
 
 impl ShareRepository {
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn insert<'e, E>(&self, executor: E, data: &Share) -> Result<(), AppError>
+    pub async fn insert<'e, E>(&self, executor: E, data: &ShareTeamConfig) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
-        let share = ShareEntity::from_domain(data);
+        let share = ShareTeamConfigEntity::from_domain(data);
 
         sqlx::query(
             "INSERT INTO share
@@ -95,11 +164,11 @@ impl ShareRepository {
 
     /// Insert-or-update by id.
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn upsert<'e, E>(&self, executor: E, data: &Share) -> Result<(), AppError>
+    pub async fn upsert<'e, E>(&self, executor: E, data: &ShareTeamConfig) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
-        let share = ShareEntity::from_domain(data);
+        let share = ShareTeamConfigEntity::from_domain(data);
 
         sqlx::query(
             "INSERT INTO share
@@ -138,13 +207,17 @@ impl ShareRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<Share, AppError>
+    pub async fn select<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+    ) -> Result<ShareTeamConfig, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let query = format!("SELECT {} FROM share WHERE id = $1", SHARE_COLUMNS);
-
-        sqlx::query_as::<_, ShareEntity>(&query)
+        sqlx::query_as::<_, ShareTeamConfigEntity>("SELECT id, created, invite_text, require_email_verification, default_needs_check,
+    required_fields, max_teams, registration_deadline, edit_deadline,
+    review_trigger_fields, notify_admin_on_review FROM share WHERE id = $1")
             .bind(id_filter)
             .fetch_one(executor)
             .await
@@ -152,8 +225,6 @@ impl ShareRepository {
             .map(|row| row.to_domain())
     }
 
-    /// Löscht die share-Zeile selbst (nicht nur die Referenz auf dem
-    /// Projekt — dafür `ProjectRepository::clear_share_config_ref`).
     #[tracing::instrument(skip(self, executor))]
     pub async fn delete<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<(), AppError>
     where

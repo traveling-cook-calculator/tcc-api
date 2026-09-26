@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 use sqlx::types::Json;
 use uuid::Uuid;
 
-use crate::domain::plan::{Access, Language, Plan, PlanConfig, PlanData};
+use crate::domain::plan::{Access, Hosting, Language, Plan, PlanConfig};
 use crate::error::AppError;
 
 // ========================================
@@ -12,19 +15,83 @@ use crate::error::AppError;
 
 pub struct PlanRepository;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HostingEntity {
+    id: Uuid,
+    name: Uuid,
+    host: Uuid,
+    guest_list: Vec<Uuid>,
+}
+
+impl HostingEntity {
+    fn to_domain(&self) -> Hosting {
+        Hosting {
+            id: self.id,
+            name: self.name,
+            host: self.host,
+            guest_list: self.guest_list.clone(),
+        }
+    }
+
+    fn from_domain(hosting: &Hosting) -> Self {
+        HostingEntity {
+            id: hosting.id,
+            name: hosting.name,
+            host: hosting.host,
+            guest_list: hosting.guest_list.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PlanDataEntity {
+    hosting_list: Vec<HostingEntity>,
+    walking_path: HashMap<Uuid, Vec<Uuid>>,
+}
+
+impl PlanDataEntity {
+    fn to_domain(&self) -> Vec<Hosting> {
+        self.hosting_list
+            .iter()
+            .map(HostingEntity::to_domain)
+            .collect()
+    }
+
+    fn from_domain(plan: &Plan) -> Self {
+        PlanDataEntity {
+            hosting_list: plan
+                .hosting_list
+                .iter()
+                .map(HostingEntity::from_domain)
+                .collect(),
+            walking_path: plan.walking_path.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct PlanEntity {
     id: Uuid,
-    data: Json<PlanData>,
+    data: Json<PlanDataEntity>,
     stale_at: Option<DateTime<Utc>>,
 }
 
 impl PlanEntity {
+    /// Rebuilds the full domain `Plan`, including every `Hosting` that is
+    /// stored inline in `data.hosting_list`.
     fn to_domain(&self) -> Plan {
         Plan {
-            id: self.id,
-            data: self.data.0.clone(),
+            hosting_list: self.data.to_domain(),
+            walking_path: self.data.walking_path.clone(),
             stale_at: self.stale_at,
+        }
+    }
+
+    fn from_domain(id: &Uuid, plan: &Plan) -> Self {
+        PlanEntity {
+            id: *id,
+            data: Json(PlanDataEntity::from_domain(plan)),
+            stale_at: plan.stale_at,
         }
     }
 }
@@ -58,25 +125,6 @@ impl PlanRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select_optional<'e, E>(
-        &self,
-        executor: E,
-        id_filter: &Uuid,
-    ) -> Result<Option<Plan>, AppError>
-    where
-        E: sqlx::PgExecutor<'e>,
-    {
-        sqlx::query_as::<_, PlanEntity>("SELECT id, data, stale_at FROM plan WHERE id = $1")
-            .bind(id_filter)
-            .fetch_optional(executor)
-            .await
-            .map_err(AppError::DatabaseError)
-            .map(|row| row.map(|r| r.to_domain()))
-    }
-
-    /// Löscht die Plan-Zeile selbst (nicht nur die Referenz auf dem
-    /// Projekt — dafür `ProjectRepository::clear_plan_ref`).
-    #[tracing::instrument(skip(self, executor))]
     pub async fn delete<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
@@ -94,10 +142,6 @@ impl PlanRepository {
         Ok(())
     }
 
-    /// Markiert den Plan als veraltet (setzt `stale_at`, sofern noch nicht
-    /// gesetzt). Löscht NICHTS — Neuberechnung oder manuelle Korrektur
-    /// bleiben möglich. Gibt `true` zurück, wenn dieser Aufruf den Übergang
-    /// ausgelöst hat (relevant dafür, ob ein Audit-Eintrag sinnvoll ist).
     #[tracing::instrument(skip(self, executor))]
     pub async fn mark_stale<'e, E>(
         &self,
@@ -108,51 +152,16 @@ impl PlanRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let affected = sqlx::query("UPDATE plan SET stale_at = $1 WHERE id = $2 AND stale_at IS NULL")
-            .bind(time)
-            .bind(id_filter)
-            .execute(executor)
-            .await
-            .map_err(AppError::DatabaseError)?
-            .rows_affected();
+        let affected =
+            sqlx::query("UPDATE plan SET stale_at = $1 WHERE id = $2 AND stale_at IS NULL")
+                .bind(time)
+                .bind(id_filter)
+                .execute(executor)
+                .await
+                .map_err(AppError::DatabaseError)?
+                .rows_affected();
 
         Ok(affected > 0)
-    }
-
-    /// Reiner Zustands-Reset — löscht nur stale_at, fasst Plan-Daten selbst
-    /// nicht an.
-    #[tracing::instrument(skip(self, executor))]
-    pub async fn clear_stale<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<(), AppError>
-    where
-        E: sqlx::PgExecutor<'e>,
-    {
-        let affected = sqlx::query("UPDATE plan SET stale_at = NULL WHERE id = $1")
-            .bind(id_filter)
-            .execute(executor)
-            .await
-            .map_err(AppError::DatabaseError)?
-            .rows_affected();
-
-        if affected == 0 {
-            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
-        }
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self, executor))]
-    pub async fn select_stale_at<'e, E>(
-        &self,
-        executor: E,
-        id_filter: &Uuid,
-    ) -> Result<Option<DateTime<Utc>>, AppError>
-    where
-        E: sqlx::PgExecutor<'e>,
-    {
-        sqlx::query_scalar("SELECT stale_at FROM plan WHERE id = $1")
-            .bind(id_filter)
-            .fetch_one(executor)
-            .await
-            .map_err(AppError::DatabaseError)
     }
 }
 
@@ -162,10 +171,47 @@ impl PlanRepository {
 
 pub struct PlanConfigRepository;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "access", rename_all = "snake_case")]
+enum AccessEntity {
+    Link,
+    Account,
+}
+
+impl AccessEntity {
+    fn from_domain(access: &Access) -> Self {
+        match access {
+            Access::Link => Self::Link,
+            Access::Account => Self::Account,
+        }
+    }
+
+    fn to_domain(&self) -> Access {
+        match self {
+            Self::Link => Access::Link,
+            Self::Account => Access::Account,
+        }
+    }
+
+    fn from_domain_list(access_list: &[Access]) -> Vec<Option<Self>> {
+        access_list
+            .iter()
+            .map(|access| Some(Self::from_domain(access)))
+            .collect()
+    }
+
+    fn to_domain_list(access_list: &[Option<Self>]) -> Vec<Access> {
+        access_list
+            .iter()
+            .filter_map(|access| access.as_ref().map(Self::to_domain))
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 struct PlanConfigEntity {
     id: Uuid,
-    access: Vec<Option<Access>>,
+    access: Vec<Option<AccessEntity>>,
     title: String,
     description: String,
     date: chrono::NaiveDate,
@@ -175,8 +221,8 @@ struct PlanConfigEntity {
 impl PlanConfigEntity {
     fn from_domain(config: &PlanConfig) -> Self {
         PlanConfigEntity {
-            id: config.id,
-            access: config.access.clone(),
+            id: Uuid::new_v4(),
+            access: AccessEntity::from_domain_list(&config.access),
             title: config.title.clone(),
             description: config.description.clone(),
             date: config.date,
@@ -186,8 +232,7 @@ impl PlanConfigEntity {
 
     fn to_domain(&self) -> PlanConfig {
         PlanConfig {
-            id: self.id,
-            access: self.access.clone(),
+            access: self.access.to_domain(),
             title: self.title.clone(),
             description: self.description.clone(),
             date: self.date,
@@ -236,8 +281,6 @@ impl PlanConfigRepository {
         .map(|row| row.to_domain())
     }
 
-    /// Löscht die plan_config-Zeile selbst (nicht nur die Referenz auf dem
-    /// Projekt — dafür `ProjectRepository::clear_plan_config_ref`).
     #[tracing::instrument(skip(self, executor))]
     pub async fn delete<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<(), AppError>
     where

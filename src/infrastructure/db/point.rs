@@ -1,7 +1,7 @@
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-use crate::{domain::point::Point, error::AppError};
+use crate::{domain::project::Point, error::AppError, infrastructure::db::address::AddressEntity};
 
 pub struct PointRepository;
 
@@ -17,16 +17,37 @@ impl PointEntity {
     fn from_domain(point: &Point) -> Self {
         PointEntity {
             id: point.id,
-            address: point.address,
+            address: point.address.id,
             name: point.name.clone(),
             time: point.time.clone(),
         }
     }
+}
 
+#[derive(Debug, Clone, FromRow)]
+struct PointWithAddressEntity {
+    id: Uuid,
+    address: Uuid,
+    name: String,
+    time: String,
+    address_id: Uuid,
+    address_text: String,
+    latitude: f64,
+    longitude: f64,
+}
+
+impl PointWithAddressEntity {
     fn to_domain(&self) -> Point {
+        let address = AddressEntity {
+            id: self.address_id,
+            address_text: self.address_text.clone(),
+            latitude: self.latitude,
+            longitude: self.longitude,
+        };
+
         Point {
             id: self.id,
-            address: self.address,
+            address: address.to_domain(),
             name: self.name.clone(),
             time: self.time.clone(),
         }
@@ -58,7 +79,13 @@ impl PointRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        sqlx::query_as::<_, PointEntity>("SELECT id, address, name, time FROM point WHERE id = $1")
+        sqlx::query_as::<_, PointWithAddressEntity>(
+            "SELECT p.id, p.address, p.name, p.time, \
+                    a.id AS address_id, a.address_text, a.latitude, a.longitude \
+             FROM point p \
+             JOIN address a ON a.id = p.address \
+             WHERE p.id = $1",
+        )
             .bind(id_filter)
             .fetch_one(executor)
             .await
@@ -70,7 +97,11 @@ impl PointRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn delete<'e, E>(&self, executor: E, to_delete_point_id: &Uuid) -> Result<(), AppError>
+    pub async fn delete<'e, E>(
+        &self,
+        executor: E,
+        to_delete_point_id: &Uuid,
+    ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {

@@ -1,68 +1,11 @@
-//! `TeamRepository` — pure persistence for the `team` table, plus a few
-//! read-only join projections that were kept for convenience (see below).
-//!
-//! ## What moved out of this file
-//!
-//! The previous version of this file mixed team persistence with several
-//! layers of business logic: creating the team's address, writing audit
-//! log entries, enqueueing outbound emails, and invalidating a stale plan
-//! — all wrapped in one `tx.begin()/commit()` per public method. Per the
-//! new pattern, transactional control belongs to the caller, and each
-//! repository only knows its own table. That logic hasn't been deleted —
-//! it now belongs to a service/use-case layer that composes the following
-//! repositories inside a caller-owned transaction:
-//! `AddressRepository`, `TeamRepository`, `TeamAuditLogRepository`,
-//! `EmailOutboxRepository`, `PlanRepository`.
-//!
-//! As a sketch, the former `create_team` becomes (in the service layer):
-//!
-//! ```ignore
-//! let mut tx = pool.begin().await?;
-//! AddressRepository.insert(&mut *tx, &address_data).await?;
-//! match TeamRepository.insert(&mut *tx, &data).await {
-//!     Ok(()) => {
-//!         TeamAuditLogRepository.insert(&mut *tx, &data.id, actor_type, actor_label,
-//!             AuditAction::Created, &changes, &data.created).await?;
-//!         if PlanRepository.mark_stale(&mut *tx, &plan_id, &data.created).await? {
-//!             TeamAuditLogRepository.insert(&mut *tx, &data.id, AuditActorType::System, None,
-//!                 AuditAction::PlanInvalidated, &stale_changes, &data.created).await?;
-//!         }
-//!         if let Some((recipient, email_type, context)) = email_to_enqueue {
-//!             EmailOutboxRepository.insert(&mut *tx, Some(data.id), recipient, email_type,
-//!                 context, &data.created).await?;
-//!         }
-//!         tx.commit().await?;
-//!     }
-//!     Err(_duplicate) => tx.rollback().await?, // idempotent create
-//! }
-//! ```
-//!
-//! `mark_plan_stale_if_referenced` (load plan data -> check
-//! `plan_references_team` -> `PlanRepository::mark_stale` -> conditionally
-//! log) also moves to the service layer unchanged in spirit, just built
-//! from `PlanRepository` + `plan_staleness::plan_references_team` +
-//! `TeamAuditLogRepository` instead of free functions on `Database`.
-
 use chrono::{DateTime, Utc};
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
 use crate::domain::address::Address;
-use crate::domain::sharing::TeamFields;
 use crate::domain::team::{Team, TeamStatus};
 use crate::error::AppError;
-
-/// Human-readable label for a review-trigger field, used by the caller
-/// when composing an admin-notification summary. Pure presentation logic,
-/// not persistence.
-pub fn field_display_name(field: &TeamFields) -> &'static str {
-    match field {
-        TeamFields::Mail => "email address",
-        TeamFields::Phone => "phone number",
-        TeamFields::Members => "member count",
-        TeamFields::Diets => "dietary requirements",
-    }
-}
+use crate::infrastructure::db::address::AddressEntity;
 
 pub struct TeamRepository;
 
@@ -97,22 +40,22 @@ impl TeamEntity {
             name: team.name.clone(),
             created: team.created,
             edited: team.edited,
-            address: team.address,
+            address: team.address.id,
             mail: team.mail.clone(),
             phone: team.phone.clone(),
-            members: team.members,
+            members: team.members.map(|m| m as i32),
             diets: team.diets.clone(),
             status: team.status,
             canceled_at: team.canceled_at,
             cancel_reason: team.cancel_reason.clone(),
             access_token: team.access_token.clone(),
             email_verified_at: team.email_verified_at,
-            verification_resend_count: team.verification_resend_count,
+            verification_resend_count: team.verification_resend_count as i32,
             last_route_hash: team.last_route_hash.clone(),
         }
     }
 
-    fn to_domain(&self) -> Team {
+    fn to_domain(&self, address: &AddressEntity) -> Team {
         Team {
             id: self.id,
             project_id: self.project_id,
@@ -120,18 +63,19 @@ impl TeamEntity {
             name: self.name.clone(),
             created: self.created,
             edited: self.edited,
-            address: self.address,
+            address: address.to_domain(),
             mail: self.mail.clone(),
             phone: self.phone.clone(),
-            members: self.members,
+            members: self.members.map(|m| m as u32),
             diets: self.diets.clone(),
             status: self.status,
             canceled_at: self.canceled_at,
             cancel_reason: self.cancel_reason.clone(),
             access_token: self.access_token.clone(),
             email_verified_at: self.email_verified_at,
-            verification_resend_count: self.verification_resend_count,
+            verification_resend_count: self.verification_resend_count as u32,
             last_route_hash: self.last_route_hash.clone(),
+            note_list: Vec::new(),
         }
     }
 }
@@ -286,7 +230,10 @@ impl TeamRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let query = format!("SELECT {} FROM team t WHERE t.access_token = $1", TEAM_COLUMNS);
+        let query = format!(
+            "SELECT {} FROM team t WHERE t.access_token = $1",
+            TEAM_COLUMNS
+        );
 
         sqlx::query_as::<_, TeamEntity>(&query)
             .bind(access_token)
@@ -477,7 +424,11 @@ impl TeamRepository {
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::TeamNotFound(*id_filter, String::new(), Uuid::nil()));
+            return Err(AppError::TeamNotFound(
+                *id_filter,
+                String::new(),
+                Uuid::nil(),
+            ));
         }
         Ok(())
     }
@@ -595,28 +546,10 @@ impl TeamRepository {
 
 #[derive(FromRow)]
 struct TeamAddressRow {
-    id: Uuid,
-    project_id: Uuid,
-    created_by_user: Option<String>,
-    name: String,
-    created: DateTime<Utc>,
-    edited: DateTime<Utc>,
-    address: Uuid,
-    mail: Option<String>,
-    phone: Option<String>,
-    members: Option<i32>,
-    diets: Option<String>,
-    status: TeamStatus,
-    canceled_at: Option<DateTime<Utc>>,
-    cancel_reason: Option<String>,
-    access_token: String,
-    email_verified_at: Option<DateTime<Utc>>,
-    verification_resend_count: i32,
-    last_route_hash: Option<String>,
-    a_id: Uuid,
-    a_address_text: String,
-    a_latitude: f64,
-    a_longitude: f64,
+    #[sqlx(flatten)]
+    team: TeamEntity,
+    #[sqlx(flatten)]
+    address: AddressEntity,
 }
 
 const TEAM_ADDRESS_COLUMNS: &str = "
@@ -629,34 +562,18 @@ const TEAM_ADDRESS_COLUMNS: &str = "
 
 impl From<TeamAddressRow> for (Team, Address) {
     fn from(row: TeamAddressRow) -> Self {
-        (
-            Team {
-                id: row.id,
-                project_id: row.project_id,
-                created_by_user: row.created_by_user,
-                name: row.name,
-                created: row.created,
-                edited: row.edited,
-                address: row.address,
-                mail: row.mail,
-                phone: row.phone,
-                members: row.members,
-                diets: row.diets,
-                status: row.status,
-                canceled_at: row.canceled_at,
-                cancel_reason: row.cancel_reason,
-                access_token: row.access_token,
-                email_verified_at: row.email_verified_at,
-                verification_resend_count: row.verification_resend_count,
-                last_route_hash: row.last_route_hash,
-            },
-            Address {
-                id: row.a_id,
-                address: row.a_address_text,
-                latitude: row.a_latitude,
-                longitude: row.a_longitude,
-            },
-        )
+        let address = AddressEntity {
+            id: row.a_id,
+            address_text: row.a_address_text,
+            latitude: row.a_latitude,
+            longitude: row.a_longitude,
+        }
+        .to_domain();
+
+        let mut team = row.team.to_domain(&row.address);
+        team.address = address.clone();
+
+        (team, address)
     }
 }
 
@@ -713,11 +630,9 @@ where
         .fetch_one(executor)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::TeamNotFound(
-                *id_filter,
-                user_id_filter.to_string(),
-                *project_id_filter,
-            ),
+            sqlx::Error::RowNotFound => {
+                AppError::TeamNotFound(*id_filter, user_id_filter.to_string(), *project_id_filter)
+            }
             other => AppError::DatabaseError(other),
         })?;
 

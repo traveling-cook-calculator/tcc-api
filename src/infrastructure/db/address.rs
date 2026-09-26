@@ -6,15 +6,15 @@ use crate::{domain::address::Address, error::AppError};
 pub struct AddressRepository;
 
 #[derive(Debug, Clone, FromRow)]
-struct AddressEntity {
-    id: Uuid,
-    address_text: String,
-    latitude: f64,
-    longitude: f64,
+pub struct AddressEntity {
+    pub id: Uuid,
+    pub address_text: String,
+    pub latitude: f64,
+    pub longitude: f64,
 }
 
 impl AddressEntity {
-    fn from_domain(address: &Address) -> Self {
+    pub fn from_domain(address: &Address) -> Self {
         AddressEntity {
             id: address.id,
             address_text: address.address.clone(),
@@ -23,7 +23,7 @@ impl AddressEntity {
         }
     }
 
-    fn to_domain(&self) -> Address {
+    pub fn to_domain(&self) -> Address {
         Address {
             id: self.id,
             address: self.address_text.clone(),
