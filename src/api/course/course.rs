@@ -8,7 +8,7 @@ use validator::Validate;
 
 use crate::{
     api::{auth::Claims, validated_json::ValidatedJson, TIME_REGEX},
-    course,
+    application::course,
     error::AppError,
     AppState,
 };
@@ -42,7 +42,7 @@ pub struct CourseUpdateDTO {
 }
 
 impl CourseUpdateDTO {
-    pub fn to(&self, project_id: &Uuid, course_id: &Uuid) -> crate::course::Course {
+    pub fn to_domain(&self, project_id: &Uuid, course_id: &Uuid) -> crate::course::Course {
         crate::course::Course {
             id: *course_id,
             project_id: *project_id,
@@ -61,7 +61,12 @@ pub(super) async fn create_course(
     Path((project_id, course_id)): Path<(Uuid, Uuid)>,
     ValidatedJson(payload): ValidatedJson<CourseCreateDTO>,
 ) -> Result<(), AppError> {
-    course::create(&mut state.db, &claims.sub, &payload.to_domain(&project_id, &course_id)).await
+    course::create(
+        &mut state.db,
+        &claims.sub,
+        &payload.to_domain(&project_id, &course_id),
+    )
+    .await
 }
 
 /// Update course for cook and run project
@@ -72,7 +77,12 @@ pub(super) async fn update_course(
     Path((project_id, course_id)): Path<(Uuid, Uuid)>,
     ValidatedJson(payload): ValidatedJson<CourseUpdateDTO>,
 ) -> Result<(), AppError> {
-    course::update(&mut state.db, &claims.sub, &payload.to(&project_id, &course_id)).await
+    course::update(
+        &mut state.db,
+        &claims.sub,
+        &payload.to_domain(&project_id, &course_id),
+    )
+    .await
 }
 
 /// Delete course for cook and run project

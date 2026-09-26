@@ -6,5 +6,4 @@ pub struct Course {
     pub project_id: Uuid,
     pub name: String,
     pub time: String,
-    pub has_multiple_hosts: bool,
 }

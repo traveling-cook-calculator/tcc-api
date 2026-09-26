@@ -13,7 +13,7 @@ mod plan;
 mod point;
 mod api;
 mod application;
-mod infrastructure;
+pub mod infrastructure;
 mod domain;
 mod route;
 mod route_mail;

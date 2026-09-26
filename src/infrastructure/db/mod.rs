@@ -11,6 +11,9 @@ pub mod sharing;
 pub mod team;
 pub mod team_audit_log;
 
+pub use course::CourseRepository;
+pub use project::ProjectRepository;
+
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tracing::info;
 

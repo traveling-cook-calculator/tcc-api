@@ -22,6 +22,9 @@ pub enum AppError {
     #[error("Course with id {0} with user id {1} in project {2:?} not found")]
     CourseNotFound(Uuid, String, Option<Uuid>),
 
+    #[error("Course limit reached for project {0}")]
+    CourseLimitReached(Uuid),
+
     #[error("Note with id {0} with user id {1} in project {2} with team {3} not found")]
     NoteNotFound(Uuid, String, Uuid, Uuid),
 
@@ -113,6 +116,9 @@ impl AppError {
             AppError::CourseNotFound(uuid, user_id, project_id) => {
                 tracing::warn!(course.id = %uuid, user.id = %user_id, project.id = ?project_id, "Course not found");
             }
+            AppError::CourseLimitReached(project_id) => {
+                tracing::warn!(project.id = %project_id, "Course limit reached");
+            }
             AppError::PlanNotFound(user_id, project_id) => {
                 tracing::warn!(user.id = %user_id, project.id = %project_id, "Plan not found");
             }
@@ -190,6 +196,7 @@ impl IntoResponse for AppError {
             AppError::DeadlineExceeded(_, _)
             | AppError::MaxTeamSizeExceeded(_, _)
             | AppError::MissingField(_, _)
+            | AppError::CourseLimitReached(_)
             | AppError::ValidationError(_)
             | AppError::JsonRejection(_)
             | AppError::VerificationResendLimitExceeded(_)

@@ -11,7 +11,6 @@ struct CourseEntity {
     project_id: Uuid,
     name: String,
     time: String,
-    has_multiple_hosts: bool,
 }
 
 impl CourseEntity {
@@ -21,7 +20,6 @@ impl CourseEntity {
             project_id: course.project_id,
             name: course.name.clone(),
             time: course.time.clone(),
-            has_multiple_hosts: course.has_multiple_hosts,
         }
     }
 
@@ -31,7 +29,6 @@ impl CourseEntity {
             project_id: self.project_id,
             name: self.name.clone(),
             time: self.time.clone(),
-            has_multiple_hosts: self.has_multiple_hosts,
         }
     }
 }
@@ -52,7 +49,6 @@ impl CourseRepository {
         .bind(course.project_id)
         .bind(&course.name)
         .bind(&course.time)
-        .bind(course.has_multiple_hosts)
         .execute(executor)
         .await
         .map_err(AppError::DatabaseError)?;
@@ -79,7 +75,30 @@ impl CourseRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn delete<'e, E>(&self, executor: E, to_delete_course_id: &Uuid) -> Result<(), AppError>
+    pub async fn count<'e, E>(&self, executor: E, project_id_filter: &Uuid) -> Result<i64, AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*)
+         FROM course c
+         WHERE c.project_id = $1",
+        )
+        .bind(project_id_filter)
+        .fetch_optional(executor)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .unwrap_or(0);
+
+        Ok(count)
+    }
+
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn delete<'e, E>(
+        &self,
+        executor: E,
+        to_delete_course_id: &Uuid,
+    ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
@@ -91,7 +110,11 @@ impl CourseRepository {
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::CourseNotFound(*to_delete_course_id, String::new(), None));
+            return Err(AppError::CourseNotFound(
+                *to_delete_course_id,
+                String::new(),
+                None,
+            ));
         }
         Ok(())
     }
@@ -191,7 +214,7 @@ impl CourseRepository {
     }
 
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn update_for_project<'e, E>(
+    pub async fn update<'e, E>(
         &self,
         executor: E,
         data: &Course,
@@ -204,7 +227,7 @@ impl CourseRepository {
 
         let affected = sqlx::query(
             "UPDATE course
-             SET name = $1, time = $2, has_multiple_hosts = $3
+             SET name = $1, time = $2
              WHERE id = $4
                AND project_id IN (
                    SELECT id FROM project WHERE id = $5 AND user_id = $6
@@ -212,7 +235,6 @@ impl CourseRepository {
         )
         .bind(&course.name)
         .bind(&course.time)
-        .bind(course.has_multiple_hosts)
         .bind(course.id)
         .bind(course.project_id)
         .bind(user_id_filter)

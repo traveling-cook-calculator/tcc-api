@@ -7,12 +7,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    api::{auth::Claims},
-    course,
-    error::AppError,
-    AppState,
-};
+use crate::{AppState, api::auth::Claims, application::course, error::AppError};
 
 #[derive(Debug, Deserialize)]
 pub struct ListCoursesQuery {
@@ -74,9 +69,7 @@ pub(super) async fn list_courses(
         .map(CourseDTO::from_domain)
         .collect();
 
-    Ok(CourseListDTO {
-        data: result,
-    })
+    Ok(CourseListDTO { data: result })
 }
 
 /// Get course details

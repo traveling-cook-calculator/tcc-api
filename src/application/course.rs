@@ -1,53 +1,25 @@
 use uuid::Uuid;
 
 use crate::{
-    project::get_project,
-    db::{self, Database},
+    db::Database,
+    domain::Course,
     error::AppError,
+    infrastructure::{
+        db::{CourseRepository, ProjectRepository},
+        Database,
+    },
+    project::get_project,
 };
-#[derive(Debug, Clone)]
-pub struct Course {
-    pub id: Uuid,
-    pub project_id: Uuid,
-    pub name: String,
-    pub time: String,
-    pub has_multiple_hosts: bool,
-}
-
-impl Course {
-    fn from(db_course: db::models::Course) -> Self {
-        Course {
-            id: db_course.id,
-            project_id: db_course.project_id,
-            name: db_course.name,
-            time: db_course.time,
-            has_multiple_hosts: db_course.has_multiple_hosts,
-        }
-    }
-
-    fn to(&self) -> db::models::Course {
-        db::models::Course {
-            id: self.id,
-            project_id: self.project_id,
-            name: self.name.clone(),
-            time: self.time.clone(),
-            has_multiple_hosts: self.has_multiple_hosts,
-        }
-    }
-}
 
 pub(crate) async fn get_list(
     db: &Database,
     project_id: &Uuid,
     user_id: &str,
 ) -> Result<Vec<Course>, AppError> {
-    let course_list = db
-        .select_all_course(project_id, user_id)
-        .await?
-        .into_iter()
-        .map(Course::from)
-        .collect();
-    Ok(course_list)
+    let mut tx = db.pool.begin().await?;
+    CourseRepository
+        .select_all_for_project(&mut *tx, project_id, user_id)
+        .await
 }
 
 pub(crate) async fn get(
@@ -56,10 +28,10 @@ pub(crate) async fn get(
     user_id: &str,
     course_id: &Uuid,
 ) -> Result<Course, AppError> {
-    let course = db
-        .select_course(course_id, project_id, user_id)
-        .await?;
-    Ok(Course::from(course))
+    let mut tx = db.pool.begin().await?;
+    CourseRepository
+        .select_for_project(&mut *tx, course_id, project_id, user_id)
+        .await
 }
 
 pub(crate) async fn delete(
@@ -68,9 +40,10 @@ pub(crate) async fn delete(
     user_id: &str,
     course_id: &Uuid,
 ) -> Result<(), AppError> {
-    db.delete_course(course_id, project_id, user_id)
-        .await?;
-    Ok(())
+    let mut tx = db.pool.begin().await?;
+    CourseRepository
+        .delete_for_project(&mut *tx, course_id, project_id, user_id)
+        .await
 }
 
 pub(crate) async fn update(
@@ -78,10 +51,20 @@ pub(crate) async fn update(
     user_id: &str,
     data: &Course,
 ) -> Result<(), AppError> {
-    db.update_course(&data.to(), user_id).await
+    let mut tx = db.pool.begin().await?;
+    CourseRepository.update(&mut *tx, data, user_id).await
 }
 
 pub async fn create(db: &mut Database, user_id: &str, data: &Course) -> Result<(), AppError> {
-    let _ = get_project(db, &data.project_id, user_id).await?;
-    db.create_course(&data.to()).await
+    let mut tx = db.pool.begin().await?;
+
+    let _ = ProjectRepository
+        .select(&mut *tx, &data.project_id, user_id)
+        .await?;
+    let count = CourseRepository.count(&mut *tx, &data.project_id).await?;
+    if count > 8 {
+        return Err(AppError::CourseLimitReached(data.project_id));
+    }
+
+    CourseRepository.insert(&mut *tx, data).await
 }
