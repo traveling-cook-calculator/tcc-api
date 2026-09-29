@@ -4,30 +4,6 @@ use uuid::Uuid;
 use crate::domain::plan::Language;
 
 // ========================================
-// Project — repository input DTOs
-// ========================================
-// Not domain objects in their own right, just parameter bundles for
-// `ProjectRepository::insert` / `update_meta`. Stay here rather than in
-// `project.rs` so they can be constructed by callers without depending on
-// the repository module's internals.
-pub struct ProjectCreate<'a> {
-    pub id: &'a Uuid,
-    pub user_id: &'a str,
-    pub name: &'a str,
-    pub created: &'a DateTime<Utc>,
-    pub edited: &'a DateTime<Utc>,
-    pub occur: &'a DateTime<Utc>,
-    pub admin_notification_email: Option<&'a str>,
-}
-
-pub struct ProjectUpdate<'a> {
-    pub name: &'a str,
-    pub edited: &'a DateTime<Utc>,
-    pub occur: &'a DateTime<Utc>,
-    pub admin_notification_email: Option<&'a str>,
-}
-
-// ========================================
 // Email — cross-entity read projection
 // ========================================
 // Result of the project+plan_config join in `email_context.rs`. Not an

@@ -9,6 +9,7 @@ use validator::Validate;
 use crate::{
     api::{auth::Claims, validated_json::ValidatedJson, TIME_REGEX},
     application::course,
+    domain::Course,
     error::AppError,
     AppState,
 };
@@ -22,13 +23,12 @@ pub struct CourseCreateDTO {
 }
 
 impl CourseCreateDTO {
-    pub fn to_domain(&self, project_id: &Uuid, course_id: &Uuid) -> crate::course::Course {
-        crate::course::Course {
+    pub fn to_domain(&self, project_id: &Uuid, course_id: &Uuid) -> Course {
+        Course {
             id: *course_id,
             project_id: *project_id,
             name: self.name.clone(),
             time: self.time.clone(),
-            has_multiple_hosts: false,
         }
     }
 }
@@ -42,13 +42,12 @@ pub struct CourseUpdateDTO {
 }
 
 impl CourseUpdateDTO {
-    pub fn to_domain(&self, project_id: &Uuid, course_id: &Uuid) -> crate::course::Course {
-        crate::course::Course {
+    pub fn to_domain(&self, project_id: &Uuid, course_id: &Uuid) -> Course {
+        Course {
             id: *course_id,
             project_id: *project_id,
             name: self.name.clone(),
             time: self.time.clone(),
-            has_multiple_hosts: false,
         }
     }
 }

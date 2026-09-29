@@ -1,117 +1,25 @@
-use chrono::{DateTime, Utc};
-use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    db::{self, models::Share, Database},
     error::AppError,
+    infrastructure::{
+        db::{sharing::ShareRepository, ProjectRepository},
+        Database,
+    },
 };
 
-#[derive(Debug, Clone)]
-pub struct ShareTeamConfig {
-    pub id: Uuid,
-    pub invite_text: String,
-    pub require_email_verification: bool,
-    pub default_needs_check: bool,
-    pub required_fields: Vec<RequiredField>,
-    pub max_teams: Option<u32>,
-    pub registration_deadline: Option<DateTime<Utc>>,
-    pub edit_deadline: Option<DateTime<Utc>>,
-    pub review_trigger_fields: Vec<RequiredField>,
-    pub notify_admin_on_review: bool,
-    pub created: DateTime<Utc>,
-}
+pub use crate::domain::team::ShareTeamConfig;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequiredField {
-    Mail,
-    Phone,
-    Members,
-    Diets,
-}
-impl RequiredField {
-    fn from(db_field: db::models::TeamFields) -> Self {
-        match db_field {
-            db::models::TeamFields::Mail => RequiredField::Mail,
-            db::models::TeamFields::Phone => RequiredField::Phone,
-            db::models::TeamFields::Members => RequiredField::Members,
-            db::models::TeamFields::Diets => RequiredField::Diets,
-        }
-    }
-
-    fn from_list(db_field_list: Option<Vec<Option<db::models::TeamFields>>>) -> Vec<Self> {
-        db_field_list.map_or_else(Vec::new, |list| {
-            list.into_iter()
-                .filter_map(|f| f.map(RequiredField::from))
-                .collect()
-        })
-    }
-
-    /// Public because team.rs (domain) needs this for the review-trigger
-    /// check.
-    pub(crate) fn to_db(self) -> db::models::TeamFields {
-        match self {
-            RequiredField::Mail => db::models::TeamFields::Mail,
-            RequiredField::Phone => db::models::TeamFields::Phone,
-            RequiredField::Members => db::models::TeamFields::Members,
-            RequiredField::Diets => db::models::TeamFields::Diets,
-        }
-    }
-}
-
-impl ShareTeamConfig {
-    pub fn from(db_config: db::models::Share) -> Self {
-        ShareTeamConfig {
-            id: db_config.id,
-            invite_text: db_config.invite_text,
-            require_email_verification: db_config.require_email_verification,
-            default_needs_check: db_config.default_needs_check,
-            required_fields: RequiredField::from_list(db_config.required_fields),
-            max_teams: db_config.max_teams.map(|m| m as u32),
-            registration_deadline: db_config.registration_deadline,
-            edit_deadline: db_config.edit_deadline,
-            review_trigger_fields: RequiredField::from_list(db_config.review_trigger_fields),
-            notify_admin_on_review: db_config.notify_admin_on_review,
-            created: db_config.created,
-        }
-    }
-
-    fn to_db(&self) -> db::models::Share {
-        Share {
-            id: self.id,
-            created: self.created,
-            invite_text: self.invite_text.clone(),
-            require_email_verification: self.require_email_verification,
-            default_needs_check: self.default_needs_check,
-            required_fields: Some(
-                self.required_fields.iter().map(|f| f.to_db()).map(Some).collect(),
-            ),
-            max_teams: self.max_teams.map(|m| m as i32),
-            registration_deadline: self.registration_deadline,
-            edit_deadline: self.edit_deadline,
-            review_trigger_fields: Some(
-                self.review_trigger_fields.iter().map(|f| f.to_db()).map(Some).collect(),
-            ),
-            notify_admin_on_review: self.notify_admin_on_review,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn none() -> ShareTeamConfig {
-        ShareTeamConfig {
-            id: Uuid::nil(),
-            invite_text: String::new(),
-            require_email_verification: true,
-            default_needs_check: true,
-            required_fields: vec![],
-            max_teams: None,
-            registration_deadline: None,
-            edit_deadline: None,
-            review_trigger_fields: vec![],
-            notify_admin_on_review: false,
-            created: chrono::Utc::now(),
-        }
-    }
+pub async fn get_by_id(
+    db: &Database,
+    project_id: &Uuid,
+    user_id: &str,
+) -> Result<ShareTeamConfig, AppError> {
+    let mut tx = db.pool.begin().await?;
+    let _ = ProjectRepository
+        .select(&mut *tx, project_id, user_id)
+        .await?;
+    ShareRepository.select(&mut *tx, &project_id).await
 }
 
 pub async fn create(
@@ -120,22 +28,12 @@ pub async fn create(
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
-    match db
-        .create_share(project_id, user_id, &data.to_db())
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
-            if db_err.is_unique_violation() =>
-        {
-            warn!(
-                operation = "Create Share",
-                "Could not create share in database due to unique violation"
-            );
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
+    let mut tx = db.pool.begin().await?;
+    let _ = ProjectRepository
+        .select(&mut *tx, project_id, user_id)
+        .await?;
+
+    ShareRepository.insert(&mut *tx, data).await
 }
 
 pub async fn update(
@@ -144,34 +42,20 @@ pub async fn update(
     user_id: &str,
     data: &ShareTeamConfig,
 ) -> Result<(), AppError> {
-    match db
-        .update_share(project_id, user_id, &data.to_db())
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
-            if db_err.is_unique_violation() =>
-        {
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
+    let mut tx = db.pool.begin().await?;
+
+    let _ = ProjectRepository
+        .select(&mut *tx, project_id, user_id)
+        .await?;
+
+    ShareRepository.upsert(&mut *tx, data).await
 }
 
-pub async fn get_by_id(
-    db: &Database,
-    project_id: &Uuid,
-    user_id: &str,
-) -> Result<ShareTeamConfig, AppError> {
-    let config = db.select_share(project_id, user_id).await?;
-    Ok(ShareTeamConfig::from(config))
-}
+pub async fn delete(db: &mut Database, project_id: &Uuid, user_id: &str) -> Result<(), AppError> {
+    let mut tx = db.pool.begin().await?;
 
-pub(crate) async fn delete(
-    db: &mut Database,
-    project_id: &Uuid,
-    user_id: &str,
-) -> Result<(), AppError> {
-    db.delete_share(project_id, user_id).await?;
-    Ok(())
+    let _ = ProjectRepository
+        .select(&mut *tx, project_id, user_id)
+        .await?;
+    ShareRepository.delete(&mut *tx, project_id).await
 }

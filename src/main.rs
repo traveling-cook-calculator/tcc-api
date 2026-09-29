@@ -1,24 +1,8 @@
-mod address;
-mod audit_log;
-mod project;
-mod course;
-mod db;
-mod email;
-mod email_strings;
-mod email_templates;
-mod email_worker;
 pub mod error;
-mod note;
-mod plan;
-mod point;
 mod api;
 mod application;
 pub mod infrastructure;
-mod domain;
-mod route;
-mod route_mail;
-mod sharing;
-mod team;
+pub mod domain;
 
 use std::sync::Arc;
 use std::time::Duration;

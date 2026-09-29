@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AppState, api::auth::Claims, application::course, error::AppError};
+use crate::{AppState, api::auth::Claims, application::course, domain::Course, error::AppError};
 
 #[derive(Debug, Deserialize)]
 pub struct ListCoursesQuery {
@@ -40,7 +40,7 @@ pub struct CourseDTO {
 }
 
 impl CourseDTO {
-    pub fn from_domain(course: crate::course::Course) -> Self {
+    pub fn from_domain(course: Course) -> Self {
         CourseDTO {
             id: course.id,
             name: course.name,
@@ -70,15 +70,4 @@ pub(super) async fn list_courses(
         .collect();
 
     Ok(CourseListDTO { data: result })
-}
-
-/// Get course details
-#[tracing::instrument(skip(claims, state))]
-pub(super) async fn get_course(
-    Extension(claims): Extension<Claims>,
-    State(state): State<AppState>,
-    Path((project_id, course_id)): Path<(Uuid, Uuid)>,
-) -> Result<CourseDTO, AppError> {
-    let result = course::get(&state.db, &project_id, &claims.sub, &course_id).await?;
-    Ok(CourseDTO::from_domain(result))
 }

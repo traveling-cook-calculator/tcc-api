@@ -13,6 +13,7 @@ pub mod team_audit_log;
 
 pub use course::CourseRepository;
 pub use project::ProjectRepository;
+pub use note::NoteRepository;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tracing::info;

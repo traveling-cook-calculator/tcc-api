@@ -1,14 +1,12 @@
 use uuid::Uuid;
 
 use crate::{
-    db::Database,
     domain::Course,
     error::AppError,
     infrastructure::{
         db::{CourseRepository, ProjectRepository},
         Database,
     },
-    project::get_project,
 };
 
 pub(crate) async fn get_list(
@@ -19,18 +17,6 @@ pub(crate) async fn get_list(
     let mut tx = db.pool.begin().await?;
     CourseRepository
         .select_all_for_project(&mut *tx, project_id, user_id)
-        .await
-}
-
-pub(crate) async fn get(
-    db: &Database,
-    project_id: &Uuid,
-    user_id: &str,
-    course_id: &Uuid,
-) -> Result<Course, AppError> {
-    let mut tx = db.pool.begin().await?;
-    CourseRepository
-        .select_for_project(&mut *tx, course_id, project_id, user_id)
         .await
 }
 

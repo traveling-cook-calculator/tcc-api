@@ -1,50 +1,10 @@
-use chrono::{DateTime, Utc};
-use tracing::warn;
+use crate::domain::Note;
+use crate::infrastructure::db::team::TeamRepository;
+use crate::infrastructure::Database;
 use uuid::Uuid;
 
-use crate::{
-    project::get_project,
-    db::{self, Database},
-    error::AppError,
-};
-#[derive(Debug, Clone)]
-pub struct Note {
-    pub id: Uuid,
-    pub headline: String,
-    pub content: String,
-    pub created: DateTime<Utc>,
-}
-
-impl Note {
-    pub fn from(db_note: db::models::Note) -> Self {
-        Note {
-            id: db_note.id,
-            headline: db_note.headline,
-            content: db_note.content,
-            created: db_note.created,
-        }
-    }
-
-    pub fn to_db(&self, team_id: &Uuid) -> db::models::Note {
-        db::models::Note {
-            id: self.id,
-            team_id: *team_id,
-            headline: self.headline.clone(),
-            content: self.content.clone(),
-            created: self.created,
-        }
-    }
-}
-
-pub async fn get_list_by_team_id(db: &Database, team_id: &Uuid) -> Result<Vec<Note>, AppError> {
-    let note_list = db
-        .select_note_with_filter(None, Some(team_id), None, None)
-        .await?
-        .into_iter()
-        .map(Note::from)
-        .collect();
-    Ok(note_list)
-}
+use crate::error::AppError;
+use crate::infrastructure::db::NoteRepository;
 
 pub async fn get_list_by_project_id_and_team_id(
     db: &Database,
@@ -52,42 +12,10 @@ pub async fn get_list_by_project_id_and_team_id(
     team_id: &Uuid,
     user_id: &str,
 ) -> Result<Vec<Note>, AppError> {
-    let note_list = db
-        .select_note_with_filter(Some(project_id), Some(team_id), None, Some(user_id))
-        .await?
-        .into_iter()
-        .map(Note::from)
-        .collect();
-    Ok(note_list)
-}
-
-pub async fn get(
-    db: &Database,
-    project_id: &Uuid,
-    team_id: &Uuid,
-    note_id: &Uuid,
-    user_id: &str,
-) -> Result<Note, AppError> {
-    let note_list: Vec<Note> = db
-        .select_note_with_filter(
-            Some(project_id),
-            Some(team_id),
-            Some(note_id),
-            Some(user_id),
-        )
-        .await?
-        .into_iter()
-        .map(Note::from)
-        .collect();
-    if note_list.is_empty() {
-        return Err(AppError::NoteNotFound(
-            *note_id,
-            user_id.to_string(),
-            *project_id,
-            *team_id,
-        ));
-    }
-    Ok(note_list[0].clone())
+    let mut tx = db.pool.begin().await?;
+    NoteRepository
+        .select_with_filter(&mut *tx, project_id, team_id, user_id)
+        .await
 }
 
 pub(crate) async fn delete(
@@ -97,9 +25,10 @@ pub(crate) async fn delete(
     note_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    db.delete_note(project_id, team_id, note_id, user_id)
-        .await?;
-    Ok(())
+    let mut tx = db.pool.begin().await?;
+    NoteRepository
+        .delete(&mut *tx, project_id, team_id, note_id, user_id)
+        .await
 }
 
 pub async fn create(
@@ -109,19 +38,9 @@ pub async fn create(
     user_id: &str,
     data: &Note,
 ) -> Result<(), AppError> {
-    let _ = get_project(db, project_id, user_id).await?;
-
-    match db.create_note(&data.to_db(team_id)).await {
-        Ok(_) => Ok(()),
-        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
-            if db_err.is_unique_violation() =>
-        {
-            warn!(
-                operation = "Create Note",
-                "Could not create note in database due to unique violation"
-            );
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
+    let mut tx = db.pool.begin().await?;
+    let _ = TeamRepository
+        .select_to_check_existinse(&mut *tx, team_id, project_id, user_id)
+        .await?;
+    NoteRepository.insert(&mut *tx, data, team_id).await
 }

@@ -10,21 +10,9 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    api::{
-        auth::{is_user_authenticated, AuthUser, AuthenticatedUser, Claims},
-        common::AddressDTO,
-        course::CourseDTO,
-        plan::{PlanDTO, PlanConfigDTO},
-        sharing::ShareTeamConfigDTO,
-        team::TeamDTO,
-        PaginationInfo, TIME_REGEX,
-    },
-    error::AppError,
-    project::{
-        get_list_of_project_meta, get_project, get_project_end_point, get_project_meta,
-        get_project_start_point,
-    },
-    AppState,
+    AppState, api::{
+        PaginationInfo, TIME_REGEX, auth::{AuthUser, AuthenticatedUser, Claims, is_user_authenticated}, common::AddressDTO, course::CourseDTO, plan::{PlanConfigDTO, PlanDTO}, sharing::ShareTeamConfigDTO, team::TeamDTO,
+    }, application::project::ProjectMeta, domain::{Project, project::Point}, error::AppError,
 };
 
 #[derive(Debug, Deserialize, Validate)]
@@ -57,18 +45,18 @@ pub enum SortOptionDTO {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ProjectListResponse {
+pub struct ProjectListResponseDTO {
     pub data: Vec<ProjectMetaDTO>,
     pub pagination: PaginationInfo,
 }
 
-impl IntoResponse for ProjectListResponse {
+impl IntoResponse for ProjectListResponseDTO {
     fn into_response(self) -> Response {
         (StatusCode::OK, Json(self)).into_response()
     }
 }
 
-impl AuthenticatedUser for ProjectListResponse {
+impl AuthenticatedUser for ProjectListResponseDTO {
     fn user_id(&self) -> AuthUser {
         AuthUser::AllOf(self.data.iter().map(|item| item.user_id.clone()).collect())
     }
@@ -86,7 +74,7 @@ pub struct ProjectMetaDTO {
 }
 
 impl ProjectMetaDTO {
-    pub fn from_domain(project: &crate::project::ProjectMeta) -> Self {
+    pub fn from_domain(project: &ProjectMeta) -> Self {
         ProjectMetaDTO {
             id: project.id,
             user_id: project.user_id.clone(),
@@ -123,7 +111,7 @@ pub struct ProjectDTO {
 }
 
 impl ProjectDTO {
-    pub fn from_domain(project: crate::project::Project) -> Self {
+    pub fn from_domain(project: Project) -> Self {
         ProjectDTO {
             id: project.id,
             user_id: project.user_id,
@@ -166,7 +154,7 @@ pub struct PointDTO {
 }
 
 impl PointDTO {
-    pub fn from_domain(point: crate::point::Point) -> Self {
+    pub fn from_domain(point: Point) -> Self {
         PointDTO {
             address: AddressDTO::from_domain(point.address),
             name: point.name,
@@ -174,8 +162,8 @@ impl PointDTO {
         }
     }
 
-    pub fn to_domain(&self) -> crate::point::Point {
-        crate::point::Point {
+    pub fn to_domain(&self) -> Point {
+        Point {
             id: Uuid::new_v4(),
             address: self.address.to_domain(),
             name: self.name.clone(),
@@ -196,7 +184,7 @@ pub(super) async fn list_project_projects(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
     Query(params): Query<ListProjectQuery>,
-) -> Result<ProjectListResponse, AppError> {
+) -> Result<ProjectListResponseDTO, AppError> {
     params.validate()?;
     is_user_authenticated(&params, Some(&claims.sub))?;
 
@@ -207,7 +195,7 @@ pub(super) async fn list_project_projects(
         .collect();
 
     let len = result.len();
-    Ok(ProjectListResponse {
+    Ok(ProjectListResponseDTO {
         data: result,
         pagination: PaginationInfo {
             page: params.page.unwrap_or(1),

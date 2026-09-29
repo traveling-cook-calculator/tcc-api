@@ -8,12 +8,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    api::{auth::Claims, PaginationInfo},
-    error::AppError,
-    note,
-    AppState,
-};
+use crate::{AppState, api::auth::Claims, application::note, domain::Note, error::AppError};
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -31,8 +26,7 @@ pub enum NoteSortOption {
 
 #[derive(Debug, Serialize)]
 pub struct NoteListResponse {
-    pub data: Vec<Note>,
-    pub pagination: PaginationInfo,
+    pub data: Vec<NoteDTO>,
 }
 
 impl IntoResponse for NoteListResponse {
@@ -42,16 +36,16 @@ impl IntoResponse for NoteListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Note {
+pub struct NoteDTO {
     pub id: Uuid,
     pub headline: String,
     pub content: String,
     pub created: DateTime<Utc>,
 }
 
-impl Note {
-    pub fn from_domain(note: crate::note::Note) -> Self {
-        Note {
+impl NoteDTO {
+    pub fn from_domain(note: Note) -> Self {
+        NoteDTO {
             id: note.id,
             headline: note.headline,
             content: note.content,
@@ -60,7 +54,7 @@ impl Note {
     }
 }
 
-impl IntoResponse for Note {
+impl IntoResponse for NoteDTO {
     fn into_response(self) -> Response {
         (StatusCode::OK, Json(self)).into_response()
     }
@@ -73,25 +67,12 @@ pub(super) async fn get_team_notes(
     State(state): State<AppState>,
     Path((project_id, team_id)): Path<(Uuid, Uuid)>,
 ) -> Result<NoteListResponse, AppError> {
-    let result = note::get_list_by_project_id_and_team_id(&state.db, &project_id, &team_id, &claims.sub)
-        .await?
-        .into_iter()
-        .map(Note::from_domain)
-        .collect();
+    let result =
+        note::get_list_by_project_id_and_team_id(&state.db, &project_id, &team_id, &claims.sub)
+            .await?
+            .into_iter()
+            .map(NoteDTO::from_domain)
+            .collect();
 
-    Ok(NoteListResponse {
-        data: result,
-        pagination: PaginationInfo::new(),
-    })
-}
-
-/// Get note
-#[tracing::instrument(skip(claims, state))]
-pub(super) async fn get_note(
-    Extension(claims): Extension<Claims>,
-    State(state): State<AppState>,
-    Path((project_id, team_id, note_id)): Path<(Uuid, Uuid, Uuid)>,
-) -> Result<Note, AppError> {
-    let result = note::get(&state.db, &project_id, &team_id, &note_id, &claims.sub).await?;
-    Ok(Note::from_domain(result))
+    Ok(NoteListResponse { data: result })
 }

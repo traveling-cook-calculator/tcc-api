@@ -8,7 +8,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{api::auth::Claims, error::AppError, sharing, AppState};
+use crate::{AppState, api::auth::Claims, application::sharing, domain::team::{RequiredField, ShareTeamConfig}, error::AppError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,21 +20,21 @@ pub enum RequiredFieldDTO {
 }
 
 impl RequiredFieldDTO {
-    pub(super) fn from_domain(field: crate::sharing::RequiredField) -> Self {
+    pub(super) fn from_domain(field:  RequiredField) -> Self {
         match field {
-            crate::sharing::RequiredField::Mail => RequiredFieldDTO::Mail,
-            crate::sharing::RequiredField::Phone => RequiredFieldDTO::Phone,
-            crate::sharing::RequiredField::Members => RequiredFieldDTO::Members,
-            crate::sharing::RequiredField::Diets => RequiredFieldDTO::Diets,
+            RequiredField::Mail => RequiredFieldDTO::Mail,
+            RequiredField::Phone => RequiredFieldDTO::Phone,
+            RequiredField::Members => RequiredFieldDTO::Members,
+            RequiredField::Diets => RequiredFieldDTO::Diets,
         }
     }
 
-    pub(super) fn to_domain(&self) -> crate::sharing::RequiredField {
+    pub(super) fn to_domain(&self) -> RequiredField {
         match self {
-            RequiredFieldDTO::Mail => crate::sharing::RequiredField::Mail,
-            RequiredFieldDTO::Phone => crate::sharing::RequiredField::Phone,
-            RequiredFieldDTO::Members => crate::sharing::RequiredField::Members,
-            RequiredFieldDTO::Diets => crate::sharing::RequiredField::Diets,
+            RequiredFieldDTO::Mail => RequiredField::Mail,
+            RequiredFieldDTO::Phone => RequiredField::Phone,
+            RequiredFieldDTO::Members => RequiredField::Members,
+            RequiredFieldDTO::Diets => RequiredField::Diets,
         }
     }
 }
@@ -61,7 +61,7 @@ impl IntoResponse for ShareTeamConfigDTO {
 }
 
 impl ShareTeamConfigDTO {
-    pub fn from_domain(config: crate::sharing::ShareTeamConfig) -> Self {
+    pub fn from_domain(config: ShareTeamConfig) -> Self {
         ShareTeamConfigDTO {
             id: config.id,
             invite_text: config.invite_text,

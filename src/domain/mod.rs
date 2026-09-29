@@ -6,4 +6,5 @@ pub mod team;
 pub mod mail;
 
 pub use course::Course;
+pub use team::Note;
 pub use project::Project;

@@ -1,454 +1,457 @@
 use chrono::{DateTime, Utc};
-use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
-    address::Address,
-    project::get_project,
-    db::{self, Database},
-    email,
-    email_templates::InvitationEmailContext,
+    domain::mail::EmailType,
     error::AppError,
-    note::{get_list_by_team_id, Note},
-    sharing::ShareTeamConfig,
+    infrastructure::db::{
+        address::AddressRepository,
+        email_context::select_email_project_context,
+        email_outbox::EmailOutboxRepository,
+        plan::PlanRepository,
+        sharing::ShareRepository,
+        team::{select_edit_deadline_by_token, TeamRepository},
+        team_audit_log::{AuditAction, AuditActorType, TeamAuditLogRepository},
+        ProjectRepository,
+    },
 };
 
+pub use crate::domain::team::{Team, TeamStatus};
 
-
-impl TeamStatus {
-    fn from(db_status: db::models::TeamStatus) -> Self {
-        match db_status {
-            db::models::TeamStatus::Active => TeamStatus::Active,
-            db::models::TeamStatus::Review => TeamStatus::Review,
-            db::models::TeamStatus::Canceled => TeamStatus::Canceled,
-        }
-    }
-
-    fn to_db(self) -> db::models::TeamStatus {
-        match self {
-            TeamStatus::Active => db::models::TeamStatus::Active,
-            TeamStatus::Review => db::models::TeamStatus::Review,
-            TeamStatus::Canceled => db::models::TeamStatus::Canceled,
-        }
-    }
+pub async fn get_list(db: &Database, project_id: &Uuid, user_id: &str) -> Result<Vec<Team>, AppError> {
+    let mut tx = db.pool.begin().await?;
+    TeamRepository
+        .select_all_meta_for_project(&mut *tx, project_id, user_id)
+        .await
 }
 
-
-
-impl Team {
-    fn from(db_team: db::models::Team, address: db::models::Address, note_list: Vec<Note>) -> Self {
-        Team {
-            id: db_team.id,
-            project_id: db_team.project_id,
-            created_by_user: db_team.created_by_user,
-            name: db_team.name,
-            created: db_team.created,
-            edited: db_team.edited,
-            address: Address::from(address),
-            mail: db_team.mail,
-            phone: db_team.phone,
-            members: db_team.members.map(|m| m as u32),
-            diets: db_team.diets,
-            status: TeamStatus::from(db_team.status),
-            canceled_at: db_team.canceled_at,
-            cancel_reason: db_team.cancel_reason,
-            access_token: db_team.access_token,
-            email_verified_at: db_team.email_verified_at,
-            verification_resend_count: db_team.verification_resend_count as u32,
-            last_route_hash: db_team.last_route_hash,
-            note_list,
-        }
-    }
-
-    fn to(&self) -> db::models::Team {
-        db::models::Team {
-            id: self.id,
-            project_id: self.project_id,
-            created_by_user: self.created_by_user.clone(),
-            name: self.name.clone(),
-            created: self.created,
-            edited: self.edited,
-            mail: self.mail.clone(),
-            phone: self.phone.clone(),
-            members: self.members.map(|m| m as i32),
-            diets: self.diets.clone(),
-            address: self.address.id,
-            status: self.status.to_db(),
-            canceled_at: self.canceled_at,
-            cancel_reason: self.cancel_reason.clone(),
-            access_token: self.access_token.clone(),
-            email_verified_at: self.email_verified_at,
-            verification_resend_count: self.verification_resend_count as i32,
-            last_route_hash: self.last_route_hash.clone(),
-        }
-    }
-}
-
-pub(crate) async fn get_list(
-    db: &Database,
-    project_id: &Uuid,
-    user_id: &str,
-) -> Result<Vec<Team>, AppError> {
-    let teams = db.select_all_team(project_id, user_id).await?;
-    let mut team_list = Vec::with_capacity(teams.len());
-    for team_address in teams {
-        let note_list = get_list_by_team_id(db, &team_address.0.id).await?;
-        team_list.push(Team::from(team_address.0, team_address.1, note_list));
-    }
-    Ok(team_list)
-}
-
-pub(crate) async fn get(
+pub async fn get(
     db: &Database,
     project_id: &Uuid,
     user_id: &str,
     team_id: &Uuid,
 ) -> Result<Team, AppError> {
-    let (team, address) = db.select_team(team_id, project_id, user_id).await?;
-    Ok(Team::from(
-        team,
-        address,
-        get_list_by_team_id(db, team_id).await?,
-    ))
+    let mut tx = db.pool.begin().await?;
+    TeamRepository.select(&mut *tx, team_id, project_id, user_id).await
 }
 
-/// Self-service access via the deeplink token (no Keycloak login needed).
-pub(crate) async fn get_by_token(db: &Database, access_token: &str) -> Result<Team, AppError> {
-    let (team, address) = db.select_team_by_token(access_token).await?;
-    let team_id = team.id;
-    let note_list = get_list_by_team_id(db, &team_id).await?;
-    Ok(Team::from(team, address, note_list))
+pub async fn get_by_token(db: &Database, access_token: &str) -> Result<Team, AppError> {
+    let mut tx = db.pool.begin().await?;
+    TeamRepository.select_by_token(&mut *tx, access_token).await
 }
 
-/// Returns the team plus the edit deadline that applies to it (from the
-/// share config), used by the self-service GET endpoint.
-pub(crate) async fn get_by_token_with_deadline(
+pub async fn get_by_token_with_deadline(
     db: &Database,
     access_token: &str,
 ) -> Result<(Team, Option<DateTime<Utc>>), AppError> {
-    let team = get_by_token(db, access_token).await?;
-    let deadline = db.select_edit_deadline_by_token(access_token).await?;
+    let mut tx = db.pool.begin().await?;
+    let team = TeamRepository.select_by_token(&mut *tx, access_token).await?;
+    let deadline = select_edit_deadline_by_token(&mut *tx, access_token).await?;
     Ok((team, deadline))
-}
-
-pub(crate) async fn delete(
-    db: &mut Database,
-    project_id: &Uuid,
-    user_id: &str,
-    team_id: &Uuid,
-) -> Result<(), AppError> {
-    db.delete_team(team_id, project_id, user_id).await?;
-    Ok(())
-}
-
-/// Admin update (JWT). Status/token/verification are left untouched.
-pub(crate) async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(), AppError> {
-    db.update_team(&data.to(), &data.address.to_db(), user_id).await
-}
-
-/// Self-service update via the deeplink token.
-pub(crate) async fn update_by_token(
-    db: &mut Database,
-    access_token: &str,
-    data: &Team,
-    admin_team_link_base_url: &str,
-) -> Result<(), AppError> {
-    check_edit_deadline(db, access_token).await?;
-
-    let review_trigger_fields: Vec<db::models::TeamFields> =
-        match db.select_share_uncheckt(&data.project_id).await {
-            Ok(share) => ShareTeamConfig::from(share)
-                .review_trigger_fields
-                .into_iter()
-                .map(|f| f.to_db())
-                .collect(),
-            Err(AppError::SharingConfigNotFound(_, _)) => vec![],
-            Err(e) => return Err(e),
-        };
-
-    let admin_target = resolve_admin_notification_target(
-        db,
-        &data.project_id,
-        &data.id,
-        admin_team_link_base_url,
-    )
-    .await?;
-    let admin_notification_target = admin_target.as_ref().map(|(mail, name, link)| {
-        db::models::AdminNotificationTarget {
-            recipient_email: mail,
-            project_name: name,
-            admin_team_link_url: link,
-        }
-    });
-
-    db.update_team_by_token(
-        &data.to(),
-        &data.address.to_db(),
-        access_token,
-        &review_trigger_fields,
-        admin_notification_target,
-    )
-    .await
-}
-
-pub(crate) async fn cancel_by_token(
-    db: &mut Database,
-    access_token: &str,
-    reason: Option<&str>,
-    admin_team_link_base_url: &str,
-) -> Result<(), AppError> {
-    check_edit_deadline(db, access_token).await?;
-
-    let existing = get_by_token(db, access_token).await?;
-
-    let admin_target = resolve_admin_notification_target(
-        db,
-        &existing.project_id,
-        &existing.id,
-        admin_team_link_base_url,
-    )
-    .await?;
-    let admin_notification_target = admin_target.as_ref().map(|(mail, name, link)| {
-        db::models::AdminNotificationTarget {
-            recipient_email: mail,
-            project_name: name,
-            admin_team_link_url: link,
-        }
-    });
-
-    let time = chrono::Utc::now();
-    db.cancel_team_by_token(access_token, reason, &time, admin_notification_target)
-        .await
-}
-
-pub(crate) async fn verify_email_by_token(
-    db: &mut Database,
-    access_token: &str,
-) -> Result<(), AppError> {
-    let time = chrono::Utc::now();
-    db.verify_team_email_by_token(access_token, &time).await
-}
-
-const MAX_PARTICIPANT_RESENDS: i32 = 3;
-
-/// Shared function for the unified resend endpoint. The caller (REST layer)
-/// has already resolved the team matching the chosen auth method (admin JWT
-/// or participant token) and passes it in here. The 3x limit only applies
-/// to participants.
-pub(crate) async fn request_verification_resend(
-    db: &mut Database,
-    team: &Team,
-    is_admin_caller: bool,
-) -> Result<(), AppError> {
-    let new_count = db
-        .increment_verification_resend_count_by_token(&team.access_token)
-        .await?;
-
-    if !is_admin_caller && new_count > MAX_PARTICIPANT_RESENDS {
-        return Err(AppError::VerificationResendLimitExceeded(new_count));
-    }
-    Ok(())
-}
-
-/// Resolves (recipient email, project name, admin link), provided the admin
-/// has enabled `share.notify_admin_on_review` AND has an
-/// `admin_notification_email` on file. Shared by update_by_token (review
-/// trigger) and cancel_by_token (cancellation) — both use the same toggle.
-async fn resolve_admin_notification_target(
-    db: &Database,
-    project_id: &Uuid,
-    team_id: &Uuid,
-    admin_team_link_base_url: &str,
-) -> Result<Option<(String, String, String)>, AppError> {
-    let notify_admin = match db.select_share_uncheckt(project_id).await {
-        Ok(share) => ShareTeamConfig::from(share).notify_admin_on_review,
-        Err(AppError::SharingConfigNotFound(_, _)) => false,
-        Err(e) => return Err(e),
-    };
-    if !notify_admin {
-        return Ok(None);
-    }
-
-    let project = email::get_project_context(db, project_id).await?;
-    let Some(recipient_email) = project.admin_notification_email else {
-        return Ok(None);
-    };
-    let admin_team_link_url =
-        email::build_admin_team_link_url(admin_team_link_base_url, project_id, team_id);
-    Ok(Some((recipient_email, project.project_name, admin_team_link_url)))
 }
 
 pub async fn create(
     db: &mut Database,
     user_id: &Option<String>,
     data: &Team,
-    team_deeplink_base_url: &str,
+    deeplink_base_url: &str,
 ) -> Result<Team, AppError> {
-    let mut data = data.clone();
-    data.access_token = Uuid::new_v4().to_string();
+    let mut tx = db.pool.begin().await?;
+    let now = Utc::now();
 
-    // Default true — guaranteed by the early return in the
-    // SharingConfigNotFound branch below if there is no owner.
-    let is_owner = is_project_owner(db, &data.project_id, user_id).await;
-    let mut requires_verification = false;
+    let owner_user_id = ProjectRepository
+        .select_owner_user_id(&mut *tx, &data.project_id)
+        .await?;
 
-    match db.select_share_uncheckt(&data.project_id).await {
-        Ok(share) => {
-            let share_config = ShareTeamConfig::from(share);
-            requires_verification = share_config.require_email_verification;
-
-            if !is_owner {
-                check_team_against_share(db, &share_config, &data).await?;
-                data.status = if share_config.default_needs_check {
-                    TeamStatus::Review
-                } else {
-                    TeamStatus::Active
-                };
-            }
-        }
-        Err(AppError::SharingConfigNotFound(_, _)) => {
-            if !is_owner{
-                return Err(AppError::SharingConfigNotFound(
-                    user_id.clone().unwrap_or_else(|| "NONE".to_string()),
-                    data.project_id,
-                ));
-            }
-        }
-        Err(e) => return Err(e),
-    }
-
-    let actor_type = if is_owner {
-        db::models::AuditActorType::Admin
-    } else {
-        db::models::AuditActorType::Participant
-    };
-    let actor_label = if is_owner { user_id.as_deref() } else { None };
-
-    let email_to_enqueue = if let Some(mail) = data.mail.clone() {
-        let project = email::get_project_context(db, &data.project_id).await?;
-        let deeplink_url = email::build_team_deeplink_url(
-            team_deeplink_base_url,
-            &data.project_id,
-            &data.id,
-            &data.access_token,
-        );
-        let context = InvitationEmailContext {
-            language: project.language,
-            team_name: data.name.clone(),
-            project_name: project.project_name,
-            deeplink_url,
-            requires_verification,
-        };
-        let context_json = serde_json::to_value(&context)?;
-        Some((mail, db::models::EmailType::Invitation, context_json))
-    } else {
-        None
-    };
-    let email_ref = email_to_enqueue
-        .as_ref()
-        .map(|(recipient, t, ctx)| (recipient.as_str(), *t, ctx));
-
-    match db
-        .create_team(&data.to(), &data.address.to_db(), actor_type, actor_label, email_ref)
-        .await
+    let share_config = match ProjectRepository
+        .select_share_config_id(&mut *tx, &data.project_id, &owner_user_id)
+        .await?
     {
-        Ok(_) => Ok(data),
-        Err(AppError::DatabaseError(sqlx::Error::Database(db_err)))
-            if db_err.is_unique_violation() =>
-        {
-            warn!(
-                project_id = %data.project_id,
-                "Could not create team in database due to unique violation, returning existing team"
-            );
-            let (existing_db_team, existing_address) =
-                db.select_team_by_id_unchecked(&data.id).await?;
-            let note_list = get_list_by_team_id(db, &data.id).await?;
-            Ok(Team::from(existing_db_team, existing_address, note_list))
-        }
-        Err(e) => Err(e),
-    }
-}
+        Some(id) => Some(ShareRepository.select(&mut *tx, &id).await?),
+        None => None,
+    };
 
-async fn is_project_owner(
-    db: &Database,
-    project_id: &Uuid,
-    user_id: &Option<String>,
-) -> bool {
-    if let Some(uid) = user_id {
-        get_project(db, project_id, uid).await.is_ok()
+    if let Some(cfg) = &share_config {
+        if let Some(max) = cfg.max_teams {
+            let count = TeamRepository
+                .count_for_project(&mut *tx, &data.project_id)
+                .await?;
+            if count as u32 >= max {
+                return Err(AppError::TeamLimitReached(data.project_id));
+            }
+        }
+    }
+
+    let mut team = data.clone();
+    team.access_token = Uuid::new_v4().simple().to_string();
+    if share_config.as_ref().map(|c| c.default_needs_check).unwrap_or(false) {
+        team.status = TeamStatus::Review;
+    }
+
+    AddressRepository.insert(&mut *tx, &team.address).await?;
+    TeamRepository.insert(&mut *tx, &team).await?;
+
+    let actor_type = if user_id.is_some() {
+        AuditActorType::Admin
     } else {
-        false
+        AuditActorType::Participant
+    };
+    TeamAuditLogRepository
+        .insert(
+            &mut *tx,
+            &team.id,
+            actor_type,
+            user_id.as_deref(),
+            AuditAction::Created,
+            &serde_json::json!({ "after": { "name": team.name, "mail": team.mail } }),
+            &now,
+        )
+        .await?;
+
+    if let Some(mail) = &team.mail {
+        let context_row = select_email_project_context(&mut *tx, &data.project_id).await?;
+        let deeplink_url = crate::email::build_team_deeplink_url(
+            deeplink_base_url,
+            &data.project_id,
+            &team.id,
+            &team.access_token,
+        );
+        let context = serde_json::json!({
+            "project_name": context_row.project_name,
+            "team_name": team.name,
+            "deeplink_url": deeplink_url,
+        });
+        EmailOutboxRepository
+            .insert(&mut *tx, Some(team.id), mail, EmailType::Invitation, &context, &now)
+            .await?;
     }
+
+    if let Some(plan_id) = ProjectRepository
+        .select_plan_id(&mut *tx, &data.project_id, &owner_user_id)
+        .await?
+    {
+        PlanRepository.mark_stale(&mut *tx, &plan_id, &now).await?;
+    }
+
+    Ok(team)
 }
 
-async fn check_team_against_share(
-    db: &Database,
-    share: &ShareTeamConfig,
+pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(), AppError> {
+    let mut tx = db.pool.begin().await?;
+    let now = Utc::now();
+
+    let existing = TeamRepository
+        .select_locked_for_admin_update(&mut *tx, &data.id, &data.project_id, user_id)
+        .await?
+        .ok_or_else(|| AppError::TeamNotFound(data.id, user_id.to_string(), data.project_id))?;
+
+    if existing.status == TeamStatus::Canceled {
+        return Err(AppError::TeamCanceled);
+    }
+
+    apply_team_update(
+        &mut tx,
+        &existing,
+        data,
+        AuditActorType::Admin,
+        Some(user_id),
+        &now,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Same as `update`, but for the self-service (access-token) path. Also
+/// notifies the project admin when the address change ends up marking the
+/// plan stale, since — unlike an admin editing directly — the admin has no
+/// other way of finding out.
+pub async fn update_by_token(
+    db: &mut Database,
+    access_token: &str,
     data: &Team,
+    admin_team_link_base_url: &str,
 ) -> Result<(), AppError> {
-    debug!(share = ?share, "Checking team against share config");
+    let mut tx = db.pool.begin().await?;
+    let now = Utc::now();
 
-    let deadline = share.registration_deadline;
-    if let Some(deadline) = deadline {
-        if deadline < chrono::Utc::now() {
-            return Err(AppError::DeadlineExceeded(deadline, data.project_id));
-        }
+    let existing = TeamRepository
+        .select_locked_by_token(&mut *tx, access_token)
+        .await?
+        .ok_or(AppError::TeamNotFoundByToken)?;
+
+    if existing.status == TeamStatus::Canceled {
+        return Err(AppError::TeamCanceled);
     }
 
-    if let Some(max_team_size) = share.max_teams {
-        let team_size = db.count_teams(&data.project_id).await?;
-        if team_size >= max_team_size as i64 {
-            return Err(AppError::MaxTeamSizeExceeded(
-                max_team_size,
-                data.project_id,
-            ));
-        }
+    let plan_marked_stale = apply_team_update(
+        &mut tx,
+        &existing,
+        data,
+        AuditActorType::Participant,
+        None,
+        &now,
+    )
+    .await?;
+
+    if plan_marked_stale {
+        notify_admin_of_change(
+            &mut tx,
+            &existing,
+            admin_team_link_base_url,
+            "Adresse geändert",
+            &now,
+        )
+        .await?;
     }
 
-    for required_field in share.required_fields.iter() {
-        match required_field {
-            crate::sharing::RequiredField::Mail => {
-                if data.mail.is_none() {
-                    return Err(AppError::MissingField(
-                        "mail".to_string(),
-                        data.project_id,
-                    ));
-                }
-            }
-            crate::sharing::RequiredField::Phone => {
-                if data.phone.is_none() {
-                    return Err(AppError::MissingField(
-                        "phone".to_string(),
-                        data.project_id,
-                    ));
-                }
-            }
-            crate::sharing::RequiredField::Members => {
-                if data.members.is_none() {
-                    return Err(AppError::MissingField(
-                        "members".to_string(),
-                        data.project_id,
-                    ));
-                }
-            }
-            crate::sharing::RequiredField::Diets => {
-                if data.diets.is_none() {
-                    return Err(AppError::MissingField(
-                        "diets".to_string(),
-                        data.project_id,
-                    ));
-                }
-            }
-        }
-    }
     Ok(())
 }
 
-async fn check_edit_deadline(db: &Database, access_token: &str) -> Result<(), AppError> {
-    if let Some(deadline) = db.select_edit_deadline_by_token(access_token).await? {
-        if deadline < chrono::Utc::now() {
-            return Err(AppError::EditDeadlineExceeded(deadline));
+/// Shared by `update`/`update_by_token`: swaps in the new address, updates
+/// the mutable fields, tears down the old address, writes an audit entry,
+/// and — if the address actually changed — marks a linked plan stale.
+/// Returns whether the plan was freshly marked stale (it wasn't already).
+async fn apply_team_update(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    existing: &Team,
+    data: &Team,
+    actor_type: AuditActorType,
+    actor_label: Option<&str>,
+    time: &DateTime<Utc>,
+) -> Result<bool, AppError> {
+    let address_changed = existing.address.address != data.address.address
+        || existing.address.latitude != data.address.latitude
+        || existing.address.longitude != data.address.longitude;
+
+    AddressRepository.insert(&mut *tx, &data.address).await?;
+    TeamRepository.update_fields(&mut *tx, data).await?;
+    AddressRepository.delete(&mut *tx, &existing.address.id).await?;
+
+    let changes = serde_json::json!({
+        "before": {
+            "name": existing.name, "mail": existing.mail, "phone": existing.phone,
+            "members": existing.members, "diets": existing.diets,
+            "address": existing.address.address,
+        },
+        "after": {
+            "name": data.name, "mail": data.mail, "phone": data.phone,
+            "members": data.members, "diets": data.diets,
+            "address": data.address.address,
+        },
+    });
+    TeamAuditLogRepository
+        .insert(&mut *tx, &existing.id, actor_type, actor_label, AuditAction::Updated, &changes, time)
+        .await?;
+
+    let mut plan_marked_stale = false;
+    if address_changed {
+        let owner_user_id = ProjectRepository
+            .select_owner_user_id(&mut *tx, &existing.project_id)
+            .await?;
+        if let Some(plan_id) = ProjectRepository
+            .select_plan_id(&mut *tx, &existing.project_id, &owner_user_id)
+            .await?
+        {
+            plan_marked_stale = PlanRepository.mark_stale(&mut *tx, &plan_id, time).await?;
+            if plan_marked_stale {
+                TeamAuditLogRepository
+                    .insert(
+                        &mut *tx,
+                        &existing.id,
+                        actor_type,
+                        actor_label,
+                        AuditAction::PlanInvalidated,
+                        &serde_json::json!({}),
+                        time,
+                    )
+                    .await?;
+            }
         }
     }
+
+    Ok(plan_marked_stale)
+}
+
+/// Admin-only hard delete. Also tears down the team's address and marks a
+/// linked plan stale (removed team). Deletions aren't audit-logged: the
+/// `team_audit_log` table is scoped to a `team_id` that's about to stop
+/// existing, and `AuditAction` has no "deleted" variant.
+pub async fn delete(
+    db: &mut Database,
+    project_id: &Uuid,
+    user_id: &str,
+    team_id: &Uuid,
+) -> Result<(), AppError> {
+    let mut tx = db.pool.begin().await?;
+    let now = Utc::now();
+
+    let existing = TeamRepository.select(&mut *tx, team_id, project_id, user_id).await?;
+
+    TeamRepository.delete(&mut *tx, team_id, project_id, user_id).await?;
+    AddressRepository.delete(&mut *tx, &existing.address.id).await?;
+
+    if let Some(plan_id) = ProjectRepository
+        .select_plan_id(&mut *tx, project_id, user_id)
+        .await?
+    {
+        PlanRepository.mark_stale(&mut *tx, &plan_id, &now).await?;
+    }
+
     Ok(())
+}
+
+/// Self-service cancellation (status change, not a delete). Marks a linked
+/// plan stale and notifies the admin, mirroring `update_by_token`.
+pub async fn cancel_by_token(
+    db: &mut Database,
+    access_token: &str,
+    reason: Option<&str>,
+    admin_team_link_base_url: &str,
+) -> Result<(), AppError> {
+    let mut tx = db.pool.begin().await?;
+    let now = Utc::now();
+
+    let existing = TeamRepository
+        .select_locked_by_token(&mut *tx, access_token)
+        .await?
+        .ok_or(AppError::TeamNotFoundByToken)?;
+
+    if existing.status == TeamStatus::Canceled {
+        return Err(AppError::TeamCanceled);
+    }
+
+    TeamRepository.update_cancel(&mut *tx, &existing.id, &now, reason).await?;
+
+    TeamAuditLogRepository
+        .insert(
+            &mut *tx,
+            &existing.id,
+            AuditActorType::Participant,
+            None,
+            AuditAction::Canceled,
+            &serde_json::json!({ "reason": reason }),
+            &now,
+        )
+        .await?;
+
+    let owner_user_id = ProjectRepository
+        .select_owner_user_id(&mut *tx, &existing.project_id)
+        .await?;
+    if let Some(plan_id) = ProjectRepository
+        .select_plan_id(&mut *tx, &existing.project_id, &owner_user_id)
+        .await?
+    {
+        if PlanRepository.mark_stale(&mut *tx, &plan_id, &now).await? {
+            TeamAuditLogRepository
+                .insert(
+                    &mut *tx,
+                    &existing.id,
+                    AuditActorType::Participant,
+                    None,
+                    AuditAction::PlanInvalidated,
+                    &serde_json::json!({}),
+                    &now,
+                )
+                .await?;
+
+            notify_admin_of_change(
+                &mut tx,
+                &existing,
+                admin_team_link_base_url,
+                "Team abgesagt",
+                &now,
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn verify_email_by_token(db: &mut Database, access_token: &str) -> Result<(), AppError> {
+    let mut tx = db.pool.begin().await?;
+    let now = Utc::now();
+    TeamRepository.verify_email_by_token(&mut *tx, access_token, &now).await
+}
+
+/// Re-sends the invitation email. Participants are limited to 3 attempts
+/// (enforced via `verification_resend_count`); admins are unlimited.
+///
+/// NOTE: the API layer doesn't thread a `deeplink_base_url` into this call
+/// (see `self_service::resend_verification`), so the email context here
+/// carries project/team name but not a fresh deeplink. If the resend email
+/// needs the link again, add a base-url parameter here similarly to
+/// `team::create`.
+pub async fn request_verification_resend(
+    db: &mut Database,
+    existing_team: &Team,
+    is_admin: bool,
+) -> Result<(), AppError> {
+    let mut tx = db.pool.begin().await?;
+    let now = Utc::now();
+
+    if !is_admin && existing_team.verification_resend_count >= 3 {
+        return Err(AppError::VerificationResendLimitReached(existing_team.id));
+    }
+
+    let Some(mail) = &existing_team.mail else {
+        // Nothing to resend to — a no-op rather than an error.
+        return Ok(());
+    };
+
+    if !is_admin {
+        TeamRepository
+            .increment_resend_count_by_token(&mut *tx, &existing_team.access_token)
+            .await?;
+    }
+
+    let context_row = select_email_project_context(&mut *tx, &existing_team.project_id).await?;
+    let context = serde_json::json!({
+        "project_name": context_row.project_name,
+        "team_name": existing_team.name,
+    });
+
+    EmailOutboxRepository
+        .insert(&mut *tx, Some(existing_team.id), mail, EmailType::Invitation, &context, &now)
+        .await
+}
+
+/// Queues an `AdminNotification` email if the project has an admin
+/// notification address configured. Best-effort: silently does nothing if
+/// there is none.
+///
+/// NOTE: the admin link is built with plain string formatting here, since
+/// there's no confirmed `crate::email` helper for it (only
+/// `build_team_deeplink_url` is known to exist) — adjust to match whatever
+/// the real link format is.
+async fn notify_admin_of_change(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    team: &Team,
+    admin_team_link_base_url: &str,
+    change_kind: &str,
+    time: &DateTime<Utc>,
+) -> Result<(), AppError> {
+    let context_row = select_email_project_context(&mut *tx, &team.project_id).await?;
+
+    let Some(admin_email) = context_row.admin_notification_email else {
+        return Ok(());
+    };
+
+    let admin_link = format!(
+        "{}/{}/{}",
+        admin_team_link_base_url.trim_end_matches('/'),
+        team.project_id,
+        team.id
+    );
+    let context = serde_json::json!({
+        "project_name": context_row.project_name,
+        "team_name": team.name,
+        "change_kind": change_kind,
+        "admin_link": admin_link,
+    });
+
+    EmailOutboxRepository
+        .insert(&mut *tx, Some(team.id), &admin_email, EmailType::AdminNotification, &context, time)
+        .await
 }

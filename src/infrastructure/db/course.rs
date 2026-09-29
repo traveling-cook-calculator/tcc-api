@@ -145,39 +145,6 @@ impl CourseRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select_for_project<'e, E>(
-        &self,
-        executor: E,
-        id_filter: &Uuid,
-        project_id_filter: &Uuid,
-        user_id_filter: &str,
-    ) -> Result<Course, AppError>
-    where
-        E: sqlx::PgExecutor<'e>,
-    {
-        sqlx::query_as::<_, CourseEntity>(
-            "SELECT c.id, c.project_id, c.name, c.time, c.has_multiple_hosts
-             FROM course c
-             INNER JOIN project car ON car.id = c.project_id
-             WHERE c.id = $1 AND car.id = $2 AND car.user_id = $3",
-        )
-        .bind(id_filter)
-        .bind(project_id_filter)
-        .bind(user_id_filter)
-        .fetch_one(executor)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::CourseNotFound(
-                *id_filter,
-                user_id_filter.to_string(),
-                Some(*project_id_filter),
-            ),
-            other => AppError::DatabaseError(other),
-        })
-        .map(|course| course.to_domain())
-    }
-
-    #[tracing::instrument(skip(self, executor))]
     pub async fn delete_for_project<'e, E>(
         &self,
         executor: E,

@@ -9,13 +9,14 @@ use validator::Validate;
 
 use crate::{
     api::{auth::Claims, validated_json::ValidatedJson},
+    application::note,
+    domain::Note,
     error::AppError,
-    note,
     AppState,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
-pub struct NoteCreateData {
+pub struct NoteCreateDTO {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
     pub headline: String,
     #[validate(length(
@@ -26,9 +27,9 @@ pub struct NoteCreateData {
     pub content: String,
 }
 
-impl NoteCreateData {
-    pub(crate) fn to_domain(&self, note_id: &Uuid, time: DateTime<Utc>) -> crate::note::Note {
-        crate::note::Note {
+impl NoteCreateDTO {
+    pub(crate) fn to_domain(&self, note_id: &Uuid, time: DateTime<Utc>) -> Note {
+        Note {
             id: *note_id,
             headline: self.headline.clone(),
             content: self.content.clone(),
@@ -43,7 +44,7 @@ pub(super) async fn create_team_note(
     Extension(claims): Extension<Claims>,
     State(mut state): State<AppState>,
     Path((project_id, team_id, note_id)): Path<(Uuid, Uuid, Uuid)>,
-    ValidatedJson(payload): ValidatedJson<NoteCreateData>,
+    ValidatedJson(payload): ValidatedJson<NoteCreateDTO>,
 ) -> Result<(), AppError> {
     let time = chrono::Utc::now();
     note::create(

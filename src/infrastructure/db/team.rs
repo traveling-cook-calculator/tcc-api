@@ -81,7 +81,6 @@ impl TeamMetaEntity {
     }
 }
 
-
 #[derive(Debug, Clone, FromRow)]
 struct TeamEntity {
     id: Uuid,
@@ -682,6 +681,44 @@ impl TeamRepository {
             .await
             .map_err(AppError::DatabaseError)?;
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn select_to_check_existinse<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+        project_id_filter: &Uuid,
+        user_id_filter: &str,
+    ) -> Result<(), AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        let result = sqlx::query_as(
+            "SELECT t.id
+             FROM team t
+             WHERE t.id = $1
+               AND (
+                   t.project_id IN (
+                       SELECT id FROM project WHERE id = $2 AND user_id = $3
+                   )
+               )
+             FOR UPDATE OF t",
+        )
+        .bind(id_filter)
+        .bind(project_id_filter)
+        .bind(user_id_filter)
+        .fetch_optional(executor)
+        .await;
+
+        if let Err(e) = result {
+            return Err(AppError::DatabaseError(e));
+        }
+        if let Ok(Some(o)) = result {
+            return Ok(());
+        }else{
+            return Err(AppError::TeamNotFound(*id_filter, user_id_filter.to_string(), *project_id_filter))
+        }
     }
 }
 

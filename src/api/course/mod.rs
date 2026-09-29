@@ -32,13 +32,6 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/project/{project_id}/course/{course_id}",
-            get(get::get_course).layer(from_fn_with_state(
-                app_state.clone(),
-                require_permission(USER_ROLE),
-            )),
-        )
-        .route(
-            "/project/{project_id}/course/{course_id}",
             patch(course::update_course).layer(from_fn_with_state(
                 app_state.clone(),
                 require_permission(USER_ROLE),
