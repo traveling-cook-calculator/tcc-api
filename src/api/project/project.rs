@@ -1,5 +1,8 @@
-use axum::{extract::{Path, State}, Extension};
-use chrono::{DateTime, Utc};
+use axum::{
+    extract::{Path, State},
+    Extension,
+};
+use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
@@ -9,18 +12,13 @@ use crate::{
         auth::{is_user_authenticated, AuthUser, AuthenticatedUser, Claims},
         validated_json::ValidatedJson,
     },
+    application::project::{self, ProjectMeta},
     error::AppError,
-    project::{
-        create_project, delete_project, delete_project_end_point, delete_project_start_point,
-        set_project_end_point, set_project_start_point, update_project_meta,
-    },
     AppState,
 };
 
 use super::get::PointDTO;
 
-/// Metadata-only update payload. `id` and `user_id` come from the path and
-/// JWT respectively — they are never accepted from the request body.
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpdateMetaRequestDTO {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
@@ -31,9 +29,9 @@ pub struct UpdateMetaRequestDTO {
 }
 
 impl UpdateMetaRequestDTO {
-    fn to_domain(&self, project_id: &Uuid) -> crate::project::ProjectMeta {
+    fn to_domain(&self, project_id: &Uuid) -> ProjectMeta {
         let now = chrono::Utc::now();
-        crate::project::ProjectMeta {
+        ProjectMeta {
             id: *project_id,
             user_id: String::new(),
             name: self.name.clone(),
@@ -58,19 +56,16 @@ pub struct ProjectCreateDTO {
 }
 
 impl ProjectCreateDTO {
-    pub fn to_project_create<'a>(
-        &'a self,
-        project_id: &'a Uuid,
-        time: &'a DateTime<Utc>,
-    ) -> crate::project::ProjectCreate<'a> {
-        crate::project::ProjectCreate {
-            id: project_id,
-            user_id: &self.user_id,
-            name: &self.name,
-            created: time,
-            edited: time,
-            occur: time,
-            admin_notification_email: Some(&self.admin_notification_email),
+    fn to_domain(&self, project_id: &Uuid) -> ProjectMeta {
+        let now = chrono::Utc::now();
+        ProjectMeta {
+            id: *project_id,
+            user_id: String::new(),
+            name: self.name.clone(),
+            created: now,
+            edited: now,
+            occur: now + TimeDelta::weeks(1),
+            admin_notification_email: Some(self.admin_notification_email.clone()),
         }
     }
 }
@@ -90,7 +85,7 @@ pub(super) async fn create_project_project(
 ) -> Result<(), AppError> {
     is_user_authenticated(&payload, Some(&claims.sub))?;
     let time = chrono::Utc::now();
-    create_project(&mut state.db, payload.to_project_create(&project_id, &time)).await
+    project::create_project(&mut state.db, payload.to_domain(&project_id)).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -99,7 +94,7 @@ pub(super) async fn delete_project_project(
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    delete_project(&mut state.db, &project_id, &claims.sub).await
+    project::delete_project(&mut state.db, &project_id, &claims.sub).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -109,7 +104,7 @@ pub(super) async fn patch_project_meta(
     Path(project_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<UpdateMetaRequestDTO>,
 ) -> Result<(), AppError> {
-    update_project_meta(&mut state.db, &claims.sub, &payload.to_domain(&project_id)).await
+    project::update_project_meta(&mut state.db, &claims.sub, &payload.to_domain(&project_id)).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -119,7 +114,13 @@ pub(super) async fn patch_start_point(
     Path(project_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<PointDTO>,
 ) -> Result<(), AppError> {
-    set_project_start_point(&mut state.db, &project_id, &claims.sub, &payload.to_domain()).await
+    project::set_project_start_point(
+        &mut state.db,
+        &project_id,
+        &claims.sub,
+        &payload.to_domain(),
+    )
+    .await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -129,7 +130,13 @@ pub(super) async fn patch_end_point(
     Path(project_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<PointDTO>,
 ) -> Result<(), AppError> {
-    set_project_end_point(&mut state.db, &project_id, &claims.sub, &payload.to_domain()).await
+    project::set_project_end_point(
+        &mut state.db,
+        &project_id,
+        &claims.sub,
+        &payload.to_domain(),
+    )
+    .await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -138,7 +145,7 @@ pub(super) async fn delete_start_point(
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    delete_project_start_point(&mut state.db, &project_id, &claims.sub).await
+    project::delete_project_start_point(&mut state.db, &project_id, &claims.sub).await
 }
 
 #[tracing::instrument(skip(claims, state))]
@@ -147,5 +154,5 @@ pub(super) async fn delete_end_point(
     State(mut state): State<AppState>,
     Path(project_id): Path<Uuid>,
 ) -> Result<(), AppError> {
-    delete_project_end_point(&mut state.db, &project_id, &claims.sub).await
+    project::delete_project_end_point(&mut state.db, &project_id, &claims.sub).await
 }

@@ -45,10 +45,10 @@ pub fn get_routes(app_state: AppState) -> Router<AppState> {
 /// Shared by every list endpoint's response envelope.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationInfo {
-    pub page: u32,
-    pub limit: u32,
-    pub total: u64,
-    pub total_pages: u32,
+    pub page: u8,
+    pub limit: u8,
+    pub total: u8,
+    pub total_pages: u8,
     pub has_next: bool,
     pub has_prev: bool,
 }
@@ -65,18 +65,18 @@ impl PaginationInfo {
         }
     }
 
-    pub fn from_page(page: u32, limit: u32, total: u64) -> Self {
+    pub fn from_page(page: u8, limit: u8, total: u8) -> Self {
         let total_pages = if limit == 0 {
             0
         } else {
-            ((total as f64) / (limit as f64)).ceil() as u32
+            ((total as f64) / (limit as f64)).ceil() as u8
         };
         PaginationInfo {
             page,
             limit,
             total,
             total_pages,
-            has_next: (page as u64) < total_pages as u64,
+            has_next: page < total_pages,
             has_prev: page > 1,
         }
     }

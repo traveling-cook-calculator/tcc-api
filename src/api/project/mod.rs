@@ -8,19 +8,18 @@ use crate::{
 mod get;
 mod project;
 
-
 pub fn routes(app_state: AppState) -> Router<AppState> {
     Router::new()
         .route(
             "/project",
-            get(get::list_project_projects).layer(from_fn_with_state(
+            get(get::list_projects).layer(from_fn_with_state(
                 app_state.clone(),
                 require_permission(USER_ROLE),
             )),
         )
         .route(
             "/project/{project_id}",
-            get(get::get_project_project)
+            get(get::get_project)
                 .layer(from_fn_with_state(
                     app_state.clone(),
                     require_permission(USER_ROLE),
@@ -38,7 +37,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/project/{project_id}/metadata",
-            get(get::get_project_project_meta)
+            get(get::get_project_meta)
                 .layer(from_fn_with_state(
                     app_state.clone(),
                     require_permission(USER_ROLE),

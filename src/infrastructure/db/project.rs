@@ -1,7 +1,9 @@
 use chrono::{DateTime, Utc};
+use jsonwebtoken::signature::digest::consts::U23;
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
+use crate::application::project::ProjectMeta;
 use crate::domain::project::Project;
 use crate::error::AppError;
 
@@ -17,9 +19,6 @@ struct ProjectEntity {
     occur: chrono::DateTime<chrono::Utc>,
     start_point: Option<Uuid>,
     end_point: Option<Uuid>,
-    share_team_config: Option<Uuid>,
-    plan: Option<Uuid>,
-    plan_config: Option<Uuid>,
     admin_notification_email: Option<String>,
 }
 
@@ -42,14 +41,29 @@ impl ProjectEntity {
             course_list: Vec::new(),
         }
     }
+
+    fn from_domain(data: &ProjectMeta) -> Self {
+        ProjectEntity {
+            id: data.id,
+            user_id: data.user_id.clone(),
+            name: data.name.clone(),
+            created: data.created,
+            edited: data.edited,
+            occur: data.occur,
+            start_point: None,
+            end_point: None,
+            admin_notification_email: data.admin_notification_email.clone(),
+        }
+    }
 }
 
 impl ProjectRepository {
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn insert<'e, E>(&self, executor: E, data: &ProjectCreate<'_>) -> Result<(), AppError>
+    pub async fn insert<'e, E>(&self, executor: E, data: &ProjectMeta) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
+        let data = ProjectEntity::from_domain(data);
         let result = sqlx::query(
             "INSERT INTO project
                 (id, user_id, name, created, edited, occur, admin_notification_email)
@@ -74,25 +88,26 @@ impl ProjectRepository {
         }
     }
 
-    #[tracing::instrument(skip(self, executor, meta_data))]
+    #[tracing::instrument(skip(self, executor, data))]
     pub async fn update_meta<'e, E>(
         &self,
         executor: E,
         id_filter: &Uuid,
         user_id_filter: &str,
-        meta_data: &ProjectUpdate<'_>,
+        data: &ProjectMeta,
     ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
+        let data = ProjectEntity::from_domain(data);
         let affected = sqlx::query(
             "UPDATE project SET name = $1, edited = $2, occur = $3, admin_notification_email = $4
              WHERE id = $5 AND user_id = $6",
         )
-        .bind(meta_data.name)
-        .bind(meta_data.edited)
-        .bind(meta_data.occur)
-        .bind(meta_data.admin_notification_email)
+        .bind(data.name)
+        .bind(data.edited)
+        .bind(data.occur)
+        .bind(data.admin_notification_email)
         .bind(id_filter)
         .bind(user_id_filter)
         .execute(executor)
@@ -107,25 +122,49 @@ impl ProjectRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select_all<'e, E>(
+    pub async fn select_page<'e, E>(
         &self,
         executor: E,
         user_id_filter: &str,
+        limit: u8,
+        offset: u8,
     ) -> Result<Vec<Project>, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
         sqlx::query_as::<_, ProjectEntity>(
             "SELECT id, user_id, name, created, edited, occur,
-                    start_point, end_point, share_team_config, plan, plan_config,
-                    admin_notification_email
-             FROM project WHERE user_id = $1",
+                start_point, end_point, share_team_config, plan, plan_config,
+                admin_notification_email
+         FROM project
+         WHERE user_id = $1
+         ORDER BY created DESC, id
+         LIMIT $2 OFFSET $3",
         )
         .bind(user_id_filter)
+        .bind(limit as i8)
+        .bind(offset as i8)
         .fetch_all(executor)
         .await
         .map_err(AppError::DatabaseError)
         .map(|rows| rows.iter().map(ProjectEntity::to_domain).collect())
+    }
+
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn count_by_user<'e, E>(
+        &self,
+        executor: E,
+        user_id_filter: &str,
+    ) -> Result<u8, AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM project WHERE user_id = $1")
+            .bind(user_id_filter)
+            .fetch_one(executor)
+            .await
+            .map_err(AppError::DatabaseError)
+            .map(|c| c as u8)
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -332,6 +371,5 @@ impl ProjectRepository {
             return Err(AppError::ProjectNotFound(*id_filter));
         }
         Ok(())
-    }  
- 
+    }
 }

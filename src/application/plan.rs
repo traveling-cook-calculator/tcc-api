@@ -1,9 +1,14 @@
 use uuid::Uuid;
 
 use crate::{
-    error::AppError, infrastructure::{Database, db::{
-        ProjectRepository, plan::{PlanConfigRepository, PlanRepository},
-    }},
+    error::AppError,
+    infrastructure::{
+        db::{
+            plan::{PlanConfigRepository, PlanRepository},
+            ProjectRepository,
+        },
+        Database,
+    },
 };
 
 pub use crate::domain::plan::{Access, Hosting, Language, Plan, PlanConfig};
@@ -140,4 +145,12 @@ pub async fn get_config_by_id(
         .await?
         .ok_or(AppError::DatabaseError(sqlx::Error::RowNotFound))?;
     PlanConfigRepository.select(&mut *tx, &plan_config_id).await
+}
+
+pub async fn mark_plan_stale_if_present(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    project_id: &Uuid,
+    user_id: &str,
+) -> Result<(), AppError> {
+    todo!("mark plan as stale")
 }
