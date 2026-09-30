@@ -39,7 +39,6 @@ impl RequiredFieldEntity {
 
 #[derive(Debug, Clone, FromRow)]
 struct ShareTeamConfigEntity {
-    id: Uuid,
     created: chrono::DateTime<chrono::Utc>,
     invite_text: String,
     require_email_verification: bool,
@@ -55,7 +54,6 @@ struct ShareTeamConfigEntity {
 impl ShareTeamConfigEntity {
     fn from_domain(share: &ShareTeamConfig) -> Self {
         ShareTeamConfigEntity {
-            id: share.id,
             created: share.created,
             invite_text: share.invite_text.clone(),
             require_email_verification: share.require_email_verification,
@@ -83,7 +81,6 @@ impl ShareTeamConfigEntity {
 
     fn to_domain(&self) -> ShareTeamConfig {
         ShareTeamConfig {
-            id: self.id,
             created: self.created,
             invite_text: self.invite_text.clone(),
             require_email_verification: self.require_email_verification,
@@ -131,7 +128,12 @@ const SHARE_COLUMNS: &str = "
 
 impl ShareRepository {
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn insert<'e, E>(&self, executor: E, data: &ShareTeamConfig) -> Result<(), AppError>
+    pub async fn insert<'e, E>(
+        &self,
+        executor: E,
+        project_id: &Uuid,
+        data: &ShareTeamConfig,
+    ) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
@@ -144,7 +146,7 @@ impl ShareRepository {
                  review_trigger_fields, notify_admin_on_review)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
-        .bind(share.id)
+        .bind(project_id)
         .bind(share.created)
         .bind(&share.invite_text)
         .bind(share.require_email_verification)
@@ -164,7 +166,12 @@ impl ShareRepository {
 
     /// Insert-or-update by id.
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn upsert<'e, E>(&self, executor: E, data: &ShareTeamConfig) -> Result<(), AppError>
+    pub async fn upsert<'e, E>(
+        &self,
+        executor: E,
+        project_id: &Uuid,
+        data: &ShareTeamConfig,
+    ) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
@@ -188,7 +195,7 @@ impl ShareRepository {
                 review_trigger_fields = EXCLUDED.review_trigger_fields,
                 notify_admin_on_review = EXCLUDED.notify_admin_on_review",
         )
-        .bind(share.id)
+        .bind(project_id)
         .bind(share.created)
         .bind(&share.invite_text)
         .bind(share.require_email_verification)
@@ -215,14 +222,19 @@ impl ShareRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        sqlx::query_as::<_, ShareTeamConfigEntity>("SELECT id, created, invite_text, require_email_verification, default_needs_check,
+        sqlx::query_as::<_, ShareTeamConfigEntity>(
+            "SELECT id, created, invite_text, require_email_verification, default_needs_check,
     required_fields, max_teams, registration_deadline, edit_deadline,
-    review_trigger_fields, notify_admin_on_review FROM share WHERE id = $1")
-            .bind(id_filter)
-            .fetch_one(executor)
-            .await
-            .map_err(AppError::DatabaseError)
-            .map(|row| row.to_domain())
+    review_trigger_fields, notify_admin_on_review FROM share WHERE id = $1",
+        )
+        .bind(id_filter)
+        .fetch_one(executor)
+        .await
+        .map_err(|error| match error {
+            sqlx::Error::RowNotFound => AppError::ShareNotFound(*id_filter),
+            other => AppError::DatabaseError(other),
+        })
+        .map(|row| row.to_domain())
     }
 
     #[tracing::instrument(skip(self, executor))]

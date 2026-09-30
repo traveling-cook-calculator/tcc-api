@@ -41,7 +41,6 @@ impl RequiredFieldDTO {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareTeamConfigDTO {
-    pub id: Uuid,
     pub invite_text: String,
     pub require_email_verification: bool,
     pub default_needs_check: bool,
@@ -63,7 +62,6 @@ impl IntoResponse for ShareTeamConfigDTO {
 impl ShareTeamConfigDTO {
     pub fn from_domain(config: ShareTeamConfig) -> Self {
         ShareTeamConfigDTO {
-            id: config.id,
             invite_text: config.invite_text,
             require_email_verification: config.require_email_verification,
             default_needs_check: config.default_needs_check,

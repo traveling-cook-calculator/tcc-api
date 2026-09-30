@@ -50,7 +50,6 @@ pub enum RequiredField {
 
 #[derive(Debug, Clone)]
 pub struct ShareTeamConfig {
-    pub id: Uuid,
     pub invite_text: String,
     pub require_email_verification: bool,
     pub default_needs_check: bool,

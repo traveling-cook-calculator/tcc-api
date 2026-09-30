@@ -46,6 +46,9 @@ pub enum AppError {
     #[error("Sharing configuration for user id {0} not found in project {1}")]
     SharingConfigNotFound(String, Uuid),
 
+    #[error("Sharing configuration with id {0} not found")]
+    ShareNotFound(Uuid),
+
     #[error("Team with id {0} with user id {1} in project {2} not found")]
     TeamNotFound(Uuid, String, Uuid),
 
@@ -145,6 +148,9 @@ impl AppError {
             }
             AppError::SharingConfigNotFound(user_id, project_id) => {
                 tracing::warn!(user.id = %user_id, project.id = %project_id, "Sharing configuration not found");
+            }
+            AppError::ShareNotFound(id) => {
+                tracing::warn!(share.id = %id, "Sharing configuration not found");
             }
             AppError::DeadlineExceeded(deadline, project_id) => {
                 tracing::warn!(project.id = %project_id, deadline = ?deadline, "Registration deadline exceeded");

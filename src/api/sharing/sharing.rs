@@ -9,8 +9,9 @@ use validator::Validate;
 
 use crate::{
     api::{auth::Claims, validated_json::ValidatedJson},
+    application::sharing,
+    domain::team::ShareTeamConfig,
     error::AppError,
-    sharing,
     AppState,
 };
 
@@ -26,23 +27,31 @@ pub struct CreateShareConfigRequest {
     pub invite_text: String,
     pub require_email_verification: bool,
     pub default_needs_check: bool,
+    #[validate(length(max = 4, message = "may be empty or contain at most 4 required fields"))]
     pub required_fields: Vec<RequiredFieldDTO>,
-    #[validate(range(min = 1, max = 10_000, message = "must be between 1 and 10,000"))]
+    #[validate(range(min = 1, max = 128, message = "must be between 1 and 128"))]
     pub max_teams: Option<u32>,
     pub registration_deadline: Option<DateTime<Utc>>,
     pub edit_deadline: Option<DateTime<Utc>>,
+    #[validate(length(
+        max = 4,
+        message = "may be empty or contain at most 4 review trigger fields"
+    ))]
     pub review_trigger_fields: Vec<RequiredFieldDTO>,
     pub notify_admin_on_review: bool,
 }
 
 impl CreateShareConfigRequest {
-    pub fn to_domain(&self, share_id: &Uuid, time: &DateTime<Utc>) -> crate::sharing::ShareTeamConfig {
-        crate::sharing::ShareTeamConfig {
-            id: *share_id,
+    pub fn to_domain(&self, time: &DateTime<Utc>) -> ShareTeamConfig {
+        ShareTeamConfig {
             invite_text: self.invite_text.clone(),
             require_email_verification: self.require_email_verification,
             default_needs_check: self.default_needs_check,
-            required_fields: self.required_fields.iter().map(RequiredFieldDTO::to_domain).collect(),
+            required_fields: self
+                .required_fields
+                .iter()
+                .map(RequiredFieldDTO::to_domain)
+                .collect(),
             max_teams: self.max_teams,
             registration_deadline: self.registration_deadline,
             edit_deadline: self.edit_deadline,
@@ -70,7 +79,7 @@ pub(super) async fn create_share_config(
         &mut state.db,
         &project_id,
         &claims.sub,
-        &payload.to_domain(&Uuid::new_v4(), &time),
+        &payload.to_domain(&time),
     )
     .await?;
     Ok(())
@@ -86,13 +95,12 @@ pub(super) async fn update_share_config(
     Path(project_id): Path<Uuid>,
     ValidatedJson(payload): ValidatedJson<CreateShareConfigRequest>,
 ) -> Result<(), AppError> {
-    let existing = sharing::get_by_id(&mut state.db, &project_id, &claims.sub).await?;
     let time = chrono::Utc::now();
     sharing::update(
         &mut state.db,
         &project_id,
         &claims.sub,
-        &payload.to_domain(&existing.id, &time),
+        &payload.to_domain(&time),
     )
     .await?;
     Ok(())

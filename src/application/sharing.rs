@@ -32,8 +32,7 @@ pub async fn create(
     let _ = ProjectRepository
         .select(&mut *tx, project_id, user_id)
         .await?;
-
-    ShareRepository.insert(&mut *tx, data).await
+    ShareRepository.insert(&mut *tx, project_id, data).await
 }
 
 pub async fn update(
@@ -48,7 +47,7 @@ pub async fn update(
         .select(&mut *tx, project_id, user_id)
         .await?;
 
-    ShareRepository.upsert(&mut *tx, data).await
+    ShareRepository.upsert(&mut *tx, project_id, data).await
 }
 
 pub async fn delete(db: &mut Database, project_id: &Uuid, user_id: &str) -> Result<(), AppError> {
