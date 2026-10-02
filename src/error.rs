@@ -12,6 +12,23 @@ use uuid::Uuid;
 use validator::ValidationErrors;
 
 #[derive(Debug, Error)]
+pub enum InvalidTeamIdReason {
+    #[error(
+        "the number of provided team ids does not match the number of teams found in the project"
+    )]
+    TeamCountMismatch,
+
+    #[error("one or more teams are canceled and cannot receive emails")]
+    TeamCanceled,
+
+    #[error("one or more teams do not have an email address")]
+    TeamMissingEmail,
+
+    #[error("one or more teams are not in the plan")]
+    TeamNotInPlan,
+}
+
+#[derive(Debug, Error)]
 pub enum AppError {
     #[error("Address with id {0} not found")]
     AddressNotFound(Uuid),
@@ -84,6 +101,9 @@ pub enum AppError {
 
     #[error("Plan for project {0} is stale and must be confirmed or recomputed before sending route emails")]
     PlanIsStale(Uuid),
+
+    #[error("One or more team ids in the provided list are invalid for this project")]
+    InvalidTeamIdList(InvalidTeamIdReason),
 
     #[error(transparent)]
     JsonRejection(#[from] JsonRejection),
@@ -191,6 +211,12 @@ impl AppError {
             AppError::PlanIsStale(project_id) => {
                 tracing::warn!(project.id = %project_id, "Attempted to send route mails with a stale plan");
             }
+            AppError::InvalidTeamIdList(reason) => {
+                tracing::warn!(
+                    reason = %reason,
+                    "One or more team ids in the provided list are invalid for this project"
+                );
+            }
         }
     }
 }
@@ -207,7 +233,8 @@ impl IntoResponse for AppError {
             | AppError::JsonRejection(_)
             | AppError::VerificationResendLimitExceeded(_)
             | AppError::EditDeadlineExceeded(_)
-            | AppError::MissingHeader(_) => StatusCode::BAD_REQUEST,
+            | AppError::MissingHeader(_)
+            | AppError::InvalidTeamIdList(_) => StatusCode::BAD_REQUEST,
             AppError::AddressNotFound(_)
             | AppError::ProjectNotFound(_)
             | AppError::CourseNotFound(_, _, _)
@@ -219,6 +246,7 @@ impl IntoResponse for AppError {
             | AppError::TeamNotFound(_, _, _)
             | AppError::NoteNotFound(_, _, _, _)
             | AppError::SharingConfigNotFound(_, _)
+            | AppError::ShareNotFound(_)
             | AppError::TeamNotFoundByToken => StatusCode::NOT_FOUND,
             AppError::DatabaseError(_)
             | AppError::InternalError(_)

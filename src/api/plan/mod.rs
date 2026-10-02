@@ -48,6 +48,12 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
                 app_state.clone(),
                 require_permission(USER_ROLE),
             )),
+        ).route(
+            "/project/{project_id}/plan/send-route-mails",
+            post(route_mail::send_route_mails).layer(from_fn_with_state(
+                app_state.clone(),
+                require_permission(USER_ROLE),
+            )),
         )
         .route(
             "/project/{project_id}/plan_config",

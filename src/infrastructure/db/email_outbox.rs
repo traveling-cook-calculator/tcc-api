@@ -54,7 +54,6 @@ impl EmailStatusEntity {
 #[derive(Debug, Clone, FromRow)]
 struct EmailOutboxEntity {
     id: Uuid,
-    team_id: Option<Uuid>,
     recipient_email: String,
     email_type: EmailTypeEntity,
     context: serde_json::Value,
@@ -70,7 +69,6 @@ impl EmailOutboxEntity {
     fn to_domain(&self) -> EmailOutbox {
         EmailOutbox {
             id: self.id,
-            team_id: self.team_id,
             recipient_email: self.recipient_email.clone(),
             email_type: self.email_type.to_domain(),
             context: self.context.clone(),
@@ -85,14 +83,10 @@ impl EmailOutboxEntity {
 }
 
 impl EmailOutboxRepository {
-    /// Enqueues an email for dispatch. Works both standalone (pass the
-    /// pool) and as part of a larger transaction (pass the transaction) —
-    /// the caller decides, this repository has no opinion on it.
     #[tracing::instrument(skip(self, executor, context))]
     pub async fn insert<'e, E>(
         &self,
         executor: E,
-        team_id: Option<Uuid>,
         recipient_email: &str,
         email_type: EmailType,
         context: &serde_json::Value,
@@ -103,12 +97,11 @@ impl EmailOutboxRepository {
     {
         sqlx::query(
             "INSERT INTO email_outbox
-                (id, team_id, recipient_email, email_type, context, status,
+                (id,  recipient_email, email_type, context, status,
                  attempts, next_attempt_at, created_at)
              VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $6)",
         )
         .bind(Uuid::new_v4())
-        .bind(team_id)
         .bind(recipient_email)
         .bind(EmailTypeEntity::from_domain(email_type))
         .bind(context)

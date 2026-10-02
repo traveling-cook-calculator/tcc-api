@@ -127,11 +127,7 @@ impl TeamEntity {
         }
     }
 
-    /// `domain::team::Team` carries a fully populated `Address`, not just a
-    /// foreign key, so building one always needs the joined `AddressEntity`
-    /// at hand. Every read path below joins `address` for exactly this
-    /// reason.
-    fn to_domain(&self, address: &AddressEntity) -> Team {
+    fn to_domain(&self) -> Team {
         Team {
             id: self.id,
             project_id: self.project_id,
@@ -139,7 +135,7 @@ impl TeamEntity {
             name: self.name.clone(),
             created: self.created,
             edited: self.edited,
-            address: address.to_domain(),
+            address: Address::default(),
             mail: self.mail.clone(),
             phone: self.phone.clone(),
             members: self.members.map(|m| m as u32),
@@ -155,10 +151,6 @@ impl TeamEntity {
     }
 }
 
-/// Row shape shared by every read query in this module: `team` joined to
-/// its `address`. There is no `TeamEntity::to_domain` without an
-/// `AddressEntity`, so a plain (unjoined) team select can never produce a
-/// `Team` — this row is the one and only shape reads decode into.
 #[derive(FromRow)]
 struct TeamWithAddressRow {
     #[sqlx(flatten)]
@@ -169,9 +161,35 @@ struct TeamWithAddressRow {
 
 impl TeamWithAddressRow {
     fn to_domain(&self) -> Team {
-        self.team.to_domain(&self.address)
+        Team {
+            id: self.id,
+            project_id: self.project_id,
+            created_by_user: self.created_by_user.clone(),
+            name: self.name.clone(),
+            created: self.created,
+            edited: self.edited,
+            address: self.address.to_domain(),
+            mail: self.mail.clone(),
+            phone: self.phone.clone(),
+            members: self.members.map(|m| m as u32),
+            diets: self.diets.clone(),
+            status: self.status.to_domain(),
+            canceled_at: self.canceled_at,
+            cancel_reason: self.cancel_reason.clone(),
+            access_token: self.access_token.clone(),
+            email_verified_at: self.email_verified_at,
+            verification_resend_count: self.verification_resend_count as u32,
+            last_route_hash: self.last_route_hash.clone(),
+        }
     }
 }
+
+const TEAM_COLUMS: &str = "
+    t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
+    t.address, t.mail, t.phone, t.members, t.diets,
+    t.status, t.canceled_at, t.cancel_reason, t.access_token,
+    t.email_verified_at, t.verification_resend_count, t.last_route_hash
+";
 
 const TEAM_ADDRESS_COLUMNS: &str = "
     t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
@@ -483,6 +501,35 @@ impl TeamRepository {
         Ok(row.map(|r| r.to_domain()))
     }
 
+    #[tracing::instrument(skip(self, executor, team_ids))]
+    pub async fn select_by_ids_for_project<'e, E>(
+        &self,
+        executor: E,
+        project_id_filter: &Uuid,
+        team_ids: &Vec<Uuid>,
+    ) -> Result<Vec<Team>, AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        // `&[Uuid]` binds to a Postgres `uuid[]`, matched against `= ANY(...)`,
+        // so an empty slice yields an empty result set without a special case.
+        let query = format!(
+            "SELECT {}
+             FROM team t
+             WHERE t.project_id = $1 AND t.id = ANY($2)",
+            TEAM_COLUMS
+        );
+
+        let rows: Vec<TeamEntity> = sqlx::query_as(&query)
+            .bind(project_id_filter)
+            .bind(team_ids)
+            .fetch_all(executor)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(rows.iter().map(TeamEntity::to_domain).collect())
+    }
+
     #[tracing::instrument(skip(self, executor))]
     pub async fn delete<'e, E>(
         &self,
@@ -716,8 +763,12 @@ impl TeamRepository {
         }
         if let Ok(Some(o)) = result {
             return Ok(());
-        }else{
-            return Err(AppError::TeamNotFound(*id_filter, user_id_filter.to_string(), *project_id_filter))
+        } else {
+            return Err(AppError::TeamNotFound(
+                *id_filter,
+                user_id_filter.to_string(),
+                *project_id_filter,
+            ));
         }
     }
 }

@@ -1,5 +1,4 @@
 pub mod address;
-pub mod project;
 pub mod course;
 pub mod email_context;
 pub mod email_outbox;
@@ -7,13 +6,14 @@ pub mod models;
 pub mod note;
 pub mod plan;
 pub mod point;
+pub mod project;
 pub mod sharing;
 pub mod team;
 pub mod team_audit_log;
 
 pub use course::CourseRepository;
-pub use project::ProjectRepository;
 pub use note::NoteRepository;
+pub use project::ProjectRepository;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tracing::info;

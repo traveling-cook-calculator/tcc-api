@@ -2,100 +2,84 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use chrono::Utc;
+use serde_json::to_value;
 use uuid::Uuid;
 
+use crate::domain::mail::RouteUpdateMail;
+use crate::error::InvalidTeamIdReason;
+use crate::infrastructure::Database;
 use crate::{
-    db::Database,
     domain::mail::EmailType,
     domain::team::TeamStatus,
     error::AppError,
     infrastructure::db::{
-        email_context::select_email_project_context, email_outbox::EmailOutboxRepository,
-        plan::PlanRepository, team::TeamRepository, ProjectRepository,
+        email_outbox::EmailOutboxRepository, plan::PlanRepository, team::TeamRepository,
+        ProjectRepository,
     },
 };
 
-pub struct RouteMailSummary {
-    pub sent_to: Vec<Uuid>,
-    pub skipped_no_mail: Vec<Uuid>,
-}
-
-/// For every non-canceled team with an assigned route in the current plan's
-/// `walking_path`, compares a hash of that route against `last_route_hash`.
-/// Queues a `RouteUpdate` email (and updates the stored hash) when the
-/// route changed, or unconditionally when `force` is set. Teams with no
-/// entry in `walking_path` yet (not part of the current plan) are skipped
-/// entirely — they show up in neither list.
 pub async fn trigger_route_mails(
     db: &mut Database,
     project_id: &Uuid,
     user_id: &str,
-    team_deeplink_base_url: &str,
-    force: bool,
-) -> Result<RouteMailSummary, AppError> {
+    team_id_list: &Vec<Uuid>,
+) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
-    let now = Utc::now();
 
-    let plan_id = ProjectRepository
-        .select_plan_id(&mut *tx, project_id, user_id)
-        .await?
-        .ok_or(AppError::DatabaseError(sqlx::Error::RowNotFound))?;
-    let plan = PlanRepository.select(&mut *tx, &plan_id).await?;
-
-    let teams = TeamRepository
-        .select_all_for_project(&mut *tx, project_id, user_id)
+    let project = ProjectRepository
+        .select(&mut *tx, project_id, user_id)
         .await?;
-    let context_row = select_email_project_context(&mut *tx, project_id).await?;
+    let team_list = TeamRepository
+        .select_by_ids_for_project(&mut *tx, project_id, team_id_list)
+        .await?;
 
-    let mut sent_to = Vec::new();
-    let mut skipped_no_mail = Vec::new();
+    if team_id_list.len() != team_list.len() {
+        return Err(AppError::InvalidTeamIdList(
+            InvalidTeamIdReason::TeamCountMismatch,
+        ));
+    }
 
-    for team in teams {
+    let plan = PlanRepository.select(&mut *tx, project_id).await?;
+
+    for team in team_list {
         if team.status == TeamStatus::Canceled {
-            continue;
+            return Err(AppError::InvalidTeamIdList(
+                InvalidTeamIdReason::TeamCanceled,
+            ));
         }
 
+        let Some(mail) = team.mail else {
+            return Err(AppError::InvalidTeamIdList(
+                InvalidTeamIdReason::TeamMissingEmail,
+            ));
+        };
+
         let Some(route) = plan.walking_path.get(&team.id) else {
-            continue;
+            return Err(AppError::InvalidTeamIdList(
+                InvalidTeamIdReason::TeamNotInPlan,
+            ));
         };
 
         let new_hash = hash_route(route);
-        let changed = team.last_route_hash.as_deref() != Some(new_hash.as_str());
-        if !force && !changed {
-            continue;
-        }
-
-        match &team.mail {
-            None => skipped_no_mail.push(team.id),
-            Some(mail) => {
-                let deeplink_url = crate::email::build_team_deeplink_url(
-                    team_deeplink_base_url,
-                    project_id,
-                    &team.id,
-                    &team.access_token,
-                );
-                let context = serde_json::json!({
-                    "project_name": context_row.project_name,
-                    "team_name": team.name,
-                    "deeplink_url": deeplink_url,
-                });
-
-                EmailOutboxRepository
-                    .insert(&mut *tx, Some(team.id), mail, EmailType::RouteUpdate, &context, &now)
-                    .await?;
-                sent_to.push(team.id);
-            }
-        }
 
         TeamRepository
             .update_last_route_hash(&mut *tx, &team.id, &new_hash)
             .await?;
+
+        let route_update_mail = RouteUpdateMail {
+            team_name: team.name.clone(),
+            project_name: project.name.clone(),
+        };
+
+        let context = to_value(route_update_mail)?;
+
+        let now = Utc::now();
+        EmailOutboxRepository
+            .insert(&mut *tx, &mail, EmailType::RouteUpdate, &context, &now)
+            .await?;
     }
 
-    Ok(RouteMailSummary {
-        sent_to,
-        skipped_no_mail,
-    })
+    Ok(())
 }
 
 /// `DefaultHasher` isn't guaranteed stable across Rust versions/builds, so

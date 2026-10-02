@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct EmailOutbox {
     pub id: Uuid,
-    pub team_id: Option<Uuid>,
     pub recipient_email: String,
     pub email_type: EmailType,
     pub context: serde_json::Value,
@@ -28,4 +28,10 @@ pub enum EmailStatus {
     Pending,
     Sent,
     Failed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RouteUpdateMail {
+    pub team_name: String,
+    pub project_name: String,
 }
