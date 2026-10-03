@@ -26,6 +26,9 @@ fn test_get_share_config() {
         ],
         &Some(5),
         &Some("2015-09-05T23:56:00Z"),
+        &None,
+        &vec![],
+        false,
     );
 }
 
@@ -45,6 +48,9 @@ fn test_get_share_config_list() {
         ],
         &Some(5),
         &Some("2015-09-05T23:56:00Z"),
+        &None,
+        &vec![],
+        false,
     );
 }
 
@@ -84,34 +90,45 @@ pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Re
         .expect("Failed to send request")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_share_config(
     cook_and_run_id: &Uuid,
     token: &str,
-    expected_needs_login: bool,
+    expected_require_email_verification: bool,
     expected_default_needs_check: bool,
     expected_required_fields: &Vec<String>,
     expected_max_teams: &Option<u32>,
     expected_registration_deadline: &Option<&str>,
+    expected_edit_deadline: &Option<&str>,
+    expected_review_trigger_fields: &Vec<String>,
+    expected_notify_admin_on_review: bool,
 ) {
     let res = execute_get(cook_and_run_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     assert_share_config_json(
         &res.json().expect("Failed to parse JSON"),
-        expected_needs_login,
+        expected_require_email_verification,
         expected_default_needs_check,
         expected_required_fields,
         expected_max_teams,
         expected_registration_deadline,
+        expected_edit_deadline,
+        expected_review_trigger_fields,
+        expected_notify_admin_on_review,
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_share_config_cook_and_run(
     cook_and_run_id: &Uuid,
-    expected_needs_login: bool,
+    expected_require_email_verification: bool,
     expected_default_needs_check: bool,
     expected_required_fields: &Vec<String>,
     expected_max_teams: &Option<u32>,
     expected_registration_deadline: &Option<&str>,
+    expected_edit_deadline: &Option<&str>,
+    expected_review_trigger_fields: &Vec<String>,
+    expected_notify_admin_on_review: bool,
 ) {
     let res = get_cook_and_run(cook_and_run_id);
 
@@ -120,36 +137,48 @@ pub fn get_share_config_cook_and_run(
         .expect("Missing share_config_list");
     assert_share_config_json(
         share_config_list,
-        expected_needs_login,
+        expected_require_email_verification,
         expected_default_needs_check,
         expected_required_fields,
         expected_max_teams,
         expected_registration_deadline,
+        expected_edit_deadline,
+        expected_review_trigger_fields,
+        expected_notify_admin_on_review,
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn assert_share_config_json(
     json: &serde_json::Value,
-    expected_needs_login: bool,
+    expected_require_email_verification: bool,
     expected_default_needs_check: bool,
     expected_required_fields: &Vec<String>,
     expected_max_teams: &Option<u32>,
     expected_registration_deadline: &Option<&str>,
+    expected_edit_deadline: &Option<&str>,
+    expected_review_trigger_fields: &Vec<String>,
+    expected_notify_admin_on_review: bool,
 ) {
     let invite_text = json
         .get("invite_text")
         .and_then(|v| v.as_str())
         .expect("Missing invite_text");
 
-    let needs_login = json
-        .get("needs_login")
+    let require_email_verification = json
+        .get("require_email_verification")
         .and_then(|v| v.as_bool())
-        .expect("Missing needs_login");
+        .expect("Missing require_email_verification");
 
     let default_needs_check = json
         .get("default_needs_check")
         .and_then(|v| v.as_bool())
         .expect("Missing default_needs_check");
+
+    let notify_admin_on_review = json
+        .get("notify_admin_on_review")
+        .and_then(|v| v.as_bool())
+        .expect("Missing notify_admin_on_review");
 
     let created = json
         .get("created")
@@ -157,6 +186,7 @@ pub fn assert_share_config_json(
         .expect("Missing created");
 
     let registration_deadline = json.get("registration_deadline").and_then(|v| v.as_str());
+    let edit_deadline = json.get("edit_deadline").and_then(|v| v.as_str());
 
     let max_teams = json.get("max_teams").and_then(|v| v.as_i64());
 
@@ -168,6 +198,18 @@ pub fn assert_share_config_json(
         .map(|f| {
             f.as_str()
                 .expect("required_field is not a string")
+                .to_string()
+        })
+        .collect();
+
+    let review_trigger_fields: Vec<String> = json
+        .get("review_trigger_fields")
+        .and_then(|v| v.as_array())
+        .expect("Missing review_trigger_fields")
+        .iter()
+        .map(|f| {
+            f.as_str()
+                .expect("review_trigger_field is not a string")
                 .to_string()
         })
         .collect();
@@ -200,13 +242,33 @@ pub fn assert_share_config_json(
         );
     }
 
+    if let Some(edit_deadline) = edit_deadline {
+        let parsed_time = edit_deadline.parse::<DateTime<Utc>>();
+        assert!(parsed_time.is_ok(), "edit_deadline is not a valid time");
+
+        assert_eq!(
+            expected_edit_deadline.expect("edit_deadline is None, but expected is Some"),
+            edit_deadline,
+            "share_config edit_deadline does not match"
+        );
+    } else {
+        assert!(
+            expected_edit_deadline.is_none(),
+            "edit_deadline is None, but expected is Some"
+        );
+    }
+
     assert_eq!(
-        needs_login, expected_needs_login,
-        "share_config needs_login does not match"
+        require_email_verification, expected_require_email_verification,
+        "share_config require_email_verification does not match"
     );
     assert_eq!(
         default_needs_check, expected_default_needs_check,
         "share_config default_needs_check does not match"
+    );
+    assert_eq!(
+        notify_admin_on_review, expected_notify_admin_on_review,
+        "share_config notify_admin_on_review does not match"
     );
 
     if let Some(max_teams) = max_teams {
@@ -225,5 +287,9 @@ pub fn assert_share_config_json(
     assert_eq!(
         &required_fields, expected_required_fields,
         "share_config required_fields does not match"
+    );
+    assert_eq!(
+        &review_trigger_fields, expected_review_trigger_fields,
+        "share_config review_trigger_fields does not match"
     );
 }

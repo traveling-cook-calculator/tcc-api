@@ -68,6 +68,28 @@ services:
       retries: 3
       start_period: 10s
 
+  # SMTP catcher for the email-notification tests (tests/api/email/*).
+  # The app under test is configured (see ci-cd.yml / local env) to send
+  # via SMTP_HOST=localhost, SMTP_PORT=1025 — i.e. this service. Tests
+  # read delivered mail back out via Mailpit's HTTP API on 8025.
+  #
+  # No healthcheck here on purpose: Mailpit's image is a minimal static
+  # binary with no shell utilities (wget/curl) to probe with, unlike the
+  # postgres/keycloak checks above. It starts in well under a second with
+  # no dependencies, and the test helpers
+  # (tests/api/email/mod.rs::wait_for_message_to) already retry/poll, so
+  # `docker compose up --wait` not gating on it is not a problem in
+  # practice. Feel free to add one back if your Mailpit image does ship a
+  # usable HTTP probe tool.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: tcc-dev-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - keycloak_net
+
 networks:
   keycloak_net:
     driver: bridge

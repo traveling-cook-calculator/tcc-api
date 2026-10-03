@@ -12,6 +12,23 @@ use uuid::Uuid;
 use validator::ValidationErrors;
 
 #[derive(Debug, Error)]
+pub enum InvalidTeamIdReason {
+    #[error(
+        "the number of provided team ids does not match the number of teams found in the project"
+    )]
+    TeamCountMismatch,
+
+    #[error("one or more teams are canceled and cannot receive emails")]
+    TeamCanceled,
+
+    #[error("one or more teams do not have an email address")]
+    TeamMissingEmail,
+
+    #[error("one or more teams are not in the plan")]
+    TeamNotInPlan,
+}
+
+#[derive(Debug, Error)]
 pub enum AppError {
     #[error("Address with id {0} not found")]
     AddressNotFound(Uuid),
@@ -21,6 +38,9 @@ pub enum AppError {
 
     #[error("Course with id {0} with user id {1} in project {2:?} not found")]
     CourseNotFound(Uuid, String, Option<Uuid>),
+
+    #[error("Course limit reached for project {0}")]
+    CourseLimitReached(Uuid),
 
     #[error("Note with id {0} with user id {1} in project {2} with team {3} not found")]
     NoteNotFound(Uuid, String, Uuid, Uuid),
@@ -43,14 +63,14 @@ pub enum AppError {
     #[error("Sharing configuration for user id {0} not found in project {1}")]
     SharingConfigNotFound(String, Uuid),
 
+    #[error("Sharing configuration with id {0} not found")]
+    ShareNotFound(Uuid),
+
     #[error("Team with id {0} with user id {1} in project {2} not found")]
     TeamNotFound(Uuid, String, Uuid),
 
     #[error("Registration deadline for project {1} exceeded: {0}")]
     DeadlineExceeded(DateTime<Utc>, Uuid),
-
-    #[error("User needs to be logged in to create a team in project {0}")]
-    NeedLoginToCreateTeam(Uuid),
 
     #[error("Maximum number of teams exceeded: {0} for project {1}")]
     MaxTeamSizeExceeded(u32, Uuid),
@@ -63,6 +83,27 @@ pub enum AppError {
 
     #[error("Error while authorizing: {0}")]
     AuthorizationError(String),
+
+    #[error("No team found for the given access token")]
+    TeamNotFoundByToken,
+
+    #[error("Verification resend limit exceeded ({0} attempts)")]
+    VerificationResendLimitExceeded(i32),
+
+    #[error("Team is canceled and can no longer be edited")]
+    TeamCanceled,
+
+    #[error("Missing required header: {0}")]
+    MissingHeader(String),
+
+    #[error("Edit deadline exceeded: {0}")]
+    EditDeadlineExceeded(DateTime<Utc>),
+
+    #[error("Plan for project {0} is stale and must be confirmed or recomputed before sending route emails")]
+    PlanIsStale(Uuid),
+
+    #[error("One or more team ids in the provided list are invalid for this project")]
+    InvalidTeamIdList(InvalidTeamIdReason),
 
     #[error(transparent)]
     JsonRejection(#[from] JsonRejection),
@@ -98,6 +139,9 @@ impl AppError {
             AppError::CourseNotFound(uuid, user_id, project_id) => {
                 tracing::warn!(course.id = %uuid, user.id = %user_id, project.id = ?project_id, "Course not found");
             }
+            AppError::CourseLimitReached(project_id) => {
+                tracing::warn!(project.id = %project_id, "Course limit reached");
+            }
             AppError::PlanNotFound(user_id, project_id) => {
                 tracing::warn!(user.id = %user_id, project.id = %project_id, "Plan not found");
             }
@@ -125,11 +169,11 @@ impl AppError {
             AppError::SharingConfigNotFound(user_id, project_id) => {
                 tracing::warn!(user.id = %user_id, project.id = %project_id, "Sharing configuration not found");
             }
+            AppError::ShareNotFound(id) => {
+                tracing::warn!(share.id = %id, "Sharing configuration not found");
+            }
             AppError::DeadlineExceeded(deadline, project_id) => {
                 tracing::warn!(project.id = %project_id, deadline = ?deadline, "Registration deadline exceeded");
-            }
-            AppError::NeedLoginToCreateTeam(project_id) => {
-                tracing::warn!(project.id = %project_id, "User needs to be logged in to create a team");
             }
             AppError::MaxTeamSizeExceeded(max_teams, project_id) => {
                 tracing::warn!(project.id = %project_id, max_teams = %max_teams, "Maximum number of teams exceeded");
@@ -149,6 +193,30 @@ impl AppError {
             AppError::AuthorizationError(auth_error) => {
                 tracing::warn!(error = %auth_error, "Authorization error occurred");
             }
+            AppError::TeamNotFoundByToken => {
+                tracing::warn!("Team not found for given access token");
+            }
+            AppError::VerificationResendLimitExceeded(count) => {
+                tracing::warn!(attempts = %count, "Verification resend limit exceeded");
+            }
+            AppError::TeamCanceled => {
+                tracing::warn!("Attempted to edit a canceled team");
+            }
+            AppError::MissingHeader(header) => {
+                tracing::warn!(header = %header, "Missing required header");
+            }
+            AppError::EditDeadlineExceeded(deadline) => {
+                tracing::warn!(deadline = ?deadline, "Edit deadline exceeded");
+            }
+            AppError::PlanIsStale(project_id) => {
+                tracing::warn!(project.id = %project_id, "Attempted to send route mails with a stale plan");
+            }
+            AppError::InvalidTeamIdList(reason) => {
+                tracing::warn!(
+                    reason = %reason,
+                    "One or more team ids in the provided list are invalid for this project"
+                );
+            }
         }
     }
 }
@@ -158,11 +226,15 @@ impl IntoResponse for AppError {
         self.log();
         let status = match self {
             AppError::DeadlineExceeded(_, _)
-            | AppError::NeedLoginToCreateTeam(_)
             | AppError::MaxTeamSizeExceeded(_, _)
             | AppError::MissingField(_, _)
+            | AppError::CourseLimitReached(_)
             | AppError::ValidationError(_)
-            | AppError::JsonRejection(_) => StatusCode::BAD_REQUEST,
+            | AppError::JsonRejection(_)
+            | AppError::VerificationResendLimitExceeded(_)
+            | AppError::EditDeadlineExceeded(_)
+            | AppError::MissingHeader(_)
+            | AppError::InvalidTeamIdList(_) => StatusCode::BAD_REQUEST,
             AppError::AddressNotFound(_)
             | AppError::ProjectNotFound(_)
             | AppError::CourseNotFound(_, _, _)
@@ -173,13 +245,17 @@ impl IntoResponse for AppError {
             | AppError::EndPointNotFound(_)
             | AppError::TeamNotFound(_, _, _)
             | AppError::NoteNotFound(_, _, _, _)
-            | AppError::SharingConfigNotFound(_, _) => StatusCode::NOT_FOUND,
+            | AppError::SharingConfigNotFound(_, _)
+            | AppError::ShareNotFound(_)
+            | AppError::TeamNotFoundByToken => StatusCode::NOT_FOUND,
             AppError::DatabaseError(_)
             | AppError::InternalError(_)
             | AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Unauthorized(_, _) | AppError::AuthorizationError(_) => {
                 StatusCode::UNAUTHORIZED
             }
+            AppError::TeamCanceled => StatusCode::CONFLICT,
+            AppError::PlanIsStale(_) => StatusCode::CONFLICT,
         };
 
         let error_message = match status.is_server_error() {

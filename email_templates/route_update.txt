@@ -1,0 +1,7 @@
+{{heading_prefix}} {{cook_and_run_name}}
+
+{{intro_prefix}} {{team_name}}{{intro_suffix}}
+
+{{#each stops}}{{@index}}. {{course_name}} — {{course_time}}{{time_suffix}}: {{#if is_host}}{{role_host_label}}{{/if}}{{#if is_guest}}{{role_guest_label}}{{/if}} — {{host_team_name}}, {{address_text}}
+{{/each}}
+{{button_label}}: {{deeplink_url}}

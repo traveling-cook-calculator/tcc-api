@@ -38,6 +38,32 @@ fn test_create_team_wrong_user() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
+/// Organizer (admin, `Authorization: Bearer`) creation always starts
+/// `active` in v0.2.0 — `share.default_needs_check` only applies to
+/// non-owner, self-service creation, and the owner is exempt from every
+/// share-config check. This replaces the old `needs_check` client flag,
+/// which no longer has any effect on the created team's state.
+#[test]
+fn test_create_team_starts_active() {
+    let cook_and_run_id = create_cook_and_run();
+    let team_id = Uuid::new_v4();
+    let (token, user_id) = get_user_1();
+
+    let payload = get_team_create_json(Some(&user_id), true, true, true, true, true, true, true);
+    let res = execute_create(&cook_and_run_id, &team_id, payload, &token);
+    assert!(res.status().is_success(), "Response: {:#?}", res);
+
+    let json: serde_json::Value = res.json().expect("Failed to parse JSON");
+    let status = json
+        .get("status")
+        .and_then(|v| v.as_str())
+        .expect("Missing status");
+    assert_eq!(
+        status, "active",
+        "organizer-created team should start active"
+    );
+}
+
 fn execute_create(
     cook_and_run_id: &Uuid,
     team_id: &Uuid,
@@ -63,6 +89,13 @@ pub fn create_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token:
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
+/// Builds a `TeamCreateRequest` payload.
+///
+/// `needs_check` was removed from the DTO entirely in v0.2.0 (replaced by
+/// the server-computed `status` enum) and is silently ignored by the
+/// backend if sent. The parameter is kept — unused, prefixed with `_` — so
+/// callers outside this module (e.g. the sharing tests, not yet migrated)
+/// don't need to change their call sites in this step.
 #[allow(clippy::too_many_arguments)]
 pub fn get_team_create_json(
     user_id: Option<&str>,
@@ -72,7 +105,7 @@ pub fn get_team_create_json(
     mail: bool,
     phone: bool,
     diets: bool,
-    needs_check: bool,
+    _needs_check: bool,
 ) -> serde_json::Value {
     let mut json = json!({});
     if let Some(uid) = user_id {
@@ -116,11 +149,6 @@ pub fn get_team_create_json(
     if diets {
         if let Some(obj) = json.as_object_mut() {
             obj.insert("diets".to_string(), json!("No special diets"));
-        }
-    }
-    if needs_check {
-        if let Some(obj) = json.as_object_mut() {
-            obj.insert("needs_check".to_string(), json!(true));
         }
     }
     json

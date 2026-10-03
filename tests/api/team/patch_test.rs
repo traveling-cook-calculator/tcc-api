@@ -36,6 +36,28 @@ fn test_patch_team_wrong_user() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
+/// Organizer (admin) edits never move a team into `review`, regardless of
+/// which fields change — only a self-service edit touching a
+/// `review_trigger_fields` entry does that (see the self-service tests,
+/// planned for a later step once `X-Access-Token` fixtures exist). This
+/// test pins the admin-edit side of that rule.
+#[test]
+fn test_patch_team_does_not_change_status() {
+    let (cook_and_run_id, team_id) = setup();
+    let (token, user_id) = get_user_1();
+
+    patch_team(&cook_and_run_id, &team_id, &user_id, &token);
+
+    let res = execute_get(&cook_and_run_id, &team_id, &token);
+    assert!(res.status().is_success(), "Response: {:#?}", res);
+    let json: serde_json::Value = res.json().expect("Failed to parse JSON");
+    let status = json
+        .get("status")
+        .and_then(|v| v.as_str())
+        .expect("Missing status");
+    assert_eq!(status, "active", "admin edit should not change team status");
+}
+
 fn execute_patch_team(
     cook_and_run_id: &Uuid,
     team_id: &Uuid,
@@ -76,7 +98,6 @@ pub fn get_team_patch_json() -> serde_json::Value {
         "mail":"run@cook.de",
         "phone":"+49 54321",
         "diets": "special diets",
-        "needs_check":false,
     });
     json
 }
@@ -128,10 +149,10 @@ fn assert_team_json(
         .and_then(|v| v.as_str())
         .expect("Missing diets");
 
-    let needs_check = json
-        .get("needs_check")
-        .and_then(|v| v.as_bool())
-        .expect("Missing needs_check");
+    let status = json
+        .get("status")
+        .and_then(|v| v.as_str())
+        .expect("Missing status");
 
     let address = json.get("address").expect("Missing address");
 
@@ -176,7 +197,8 @@ fn assert_team_json(
     assert_eq!(phone, "+49 54321", "Phone number is not: +49 54321");
     assert_eq!(members, 5, "Members is not 5");
     assert_eq!(diets, "special diets", "Diets is not: special diets");
-    assert!(!needs_check, "Needs_check is not false");
+    // Admin edits never change status, regardless of which fields changed.
+    assert_eq!(status, "active", "team status should remain active");
 
     assert_eq!(
         street, "Igelgasse 5-7, 60311 Frankfurt am Main, Deutschland",

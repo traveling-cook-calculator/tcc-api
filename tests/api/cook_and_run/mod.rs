@@ -5,3 +5,9 @@ pub mod get_test;
 mod patch_location_test;
 mod patch_meta_test;
 pub mod post_test;
+
+/// Default `admin_notification_email` used by test fixtures that don't
+/// exercise the value itself. Became mandatory on project creation
+/// (`POST /cook_and_run/{id}`) and metadata updates
+/// (`PATCH /cook_and_run/{id}/metadata`) in v0.2.0.
+pub const DEFAULT_ADMIN_NOTIFICATION_EMAIL: &str = "admin-notifications@cook-and-run.test";

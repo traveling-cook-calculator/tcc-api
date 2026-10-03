@@ -7,6 +7,8 @@ use crate::{
     get_client,
 };
 
+use super::DEFAULT_ADMIN_NOTIFICATION_EMAIL;
+
 #[test]
 fn test_create_cook_and_run() {
     let (token, user_id) = get_user_1();
@@ -46,6 +48,27 @@ fn test_create_cook_and_run_missing_permission() {
     assert_eq!(res.status(), StatusCode::FORBIDDEN, "Response: {:#?}", res);
 }
 
+/// `admin_notification_email` became mandatory on `CookAndRunCreateRequest`
+/// in v0.2.0 (see swagger.yml). Omitting it must fail validation instead of
+/// silently creating a project with no notification address.
+#[test]
+fn test_create_cook_and_run_missing_admin_notification_email() {
+    let (token, user_id) = get_user_1();
+    let cook_and_run_id = Uuid::new_v4();
+    let payload = json!({
+        "name": "Test Cook & Run",
+        "userId": user_id,
+    });
+
+    let res = execute_create(&cook_and_run_id, payload, &token);
+    assert_eq!(
+        res.status(),
+        StatusCode::BAD_REQUEST,
+        "Response: {:#?}",
+        res
+    );
+}
+
 fn execute_create(
     cook_and_run_id: &Uuid,
     payload: serde_json::Value,
@@ -66,11 +89,16 @@ pub fn create_cook_and_run(cook_and_run_id: &Uuid, payload: serde_json::Value, t
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
+/// Builds a valid `CookAndRunCreateRequest` payload. `admin_notification_email`
+/// is fixed to `DEFAULT_ADMIN_NOTIFICATION_EMAIL` — tests that care about a
+/// specific value (e.g. the metadata round-trip in `patch_meta_test.rs`)
+/// build their own payload instead of using this helper.
 pub fn get_cook_and_run_create_json(user_id: &str) -> (Uuid, serde_json::Value) {
     let cook_and_run_id = Uuid::new_v4();
     let json = json!({
         "name": "Test Cook & Run",
         "userId": user_id,
+        "admin_notification_email": DEFAULT_ADMIN_NOTIFICATION_EMAIL,
     });
     (cook_and_run_id, json)
 }
