@@ -3,7 +3,7 @@ use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
 use crate::domain::address::Address;
-use crate::domain::team::{Team, TeamStatus};
+use crate::domain::team::{Team, TeamSortOption, TeamStatus};
 use crate::error::AppError;
 use crate::infrastructure::db::address::AddressEntity;
 
@@ -34,6 +34,37 @@ impl TeamStatusEntity {
             TeamStatusEntity::Active => TeamStatus::Active,
             TeamStatusEntity::Review => TeamStatus::Review,
             TeamStatusEntity::Canceled => TeamStatus::Canceled,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum TeamSortOptionEntity {
+    NameAsc,
+    NameDesc,
+    CreatedAsc,
+    CreatedDesc,
+}
+
+impl TeamSortOptionEntity {
+    fn from_domain(team_sort_option: TeamSortOption) -> Self {
+        match team_sort_option {
+            TeamSortOption::CreatedAsc => TeamSortOptionEntity::CreatedAsc,
+            TeamSortOption::CreatedDesc => TeamSortOptionEntity::CreatedDesc,
+            TeamSortOption::NameAsc => TeamSortOptionEntity::NameAsc,
+            TeamSortOption::NameDesc => TeamSortOptionEntity::NameDesc,
+        }
+    }
+
+    /// SQL `ORDER BY` fragment for this sort option. The set of variants is
+    /// a closed enum, so interpolating the value into the query is
+    /// injection-safe.
+    fn order_by_clause(&self) -> &'static str {
+        match self {
+            TeamSortOptionEntity::NameAsc => "t.name ASC",
+            TeamSortOptionEntity::NameDesc => "t.name DESC",
+            TeamSortOptionEntity::CreatedAsc => "t.created ASC",
+            TeamSortOptionEntity::CreatedDesc => "t.created DESC",
         }
     }
 }
@@ -162,24 +193,24 @@ struct TeamWithAddressRow {
 impl TeamWithAddressRow {
     fn to_domain(&self) -> Team {
         Team {
-            id: self.id,
-            project_id: self.project_id,
-            created_by_user: self.created_by_user.clone(),
-            name: self.name.clone(),
-            created: self.created,
-            edited: self.edited,
+            id: self.team.id,
+            project_id: self.team.project_id,
+            created_by_user: self.team.created_by_user.clone(),
+            name: self.team.name.clone(),
+            created: self.team.created,
+            edited: self.team.edited,
             address: self.address.to_domain(),
-            mail: self.mail.clone(),
-            phone: self.phone.clone(),
-            members: self.members.map(|m| m as u32),
-            diets: self.diets.clone(),
-            status: self.status.to_domain(),
-            canceled_at: self.canceled_at,
-            cancel_reason: self.cancel_reason.clone(),
-            access_token: self.access_token.clone(),
-            email_verified_at: self.email_verified_at,
-            verification_resend_count: self.verification_resend_count as u32,
-            last_route_hash: self.last_route_hash.clone(),
+            mail: self.team.mail.clone(),
+            phone: self.team.phone.clone(),
+            members: self.team.members.map(|m| m as u32),
+            diets: self.team.diets.clone(),
+            status: self.team.status.to_domain(),
+            canceled_at: self.team.canceled_at,
+            cancel_reason: self.team.cancel_reason.clone(),
+            access_token: self.team.access_token.clone(),
+            email_verified_at: self.team.email_verified_at,
+            verification_resend_count: self.team.verification_resend_count as u32,
+            last_route_hash: self.team.last_route_hash.clone(),
         }
     }
 }
@@ -253,7 +284,7 @@ impl TeamRepository {
         &self,
         executor: E,
         project_id_filter: &Uuid,
-    ) -> Result<i64, AppError>
+    ) -> Result<u8, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
@@ -266,20 +297,30 @@ impl TeamRepository {
         .fetch_one(executor)
         .await
         .map_err(AppError::DatabaseError)
+        .map(|c| c as u8)
     }
 
     /// Backs `team::get_list` (admin team list in `get.rs`).
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select_all_meta_for_project<'e, E>(
+    pub async fn select_page_meta_for_project<'e, E>(
         &self,
         executor: E,
         project_id_filter: &Uuid,
         user_id_filter: &str,
+        limit: u8,
+        offset: u8,
+        team_sort_option: Option<TeamSortOption>,
     ) -> Result<Vec<Team>, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let query = "SELECT 
+        let sort = team_sort_option.map_or(
+            TeamSortOptionEntity::CreatedAsc,
+            TeamSortOptionEntity::from_domain,
+        );
+
+        let query = format!(
+            "SELECT 
             t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
             t.mail, t.phone, t.members, t.diets,
             t.status, t.canceled_at,  
@@ -287,11 +328,16 @@ impl TeamRepository {
             FROM team t
             INNER JOIN project car ON car.id = t.project_id
             WHERE car.id = $1 AND car.user_id = $2
-            ORDER BY t.created ASC";
+            ORDER BY {}
+            LIMIT $3 OFFSET $4",
+            sort.order_by_clause()
+        );
 
         let rows: Vec<TeamWithAddressRow> = sqlx::query_as(&query)
             .bind(project_id_filter)
             .bind(user_id_filter)
+            .bind(limit as i8)
+            .bind(offset as i8)
             .fetch_all(executor)
             .await
             .map_err(AppError::DatabaseError)?;

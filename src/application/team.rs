@@ -2,27 +2,51 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
-    domain::mail::EmailType,
+    domain::{mail::EmailType, team::TeamSortOption},
     error::AppError,
-    infrastructure::db::{
-        address::AddressRepository,
-        email_context::select_email_project_context,
-        email_outbox::EmailOutboxRepository,
-        plan::PlanRepository,
-        sharing::ShareRepository,
-        team::{select_edit_deadline_by_token, TeamRepository},
-        team_audit_log::{AuditAction, AuditActorType, TeamAuditLogRepository},
-        ProjectRepository,
+    infrastructure::{
+        db::{
+            address::AddressRepository,
+            email_context::select_email_project_context,
+            email_outbox::EmailOutboxRepository,
+            plan::PlanRepository,
+            sharing::ShareRepository,
+            team::{select_edit_deadline_by_token, TeamRepository},
+            team_audit_log::{AuditAction, AuditActorType, TeamAuditLogRepository},
+            ProjectRepository,
+        },
+        Database,
     },
 };
 
 pub use crate::domain::team::{Team, TeamStatus};
 
-pub async fn get_list(db: &Database, project_id: &Uuid, user_id: &str) -> Result<Vec<Team>, AppError> {
+pub async fn get_list(
+    db: &Database,
+    project_id: &Uuid,
+    user_id: &str,
+    limit: u8,
+    offset: u8,
+    team_sort_option: Option<TeamSortOption>,
+) -> Result<(u8, Vec<Team>), AppError> {
     let mut tx = db.pool.begin().await?;
-    TeamRepository
-        .select_all_meta_for_project(&mut *tx, project_id, user_id)
-        .await
+
+    let total = TeamRepository
+        .count_for_project(&mut *tx, project_id)
+        .await?;
+
+    let result = TeamRepository
+        .select_page_meta_for_project(
+            &mut *tx,
+            project_id,
+            user_id,
+            limit,
+            offset,
+            team_sort_option,
+        )
+        .await?;
+
+    Ok((total, result))
 }
 
 pub async fn get(
@@ -32,7 +56,9 @@ pub async fn get(
     team_id: &Uuid,
 ) -> Result<Team, AppError> {
     let mut tx = db.pool.begin().await?;
-    TeamRepository.select(&mut *tx, team_id, project_id, user_id).await
+    TeamRepository
+        .select(&mut *tx, team_id, project_id, user_id)
+        .await
 }
 
 pub async fn get_by_token(db: &Database, access_token: &str) -> Result<Team, AppError> {
@@ -45,7 +71,9 @@ pub async fn get_by_token_with_deadline(
     access_token: &str,
 ) -> Result<(Team, Option<DateTime<Utc>>), AppError> {
     let mut tx = db.pool.begin().await?;
-    let team = TeamRepository.select_by_token(&mut *tx, access_token).await?;
+    let team = TeamRepository
+        .select_by_token(&mut *tx, access_token)
+        .await?;
     let deadline = select_edit_deadline_by_token(&mut *tx, access_token).await?;
     Ok((team, deadline))
 }
@@ -84,7 +112,11 @@ pub async fn create(
 
     let mut team = data.clone();
     team.access_token = Uuid::new_v4().simple().to_string();
-    if share_config.as_ref().map(|c| c.default_needs_check).unwrap_or(false) {
+    if share_config
+        .as_ref()
+        .map(|c| c.default_needs_check)
+        .unwrap_or(false)
+    {
         team.status = TeamStatus::Review;
     }
 
@@ -122,7 +154,14 @@ pub async fn create(
             "deeplink_url": deeplink_url,
         });
         EmailOutboxRepository
-            .insert(&mut *tx, Some(team.id), mail, EmailType::Invitation, &context, &now)
+            .insert(
+                &mut *tx,
+                Some(team.id),
+                mail,
+                EmailType::Invitation,
+                &context,
+                &now,
+            )
             .await?;
     }
 
@@ -226,7 +265,9 @@ async fn apply_team_update(
 
     AddressRepository.insert(&mut *tx, &data.address).await?;
     TeamRepository.update_fields(&mut *tx, data).await?;
-    AddressRepository.delete(&mut *tx, &existing.address.id).await?;
+    AddressRepository
+        .delete(&mut *tx, &existing.address.id)
+        .await?;
 
     let changes = serde_json::json!({
         "before": {
@@ -241,7 +282,15 @@ async fn apply_team_update(
         },
     });
     TeamAuditLogRepository
-        .insert(&mut *tx, &existing.id, actor_type, actor_label, AuditAction::Updated, &changes, time)
+        .insert(
+            &mut *tx,
+            &existing.id,
+            actor_type,
+            actor_label,
+            AuditAction::Updated,
+            &changes,
+            time,
+        )
         .await?;
 
     let mut plan_marked_stale = false;
@@ -286,10 +335,16 @@ pub async fn delete(
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
-    let existing = TeamRepository.select(&mut *tx, team_id, project_id, user_id).await?;
+    let existing = TeamRepository
+        .select(&mut *tx, team_id, project_id, user_id)
+        .await?;
 
-    TeamRepository.delete(&mut *tx, team_id, project_id, user_id).await?;
-    AddressRepository.delete(&mut *tx, &existing.address.id).await?;
+    TeamRepository
+        .delete(&mut *tx, team_id, project_id, user_id)
+        .await?;
+    AddressRepository
+        .delete(&mut *tx, &existing.address.id)
+        .await?;
 
     if let Some(plan_id) = ProjectRepository
         .select_plan_id(&mut *tx, project_id, user_id)
@@ -321,7 +376,9 @@ pub async fn cancel_by_token(
         return Err(AppError::TeamCanceled);
     }
 
-    TeamRepository.update_cancel(&mut *tx, &existing.id, &now, reason).await?;
+    TeamRepository
+        .update_cancel(&mut *tx, &existing.id, &now, reason)
+        .await?;
 
     TeamAuditLogRepository
         .insert(
@@ -372,7 +429,9 @@ pub async fn cancel_by_token(
 pub async fn verify_email_by_token(db: &mut Database, access_token: &str) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
-    TeamRepository.verify_email_by_token(&mut *tx, access_token, &now).await
+    TeamRepository
+        .verify_email_by_token(&mut *tx, access_token, &now)
+        .await
 }
 
 /// Re-sends the invitation email. Participants are limited to 3 attempts
@@ -413,7 +472,14 @@ pub async fn request_verification_resend(
     });
 
     EmailOutboxRepository
-        .insert(&mut *tx, Some(existing_team.id), mail, EmailType::Invitation, &context, &now)
+        .insert(
+            &mut *tx,
+            Some(existing_team.id),
+            mail,
+            EmailType::Invitation,
+            &context,
+            &now,
+        )
         .await
 }
 
@@ -452,6 +518,13 @@ async fn notify_admin_of_change(
     });
 
     EmailOutboxRepository
-        .insert(&mut *tx, Some(team.id), &admin_email, EmailType::AdminNotification, &context, time)
+        .insert(
+            &mut *tx,
+            Some(team.id),
+            &admin_email,
+            EmailType::AdminNotification,
+            &context,
+            time,
+        )
         .await
 }

@@ -10,6 +10,7 @@ use headers::{authorization::Bearer, Authorization};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     api::{
@@ -17,19 +18,22 @@ use crate::{
         common::AddressDTO,
         PaginationInfo,
     },
+    application::team,
+    domain::team::{Team, TeamSortOption, TeamStatus},
     error::AppError,
-    team,
     AppState,
 };
 
 use super::get_user_id;
 
-#[derive(Debug, Deserialize)]
-pub struct ListTeamsQuery {
-    #[allow(dead_code)]
-    pub page: Option<u32>,
-    #[allow(dead_code)]
-    pub limit: Option<u32>,
+#[derive(Debug, Deserialize, Validate)]
+pub struct ListTeamQuery {
+    #[serde(rename = "userId")]
+    pub user_id: String,
+    #[validate(range(min = 1, message = "must be at least 1"))]
+    pub page: Option<u8>,
+    #[validate(range(min = 1, max = 128, message = "must be between 1 and 128"))]
+    pub limit: Option<u8>,
     #[allow(dead_code)]
     pub sort: Option<TeamSortOptionDTO>,
 }
@@ -41,6 +45,17 @@ pub enum TeamSortOptionDTO {
     NameDesc,
     CreatedAsc,
     CreatedDesc,
+}
+
+impl TeamSortOptionDTO {
+    fn to_domain(self) -> TeamSortOption {
+        match self {
+            TeamSortOptionDTO::CreatedAsc => TeamSortOption::CreatedAsc,
+            TeamSortOptionDTO::CreatedDesc => TeamSortOption::CreatedDesc,
+            TeamSortOptionDTO::NameAsc => TeamSortOption::NameAsc,
+            TeamSortOptionDTO::NameDesc => TeamSortOption::NameDesc,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -65,11 +80,11 @@ pub enum TeamStatusDTO {
 }
 
 impl TeamStatusDTO {
-    pub(super) fn from_domain(status: crate::team::TeamStatus) -> Self {
+    pub(super) fn from_domain(status: TeamStatus) -> Self {
         match status {
-            crate::team::TeamStatus::Active => TeamStatusDTO::Active,
-            crate::team::TeamStatus::Review => TeamStatusDTO::Review,
-            crate::team::TeamStatus::Canceled => TeamStatusDTO::Canceled,
+            TeamStatus::Active => TeamStatusDTO::Active,
+            TeamStatus::Review => TeamStatusDTO::Review,
+            TeamStatus::Canceled => TeamStatusDTO::Canceled,
         }
     }
 }
@@ -91,10 +106,11 @@ pub struct TeamDTO {
     pub canceled_at: Option<DateTime<Utc>>,
     pub cancel_reason: Option<String>,
     pub email_verified_at: Option<DateTime<Utc>>,
+    pub last_route_hash: Option<String>,
 }
 
 impl TeamDTO {
-    pub fn from_domain(team: crate::team::Team) -> Self {
+    pub fn from_domain(team: Team) -> Self {
         TeamDTO {
             id: team.id,
             project_id: team.project_id,
@@ -111,6 +127,7 @@ impl TeamDTO {
             canceled_at: team.canceled_at,
             cancel_reason: team.cancel_reason,
             email_verified_at: team.email_verified_at,
+            last_route_hash: team.last_route_hash,
         }
     }
 }
@@ -135,25 +152,25 @@ pub struct TeamMetaDTO {
     pub edited: DateTime<Utc>,
     pub status: TeamStatusDTO,
     pub canceled_at: Option<DateTime<Utc>>,
-    pub email_verified_at: bool,
+    pub email_verified: bool,
 }
 
 impl TeamMetaDTO {
-    pub fn from_domain(team: crate::team::Team) -> Self {
+    pub fn from_domain(team: &Team) -> Self {
         TeamMetaDTO {
             id: team.id,
             project_id: team.project_id,
-            name: team.name,
-            mail: team.mail,
-            phone: team.phone,
+            name: team.name.clone(),
+            mail: team.mail.is_some(),
+            phone: team.phone.is_some(),
             members: team.members,
-            diets: team.diets,
-            created_by_user: team.created_by_user,
+            diets: team.diets.is_some(),
+            created_by_user: team.created_by_user.clone(),
             created: team.created,
             edited: team.edited,
             status: TeamStatusDTO::from_domain(team.status),
             canceled_at: team.canceled_at,
-            email_verified_at: team.email_verified_at,
+            email_verified: team.email_verified_at.is_some(),
         }
     }
 }
@@ -178,23 +195,48 @@ impl IntoResponse for TeamSelfServiceResponse {
     }
 }
 
+const DEFAULT_LIMIT: u8 = 20;
+const MAX_LIMIT: u8 = 100;
+
 /// List all teams for a cook and run project.
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn list_teams(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    Query(_params): Query<ListTeamsQuery>,
+    Query(params): Query<ListTeamQuery>,
 ) -> Result<TeamListResponse, AppError> {
-    let result: Vec<TeamMetaDTO> = team::get_list(&state.db, &project_id, &claims.sub)
-        .await?
-        .into_iter()
-        .map(TeamMetaDTO::from_domain)
-        .collect();
+    params.validate()?;
+
+    let page = params.page.unwrap_or(1).max(1);
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let offset = (page - 1) * limit;
+    let team_sort_option = params.sort.map(TeamSortOptionDTO::to_domain);
+
+    let (total, data) = team::get_list(
+        &state.db,
+        &project_id,
+        &claims.sub,
+        limit,
+        offset,
+        team_sort_option,
+    )
+    .await?;
+
+    let data = data.iter().map(TeamMetaDTO::from_domain).collect();
+
+    let total_pages = total.div_ceil(limit);
 
     Ok(TeamListResponse {
-        data: result,
-        pagination: PaginationInfo::new(),
+        data,
+        pagination: PaginationInfo {
+            page,
+            limit,
+            total,
+            total_pages,
+            has_next: page < total_pages,
+            has_prev: page > 1,
+        },
     })
 }
 

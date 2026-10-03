@@ -32,6 +32,14 @@ pub enum TeamStatus {
     Canceled,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeamSortOption {
+    NameAsc,
+    NameDesc,
+    CreatedAsc,
+    CreatedDesc,
+}
+
 #[derive(Debug, Clone)]
 pub struct Note {
     pub id: Uuid,

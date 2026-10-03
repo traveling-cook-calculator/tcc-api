@@ -213,6 +213,8 @@ pub(super) async fn list_projects(
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = (page - 1) * limit;
 
+    todo!("Implement sort projects");
+
     let (total, data) =
         project::get_list_of_project_meta(&state.db, &params.user_id, limit, offset).await?;
 
@@ -240,7 +242,7 @@ pub(super) async fn get_project(
     Path(project_id): Path<Uuid>,
 ) -> Result<ProjectDTO, AppError> {
     Ok(ProjectDTO::from_domain(
-       project:: get_project(&mut state.db, &project_id, &claims.sub).await?,
+        project::get_project(&mut state.db, &project_id, &claims.sub).await?,
     ))
 }
 
