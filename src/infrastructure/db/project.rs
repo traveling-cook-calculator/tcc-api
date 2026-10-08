@@ -192,6 +192,31 @@ impl ProjectRepository {
         .map(|p| p.to_domain())
     }
 
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn select_unsafe<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+    ) -> Result<Project, AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        sqlx::query_as::<_, ProjectEntity>(
+            "SELECT id, user_id, name, created, edited, occur,
+                    start_point, end_point, share_team_config, plan, plan_config,
+                    admin_notification_email
+             FROM project WHERE id = $1",
+        )
+        .bind(id_filter)
+        .fetch_one(executor)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => AppError::ProjectNotFound(*id_filter),
+            other => AppError::DatabaseError(other),
+        })
+        .map(|p| p.to_domain())
+    }
+
     /// Deletes only the project row. Rows referenced by the project's
     /// foreign-key columns (start/end point, plan, plan_config,
     /// share_team_config) are NOT cascaded here — the caller is

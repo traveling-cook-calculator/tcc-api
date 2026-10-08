@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
@@ -84,12 +85,12 @@ impl EmailOutboxEntity {
 
 impl EmailOutboxRepository {
     #[tracing::instrument(skip(self, executor, context))]
-    pub async fn insert<'e, E>(
+    pub async fn insert<'e, E, T: Serialize>(
         &self,
         executor: E,
         recipient_email: &str,
         email_type: EmailType,
-        context: &serde_json::Value,
+        context: &T,
         time: &DateTime<Utc>,
     ) -> Result<(), AppError>
     where

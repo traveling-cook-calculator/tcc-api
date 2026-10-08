@@ -94,4 +94,29 @@ impl AddressRepository {
         }
         Ok(())
     }
+
+    #[tracing::instrument(skip(self, executor, data))]
+    pub async fn update<'e, E>(&self, executor: E, data: &Address) -> Result<(), AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        let addr = AddressEntity::from_domain(data);
+
+        let affected = sqlx::query(
+            "UPDATE address SET address_text = $1, latitude = $2, longitude = $3 WHERE id = $4",
+        )
+        .bind(&addr.address_text)
+        .bind(addr.latitude)
+        .bind(addr.longitude)
+        .bind(addr.id)
+        .execute(executor)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(AppError::AddressNotFound(addr.id));
+        }
+        Ok(())
+    }
 }

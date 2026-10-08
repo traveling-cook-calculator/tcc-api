@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -31,7 +31,28 @@ pub enum EmailStatus {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub enum AdminNotificationReason {
+    TeamRegestration,
+    TeamUpdate
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RouteUpdateMail {
     pub team_name: String,
     pub project_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AdminNotificationMail {
+    pub team_name: String,
+    pub project_name: String,
+    pub reason: AdminNotificationReason,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InvitationMail {
+    pub team_name: String,
+    pub project_name: String,
+    pub access_token: String,
+    pub require_email_verification: bool,
 }

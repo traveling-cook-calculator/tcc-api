@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     extract::rejection::JsonRejection,
     response::{IntoResponse, Response},
-    Json,
 };
 
 use chrono::{DateTime, Utc};
@@ -10,6 +10,8 @@ use serde_json::json;
 use thiserror::Error;
 use uuid::Uuid;
 use validator::ValidationErrors;
+
+use crate::domain::team::RequiredField;
 
 #[derive(Debug, Error)]
 pub enum InvalidTeamIdReason {
@@ -73,7 +75,7 @@ pub enum AppError {
     DeadlineExceeded(DateTime<Utc>, Uuid),
 
     #[error("Maximum number of teams exceeded: {0} for project {1}")]
-    MaxTeamSizeExceeded(u32, Uuid),
+    TeamLimitReached(u8, Uuid),
 
     #[error("Missing required field {0} for team creation in project {1}")]
     MissingField(String, Uuid),
@@ -99,7 +101,9 @@ pub enum AppError {
     #[error("Edit deadline exceeded: {0}")]
     EditDeadlineExceeded(DateTime<Utc>),
 
-    #[error("Plan for project {0} is stale and must be confirmed or recomputed before sending route emails")]
+    #[error(
+        "Plan for project {0} is stale and must be confirmed or recomputed before sending route emails"
+    )]
     PlanIsStale(Uuid),
 
     #[error("One or more team ids in the provided list are invalid for this project")]
@@ -119,6 +123,12 @@ pub enum AppError {
 
     #[error("An unexpected internal error occurred: {0}")]
     InternalError(anyhow::Error),
+
+    #[error("Missing required field: {0} for creating or updating team in project {1}")]
+    MissingRequiredField(RequiredField, Uuid),
+
+    #[error("Team is not verified")]
+    TeamIsNotVerified,
 }
 
 impl AppError {
@@ -175,7 +185,7 @@ impl AppError {
             AppError::DeadlineExceeded(deadline, project_id) => {
                 tracing::warn!(project.id = %project_id, deadline = ?deadline, "Registration deadline exceeded");
             }
-            AppError::MaxTeamSizeExceeded(max_teams, project_id) => {
+            AppError::TeamLimitReached(max_teams, project_id) => {
                 tracing::warn!(project.id = %project_id, max_teams = %max_teams, "Maximum number of teams exceeded");
             }
             AppError::MissingField(field, project_id) => {
@@ -217,6 +227,16 @@ impl AppError {
                     "One or more team ids in the provided list are invalid for this project"
                 );
             }
+            AppError::MissingRequiredField(required_field, project_id) => {
+                tracing::warn!(
+                    project.id = %project_id,
+                    required_field = %required_field,
+                    "Required field is missing while updating or creating team"
+                );
+            }
+            AppError::TeamIsNotVerified()=>{
+                tracing::warn!("Team is not verified");
+            }
         }
     }
 }
@@ -226,7 +246,7 @@ impl IntoResponse for AppError {
         self.log();
         let status = match self {
             AppError::DeadlineExceeded(_, _)
-            | AppError::MaxTeamSizeExceeded(_, _)
+            | AppError::TeamLimitReached(_, _)
             | AppError::MissingField(_, _)
             | AppError::CourseLimitReached(_)
             | AppError::ValidationError(_)
@@ -234,7 +254,9 @@ impl IntoResponse for AppError {
             | AppError::VerificationResendLimitExceeded(_)
             | AppError::EditDeadlineExceeded(_)
             | AppError::MissingHeader(_)
-            | AppError::InvalidTeamIdList(_) => StatusCode::BAD_REQUEST,
+            | AppError::InvalidTeamIdList(_)
+            | AppError::MissingRequiredField(_, _) 
+            | AppError::TeamIsNotVerified => StatusCode::BAD_REQUEST,
             AppError::AddressNotFound(_)
             | AppError::ProjectNotFound(_)
             | AppError::CourseNotFound(_, _, _)

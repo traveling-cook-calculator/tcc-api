@@ -14,14 +14,13 @@ use validator::Validate;
 
 use crate::{
     api::{
-        auth::{
-            is_user_authenticated, AuthUser, AuthenticatedUser, Claims, ACCESS_TOKEN_HEADER,
-        },
+        auth::{is_user_authenticated, AuthUser, AuthenticatedUser, Claims, ACCESS_TOKEN_HEADER},
         common::AddressDTO,
         validated_json::ValidatedJson,
     },
+    application::team,
+    domain::team::{Team, TeamStatus},
     error::AppError,
-    team,
     AppState,
 };
 
@@ -47,9 +46,9 @@ pub struct TeamCreateDTO {
 }
 
 impl TeamCreateDTO {
-    pub fn to(&self, project_id: &Uuid, team_id: &Uuid, time: &DateTime<Utc>) -> crate::team::Team {
+    pub fn to(&self, project_id: &Uuid, team_id: &Uuid, time: &DateTime<Utc>) -> Team {
         let address = self.address.to_domain();
-        crate::team::Team {
+        Team {
             id: *team_id,
             project_id: *project_id,
             created_by_user: self.user_id.clone(),
@@ -61,7 +60,7 @@ impl TeamCreateDTO {
             phone: self.phone.clone(),
             members: self.members,
             diets: self.diets.clone(),
-            status: crate::team::TeamStatus::Active, // possibly overridden in team::create()
+            status: TeamStatus::Active, // possibly overridden in team::create()
             canceled_at: None,
             cancel_reason: None,
             access_token: String::new(), // set in team::create()
@@ -78,7 +77,7 @@ impl TeamCreateDTO {
         team_id: &Uuid,
         created_by_user: &str,
         time: &DateTime<Utc>,
-    ) -> crate::team::Team {
+    ) -> Team {
         let mut team = self.to(project_id, team_id, time);
         team.created_by_user = Some(created_by_user.to_string());
         team
@@ -118,9 +117,9 @@ impl TeamUpdateDTO {
         team_id: &Uuid,
         created_by_user: &str,
         time: &DateTime<Utc>,
-    ) -> crate::team::Team {
+    ) -> Team {
         let address = self.address.to_domain();
-        crate::team::Team {
+        Team {
             id: *team_id,
             project_id: *project_id,
             created_by_user: Some(created_by_user.to_string()),
@@ -132,7 +131,7 @@ impl TeamUpdateDTO {
             phone: self.phone.clone(),
             members: self.members,
             diets: self.diets.clone(),
-            status: crate::team::TeamStatus::Active,
+            status: TeamStatus::Active,
             canceled_at: None,
             cancel_reason: None,
             access_token: String::new(),
@@ -155,7 +154,7 @@ pub struct TeamCreateResponse {
 }
 
 impl TeamCreateResponse {
-    pub fn new(team: crate::team::Team, deeplink_base_url: &str) -> Self {
+    pub fn new(team: Team, deeplink_base_url: &str) -> Self {
         let project_id = team.project_id;
         let team_id = team.id;
         let access_token = team.access_token.clone();
@@ -196,10 +195,9 @@ pub(super) async fn create_team(
         &mut state.db,
         &user_id,
         &payload.to(&project_id, &team_id, &time),
-        &state.team_deeplink_base_url,
     )
     .await?;
-    Ok(TeamCreateResponse::new(created_team, &state.team_deeplink_base_url))
+    Ok(TeamCreateResponse::new(created_team))
 }
 
 /// Update a team. URL structure identical to all other team routes.

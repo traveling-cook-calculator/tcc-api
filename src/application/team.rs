@@ -2,24 +2,32 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
-    domain::{mail::EmailType, team::TeamSortOption},
+    domain::{
+        Project,
+        audit_log::{AuditAction, AuditActorType, CreatedEntry, UpdateEntry},
+        mail::{AdminNotificationMail, AdminNotificationReason, EmailType, InvitationMail},
+        team::{
+            RequiredField, ShareTeamConfig, TeamSortOption,
+            TeamStatus::{self, Review},
+        },
+    },
     error::AppError,
     infrastructure::{
+        Database,
         db::{
+            ProjectRepository,
             address::AddressRepository,
+            audit_log::AuditLogRepository,
             email_context::select_email_project_context,
             email_outbox::EmailOutboxRepository,
             plan::PlanRepository,
             sharing::ShareRepository,
-            team::{select_edit_deadline_by_token, TeamRepository},
-            team_audit_log::{AuditAction, AuditActorType, TeamAuditLogRepository},
-            ProjectRepository,
+            team::{TeamRepository, select_edit_deadline_by_token},
         },
-        Database,
     },
 };
 
-pub use crate::domain::team::{Team, TeamStatus};
+pub use {Team, TeamStatus};
 
 pub async fn get_list(
     db: &Database,
@@ -78,101 +86,157 @@ pub async fn get_by_token_with_deadline(
     Ok((team, deadline))
 }
 
-pub async fn create(
-    db: &mut Database,
-    user_id: &Option<String>,
-    data: &Team,
-    deeplink_base_url: &str,
-) -> Result<Team, AppError> {
+pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
-    let owner_user_id = ProjectRepository
-        .select_owner_user_id(&mut *tx, &data.project_id)
-        .await?;
-
-    let share_config = match ProjectRepository
-        .select_share_config_id(&mut *tx, &data.project_id, &owner_user_id)
-        .await?
-    {
-        Some(id) => Some(ShareRepository.select(&mut *tx, &id).await?),
-        None => None,
+    let is_owner = match user_id {
+        Some(uid) => match ProjectRepository
+            .select(&mut *tx, &data.project_id, uid)
+            .await
+        {
+            Ok(project) => project.user_id == uid,
+            Err(AppError::ProjectNotFound(_)) => false,
+            Err(e) => return Err(e),
+        },
+        None => false,
     };
 
-    if let Some(cfg) = &share_config {
-        if let Some(max) = cfg.max_teams {
+    let mut team = if !is_owner {
+        //Check Share Config
+        let share_config = ShareRepository.select(&mut *tx, &data.project_id).await?;
+
+        check_share_config(&data, &share_config, true)?;
+
+        if let Some(max_teams) = share_config.max_teams {
             let count = TeamRepository
                 .count_for_project(&mut *tx, &data.project_id)
                 .await?;
-            if count as u32 >= max {
-                return Err(AppError::TeamLimitReached(data.project_id));
+
+            if count > max_teams {
+                return Err(AppError::TeamLimitReached(max_teams, data.project_id));
             }
         }
-    }
 
-    let mut team = data.clone();
+        let project = ProjectRepository
+            .select_unsafe(&mut *tx, &data.project_id)
+            .await?;
+
+        let mut team = data.clone();
+
+        team.status = if share_config.default_needs_check {
+            TeamStatus::Review
+        } else {
+            TeamStatus::Active
+        };
+
+        if let Some(admin_mail) = project.admin_notification_email {
+            if share_config.notify_admin_on_create {
+                let context = AdminNotificationMail {
+                    project_name: project.name.clone(),
+                    team_name: team.name.clone(),
+                    reason: AdminNotificationReason::TeamRegestration,
+                };
+
+                EmailOutboxRepository
+                    .insert(
+                        &mut *tx,
+                        &admin_mail,
+                        EmailType::AdminNotification,
+                        &context,
+                        &now,
+                    )
+                    .await?;
+            }
+        } else if share_config.notify_admin_on_create {
+            tracing::warn!(
+                project.id = %project.id,
+                "project has no admin notification email"
+            );
+        }
+
+        if let Some(team_mail) = team.mail.clone() {
+            EmailOutboxRepository
+                .insert(
+                    &mut *tx,
+                    &team_mail,
+                    EmailType::Invitation,
+                    &InvitationMail {
+                        team_name: team.name.clone(),
+                        project_name: project.name.clone(),
+                        access_token: team.access_token.clone(),
+                        require_email_verification: share_config.require_email_verification,
+                    },
+                    &now,
+                )
+                .await?;
+        }
+
+        team
+    } else {
+        data.clone()
+    };
+
     team.access_token = Uuid::new_v4().simple().to_string();
-    if share_config
-        .as_ref()
-        .map(|c| c.default_needs_check)
-        .unwrap_or(false)
-    {
-        team.status = TeamStatus::Review;
-    }
 
     AddressRepository.insert(&mut *tx, &team.address).await?;
     TeamRepository.insert(&mut *tx, &team).await?;
 
-    let actor_type = if user_id.is_some() {
+    let actor_type = if is_owner {
         AuditActorType::Admin
     } else {
         AuditActorType::Participant
     };
-    TeamAuditLogRepository
+    AuditLogRepository
         .insert(
             &mut *tx,
-            &team.id,
+            &data.id,
             actor_type,
             user_id.as_deref(),
             AuditAction::Created,
-            &serde_json::json!({ "after": { "name": team.name, "mail": team.mail } }),
+            &CreatedEntry {},
             &now,
         )
         .await?;
 
-    if let Some(mail) = &team.mail {
-        let context_row = select_email_project_context(&mut *tx, &data.project_id).await?;
-        let deeplink_url = crate::email::build_team_deeplink_url(
-            deeplink_base_url,
-            &data.project_id,
-            &team.id,
-            &team.access_token,
-        );
-        let context = serde_json::json!({
-            "project_name": context_row.project_name,
-            "team_name": team.name,
-            "deeplink_url": deeplink_url,
-        });
-        EmailOutboxRepository
-            .insert(
-                &mut *tx,
-                Some(team.id),
-                mail,
-                EmailType::Invitation,
-                &context,
-                &now,
-            )
-            .await?;
-    }
+    PlanRepository
+        .mark_stale(&mut *tx, &data.project_id, &now)
+        .await?;
 
-    if let Some(plan_id) = ProjectRepository
-        .select_plan_id(&mut *tx, &data.project_id, &owner_user_id)
-        .await?
+    Ok(())
+}
+
+fn check_share_config(
+    team: &Team,
+    share_config: &ShareTeamConfig,
+    is_creation: bool,
+) -> Result<(), AppError> {
+    let deadline_opt = if is_creation {
+        share_config.registration_deadline
+    } else {
+        if team.email_verified_at.is_none() && share_config.require_email_verification {
+            return Err(AppError::TeamIsNotVerified);
+        }
+
+        share_config.edit_deadline
+    };
+
+    if let Some(deadline) = deadline_opt
+        && deadline < Utc::now()
     {
-        PlanRepository.mark_stale(&mut *tx, &plan_id, &now).await?;
+        return Err(AppError::DeadlineExceeded(deadline, team.project_id));
     }
 
-    Ok(team)
+    for required_field in &share_config.required_fields {
+        if !team.has_field(required_field) {
+            return Err(AppError::MissingRequiredField(
+                required_field.clone(),
+                team.project_id,
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(), AppError> {
@@ -188,34 +252,52 @@ pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(),
         return Err(AppError::TeamCanceled);
     }
 
-    apply_team_update(
-        &mut tx,
-        &existing,
-        data,
-        AuditActorType::Admin,
-        Some(user_id),
-        &now,
-    )
-    .await?;
+    let mut team = existing.clone();
+    team.name = data.name.clone();
+    team.edited = now.clone();
+    team.mail = data.mail.clone();
+    team.phone = data.phone.clone();
+    team.members = data.members.clone();
+    team.diets = data.diets.clone();
+    team.status = data.status.clone();
+
+    if data.address != existing.address {
+        team.address.address = data.address.address.clone();
+        team.address.latitude = data.address.latitude.clone();
+        team.address.longitude = data.address.longitude.clone();
+        AddressRepository.update(&mut *tx, &team.address).await?;
+        PlanRepository.mark_stale(&mut *tx, &data.id, &now).await?;
+    }
+
+    TeamRepository.update_fields(&mut *tx, &team).await?;
+
+    let changed_fields = team.get_changed_fields(&existing);
+
+    AuditLogRepository
+        .insert(
+            &mut *tx,
+            &data.id,
+            AuditActorType::Admin,
+            Some(user_id),
+            AuditAction::Updated,
+            &UpdateEntry { changed_fields },
+            &now,
+        )
+        .await?;
 
     Ok(())
 }
 
-/// Same as `update`, but for the self-service (access-token) path. Also
-/// notifies the project admin when the address change ends up marking the
-/// plan stale, since — unlike an admin editing directly — the admin has no
-/// other way of finding out.
 pub async fn update_by_token(
     db: &mut Database,
     access_token: &str,
     data: &Team,
-    admin_team_link_base_url: &str,
 ) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
     let existing = TeamRepository
-        .select_locked_by_token(&mut *tx, access_token)
+        .select_locked_by_token(&mut *tx, &data.id, &data.project_id, access_token)
         .await?
         .ok_or(AppError::TeamNotFoundByToken)?;
 
@@ -223,103 +305,87 @@ pub async fn update_by_token(
         return Err(AppError::TeamCanceled);
     }
 
-    let plan_marked_stale = apply_team_update(
-        &mut tx,
-        &existing,
-        data,
-        AuditActorType::Participant,
-        None,
-        &now,
-    )
-    .await?;
+    let share_config = ShareRepository.select(&mut *tx, &data.project_id).await?;
 
-    if plan_marked_stale {
-        notify_admin_of_change(
-            &mut tx,
-            &existing,
-            admin_team_link_base_url,
-            "Adresse geändert",
+    check_share_config(&data, &share_config, false)?;
+
+    let mut team = existing.clone();
+    team.name = data.name.clone();
+    team.edited = now.clone();
+    team.mail = data.mail.clone();
+    team.phone = data.phone.clone();
+    team.members = data.members.clone();
+    team.diets = data.diets.clone();
+
+    let needs_review = share_config
+        .review_trigger_fields
+        .iter()
+        .any(|field| match field {
+            RequiredField::Mail => data.mail != existing.mail,
+            RequiredField::Phone => data.phone != existing.phone,
+            RequiredField::Members => data.members != existing.members,
+            RequiredField::Diets => data.diets != existing.diets,
+        });
+
+    if needs_review {
+        team.status = TeamStatus::Review;
+    }
+
+    if data.address != existing.address {
+        team.address.address = data.address.address.clone();
+        team.address.latitude = data.address.latitude.clone();
+        team.address.longitude = data.address.longitude.clone();
+        AddressRepository.update(&mut *tx, &team.address).await?;
+        PlanRepository.mark_stale(&mut *tx, &data.id, &now).await?;
+    }
+
+    TeamRepository.update_fields(&mut *tx, &team).await?;
+
+    let changed_fields = team.get_changed_fields(&existing);
+
+    AuditLogRepository
+        .insert(
+            &mut *tx,
+            &data.id,
+            AuditActorType::Participant,
+            None,
+            AuditAction::Updated,
+            &UpdateEntry { changed_fields },
             &now,
         )
         .await?;
+
+    if !needs_review || !share_config.notify_admin_on_review {
+        return Ok(());
     }
 
-    Ok(())
-}
-
-/// Shared by `update`/`update_by_token`: swaps in the new address, updates
-/// the mutable fields, tears down the old address, writes an audit entry,
-/// and — if the address actually changed — marks a linked plan stale.
-/// Returns whether the plan was freshly marked stale (it wasn't already).
-async fn apply_team_update(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    existing: &Team,
-    data: &Team,
-    actor_type: AuditActorType,
-    actor_label: Option<&str>,
-    time: &DateTime<Utc>,
-) -> Result<bool, AppError> {
-    let address_changed = existing.address.address != data.address.address
-        || existing.address.latitude != data.address.latitude
-        || existing.address.longitude != data.address.longitude;
-
-    AddressRepository.insert(&mut *tx, &data.address).await?;
-    TeamRepository.update_fields(&mut *tx, data).await?;
-    AddressRepository
-        .delete(&mut *tx, &existing.address.id)
+    let project = ProjectRepository
+        .select_unsafe(&mut *tx, &data.project_id)
         .await?;
 
-    let changes = serde_json::json!({
-        "before": {
-            "name": existing.name, "mail": existing.mail, "phone": existing.phone,
-            "members": existing.members, "diets": existing.diets,
-            "address": existing.address.address,
-        },
-        "after": {
-            "name": data.name, "mail": data.mail, "phone": data.phone,
-            "members": data.members, "diets": data.diets,
-            "address": data.address.address,
-        },
-    });
-    TeamAuditLogRepository
-        .insert(
-            &mut *tx,
-            &existing.id,
-            actor_type,
-            actor_label,
-            AuditAction::Updated,
-            &changes,
-            time,
-        )
-        .await?;
+    if let Some(admin_mail) = project.admin_notification_email {
+        let context = AdminNotificationMail {
+            project_name: project.name.clone(),
+            team_name: team.name.clone(),
+            reason: AdminNotificationReason::TeamUpdate,
+        };
 
-    let mut plan_marked_stale = false;
-    if address_changed {
-        let owner_user_id = ProjectRepository
-            .select_owner_user_id(&mut *tx, &existing.project_id)
+        EmailOutboxRepository
+            .insert(
+                &mut *tx,
+                &admin_mail,
+                EmailType::AdminNotification,
+                &context,
+                &now,
+            )
             .await?;
-        if let Some(plan_id) = ProjectRepository
-            .select_plan_id(&mut *tx, &existing.project_id, &owner_user_id)
-            .await?
-        {
-            plan_marked_stale = PlanRepository.mark_stale(&mut *tx, &plan_id, time).await?;
-            if plan_marked_stale {
-                TeamAuditLogRepository
-                    .insert(
-                        &mut *tx,
-                        &existing.id,
-                        actor_type,
-                        actor_label,
-                        AuditAction::PlanInvalidated,
-                        &serde_json::json!({}),
-                        time,
-                    )
-                    .await?;
-            }
-        }
+    } else {
+        tracing::warn!(
+            project.id = %project.id,
+            "project has no admin notification email"
+        );
     }
-
-    Ok(plan_marked_stale)
+    Ok(())
 }
 
 /// Admin-only hard delete. Also tears down the team's address and marks a
@@ -380,7 +446,7 @@ pub async fn cancel_by_token(
         .update_cancel(&mut *tx, &existing.id, &now, reason)
         .await?;
 
-    TeamAuditLogRepository
+    AuditLogRepository
         .insert(
             &mut *tx,
             &existing.id,
@@ -400,7 +466,7 @@ pub async fn cancel_by_token(
         .await?
     {
         if PlanRepository.mark_stale(&mut *tx, &plan_id, &now).await? {
-            TeamAuditLogRepository
+            AuditLogRepository
                 .insert(
                     &mut *tx,
                     &existing.id,

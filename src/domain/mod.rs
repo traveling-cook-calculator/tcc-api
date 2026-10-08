@@ -1,10 +1,11 @@
 pub mod address;
+pub mod audit_log;
 pub mod course;
+pub mod mail;
 pub mod plan;
 pub mod project;
 pub mod team;
-pub mod mail;
 
 pub use course::Course;
-pub use team::Note;
 pub use project::Project;
+pub use team::Note;

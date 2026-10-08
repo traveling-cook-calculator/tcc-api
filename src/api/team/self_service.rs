@@ -9,10 +9,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    api::{auth::ACCESS_TOKEN_HEADER, validated_json::ValidatedJson},
-    error::AppError,
-    team,
-    AppState,
+    AppState, api::{auth::ACCESS_TOKEN_HEADER, validated_json::ValidatedJson}, application::team, error::AppError,
 };
 
 use super::get_user_id;

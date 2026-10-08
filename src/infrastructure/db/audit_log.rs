@@ -1,9 +1,11 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::error::AppError;
+use crate::{
+    domain::audit_log::{AuditAction, AuditActorType, AuditLog}, error::AppError,
+};
 
 /// Snapshot der auditierbaren Team-Felder für Vorher/Nachher-Vergleiche.
 /// Kein eigenes DB-Entity — reine Hilfsstruktur zum Bauen von `changes`,
@@ -27,47 +29,41 @@ pub(super) fn diff_json(
     json!({ "before": before, "after": after })
 }
 
-pub struct TeamAuditLogRepository;
+pub struct AuditLogRepository;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize)]
 #[sqlx(type_name = "audit_actor_type", rename_all = "snake_case")]
-pub enum AuditActorType {
+enum AuditActorTypeEntity {
     Admin,
     Participant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize)]
 #[sqlx(type_name = "audit_action", rename_all = "snake_case")]
-pub enum AuditAction {
+enum AuditActionEntity {
     Created,
     Updated,
     Canceled,
     PlanInvalidated,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct TeamAuditLogEntry {
-    pub id: Uuid,
-    pub actor_type: AuditActorType,
-    pub actor_label: Option<String>,
-    pub action: AuditAction,
-    pub changes: serde_json::Value,
-    pub created_at: DateTime<Utc>,
-}
+#[derive(Serialize, Deserialize)]
+pub struct CreatedEntry {}
+
 
 #[derive(Debug, Clone, sqlx::FromRow)]
-struct TeamAuditLogEntity {
+struct AuditLogEntity {
     id: Uuid,
-    actor_type: AuditActorType,
+    actor_type: AuditActorTypeEntity,
     actor_label: Option<String>,
-    action: AuditAction,
+    action: AuditActionEntity,
     changes: serde_json::Value,
     created_at: DateTime<Utc>,
 }
 
-impl TeamAuditLogEntity {
-    fn to_domain(&self) -> TeamAuditLogEntry {
-        TeamAuditLogEntry {
+impl AuditLogEntity {
+    fn to_domain(&self) -> AuditLog {
+        AuditLog {
             id: self.id,
             actor_type: self.actor_type,
             actor_label: self.actor_label.clone(),
@@ -78,16 +74,16 @@ impl TeamAuditLogEntity {
     }
 }
 
-impl TeamAuditLogRepository {
+impl AuditLogRepository {
     #[tracing::instrument(skip(self, executor, changes))]
-    pub async fn insert<'e, E>(
+    pub async fn insert<'e, E, T: Serialize>(
         &self,
         executor: E,
         team_id: &Uuid,
         actor_type: AuditActorType,
         actor_label: Option<&str>,
         action: AuditAction,
-        changes: &serde_json::Value,
+        changes: &T,
         time: &DateTime<Utc>,
     ) -> Result<(), AppError>
     where
@@ -151,7 +147,7 @@ impl TeamAuditLogRepository {
         let total = rows.first().map(|r| r.total_count).unwrap_or(0);
         let entries = rows
             .iter()
-            .map(|r| TeamAuditLogEntity {
+            .map(|r| AuditLogEntity {
                 id: r.id,
                 actor_type: r.actor_type,
                 actor_label: r.actor_label.clone(),

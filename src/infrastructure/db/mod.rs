@@ -9,11 +9,12 @@ pub mod point;
 pub mod project;
 pub mod sharing;
 pub mod team;
-pub mod team_audit_log;
+pub mod audit_log;
 
 pub use course::CourseRepository;
 pub use note::NoteRepository;
 pub use project::ProjectRepository;
+pub use email_outbox::EmailOutboxRepository;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tracing::info;

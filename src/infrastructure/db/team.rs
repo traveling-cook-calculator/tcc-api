@@ -524,6 +524,8 @@ impl TeamRepository {
     pub async fn select_locked_by_token<'e, E>(
         &self,
         executor: E,
+        id_filter: &Uuid,
+        project_id_filter: &Uuid,
         access_token: &str,
     ) -> Result<Option<Team>, AppError>
     where
@@ -533,13 +535,19 @@ impl TeamRepository {
             "SELECT {}
              FROM team t
              INNER JOIN address a ON a.id = t.address
-             WHERE t.access_token = $1
+             WHERE t.id = $1 AND t.access_token = $2  AND (
+                   t.project_id IN (
+                       SELECT id FROM project WHERE id = $3
+                   )
+               )
              FOR UPDATE OF t",
             TEAM_ADDRESS_COLUMNS
         );
 
         let row: Option<TeamWithAddressRow> = sqlx::query_as(&query)
+            .bind(id_filter)
             .bind(access_token)
+            .bind(project_id_filter)
             .fetch_optional(executor)
             .await
             .map_err(AppError::DatabaseError)?;
@@ -625,7 +633,7 @@ impl TeamRepository {
         let affected = sqlx::query(
             "UPDATE team
              SET name = $1, edited = $2, address = $3, mail = $4,
-                 phone = $5, members = $6, diets = $7
+                 phone = $5, members = $6, diets = $7, status = $8
              WHERE id = $8",
         )
         .bind(&team.name)
@@ -635,6 +643,7 @@ impl TeamRepository {
         .bind(&team.phone)
         .bind(team.members)
         .bind(&team.diets)
+        .bind(&team.status)
         .bind(team.id)
         .execute(executor)
         .await
