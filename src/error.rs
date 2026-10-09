@@ -129,6 +129,9 @@ pub enum AppError {
 
     #[error("Team is not verified")]
     TeamIsNotVerified,
+
+    #[error("Verification resend limit reached for team {0}")]
+    VerificationResendLimitReached(Uuid),
 }
 
 impl AppError {
@@ -234,8 +237,13 @@ impl AppError {
                     "Required field is missing while updating or creating team"
                 );
             }
-            AppError::TeamIsNotVerified()=>{
+            AppError::TeamIsNotVerified => {
                 tracing::warn!("Team is not verified");
+            }
+            AppError::VerificationResendLimitReached(team_id) => {
+                tracing::warn!(
+                    team.id = %team_id,
+                    "Verification resend limit reached for team");
             }
         }
     }
@@ -255,7 +263,7 @@ impl IntoResponse for AppError {
             | AppError::EditDeadlineExceeded(_)
             | AppError::MissingHeader(_)
             | AppError::InvalidTeamIdList(_)
-            | AppError::MissingRequiredField(_, _) 
+            | AppError::MissingRequiredField(_, _)
             | AppError::TeamIsNotVerified => StatusCode::BAD_REQUEST,
             AppError::AddressNotFound(_)
             | AppError::ProjectNotFound(_)
@@ -276,8 +284,9 @@ impl IntoResponse for AppError {
             AppError::Unauthorized(_, _) | AppError::AuthorizationError(_) => {
                 StatusCode::UNAUTHORIZED
             }
-            AppError::TeamCanceled => StatusCode::CONFLICT,
-            AppError::PlanIsStale(_) => StatusCode::CONFLICT,
+            AppError::TeamCanceled
+            | AppError::PlanIsStale(_)
+            | AppError::VerificationResendLimitReached(_) => StatusCode::CONFLICT,
         };
 
         let error_message = match status.is_server_error() {

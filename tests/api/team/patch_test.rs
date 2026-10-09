@@ -11,28 +11,28 @@ use crate::{
 
 #[test]
 fn test_patch_team() {
-    let (cook_and_run_id, team_id) = setup();
+    let (project_id, team_id) = setup();
     let (token, user_id) = get_user_1();
 
-    patch_team(&cook_and_run_id, &team_id, &user_id, &token);
+    patch_team(&project_id, &team_id, &user_id, &token);
 }
 
 #[test]
 fn test_patch_patched_team() {
-    let (cook_and_run_id, team_id) = setup();
+    let (project_id, team_id) = setup();
 
     let (token, user_id) = get_user_1();
-    patch_team(&cook_and_run_id, &team_id, &user_id, &token); // First deletion
-    let res = execute_patch_team(&cook_and_run_id, &team_id, &token); // Second deletion
+    patch_team(&project_id, &team_id, &user_id, &token); // First deletion
+    let res = execute_patch_team(&project_id, &team_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::OK, "Response: {:#?}", res);
 }
 
 #[test]
 fn test_patch_team_wrong_user() {
-    let (cook_and_run_id, team_id) = setup();
+    let (project_id, team_id) = setup();
 
     let (token, _) = get_user_2();
-    let res = execute_patch_team(&cook_and_run_id, &team_id, &token); // Second deletion
+    let res = execute_patch_team(&project_id, &team_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
@@ -43,12 +43,12 @@ fn test_patch_team_wrong_user() {
 /// test pins the admin-edit side of that rule.
 #[test]
 fn test_patch_team_does_not_change_status() {
-    let (cook_and_run_id, team_id) = setup();
+    let (project_id, team_id) = setup();
     let (token, user_id) = get_user_1();
 
-    patch_team(&cook_and_run_id, &team_id, &user_id, &token);
+    patch_team(&project_id, &team_id, &user_id, &token);
 
-    let res = execute_get(&cook_and_run_id, &team_id, &token);
+    let res = execute_get(&project_id, &team_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let status = json
@@ -59,7 +59,7 @@ fn test_patch_team_does_not_change_status() {
 }
 
 fn execute_patch_team(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     token: &str,
 ) -> reqwest::blocking::Response {
@@ -67,8 +67,8 @@ fn execute_patch_team(
     let (client, base_url) = get_client();
     client
         .patch(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -77,11 +77,11 @@ fn execute_patch_team(
         .expect("Failed to send request")
 }
 
-pub fn patch_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token: &str) {
-    let res = execute_patch_team(cook_and_run_id, team_id, token);
+pub fn patch_team(project_id: &Uuid, team_id: &Uuid, user_id: &str, token: &str) {
+    let res = execute_patch_team(project_id, team_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(cook_and_run_id, team_id, token);
+    let res = execute_get(project_id, team_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     assert_team_json(&res.json().expect("Failed to parse JSON"), team_id, user_id);
 }

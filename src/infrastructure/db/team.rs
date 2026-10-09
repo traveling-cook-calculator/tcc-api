@@ -288,16 +288,18 @@ impl TeamRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM team t
-             INNER JOIN project car ON car.id = t.project_id
-             WHERE car.id = $1",
+        sqlx::query_scalar::<_, i64>(
+            r#"
+        SELECT COUNT(*) FROM team t
+        INNER JOIN project car ON car.id = t.project_id
+        WHERE car.id = $1
+        "#,
         )
         .bind(project_id_filter)
         .fetch_one(executor)
         .await
         .map_err(AppError::DatabaseError)
-        .map(|c| c as u8)
+        .and_then(|count| Ok(count as u8))
     }
 
     /// Backs `team::get_list` (admin team list in `get.rs`).
@@ -422,6 +424,8 @@ impl TeamRepository {
     pub async fn select_by_token<'e, E>(
         &self,
         executor: E,
+        project_id: &Uuid,
+        team_id: &Uuid,
         access_token: &str,
     ) -> Result<Team, AppError>
     where
@@ -431,11 +435,13 @@ impl TeamRepository {
             "SELECT {}
              FROM team t
              INNER JOIN address a ON a.id = t.address
-             WHERE t.access_token = $1",
+             WHERE  t.id = $1 AND  t.project_id = $2 AND t.access_token = $1",
             TEAM_ADDRESS_COLUMNS
         );
 
         let row: TeamWithAddressRow = sqlx::query_as(&query)
+            .bind(team_id)
+            .bind(project_id)
             .bind(access_token)
             .fetch_one(executor)
             .await
@@ -719,20 +725,26 @@ impl TeamRepository {
     pub async fn verify_email_by_token<'e, E>(
         &self,
         executor: E,
+        project_id: &Uuid,
+        team_id: &Uuid,
         access_token: &str,
         time: &DateTime<Utc>,
     ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let affected =
-            sqlx::query("UPDATE team SET email_verified_at = $1 WHERE access_token = $2")
-                .bind(time)
-                .bind(access_token)
-                .execute(executor)
-                .await
-                .map_err(AppError::DatabaseError)?
-                .rows_affected();
+        let affected = sqlx::query(
+            "UPDATE team SET email_verified_at = $1 
+            WHERE t.id = $2 AND t.project_id =$3 AND t.access_token = $4",
+        )
+        .bind(time)
+        .bind(team_id)
+        .bind(project_id)
+        .bind(access_token)
+        .execute(executor)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
 
         if affected == 0 {
             return Err(AppError::TeamNotFoundByToken);
@@ -740,30 +752,24 @@ impl TeamRepository {
         Ok(())
     }
 
-    /// Increments the resend counter and returns the new value. The limit
-    /// (max. 3 for participants) is enforced by the domain layer.
     #[tracing::instrument(skip(self, executor))]
     pub async fn increment_resend_count_by_token<'e, E>(
         &self,
         executor: E,
-        access_token: &str,
-    ) -> Result<i32, AppError>
+        team_id: &Uuid,
+    ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        sqlx::query_scalar(
+        sqlx::query(
             "UPDATE team
              SET verification_resend_count = verification_resend_count + 1
-             WHERE access_token = $1
-             RETURNING verification_resend_count",
+             WHERE id = $1",
         )
-        .bind(access_token)
-        .fetch_one(executor)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::TeamNotFoundByToken,
-            other => AppError::DatabaseError(other),
-        })
+        .bind(team_id)
+        .execute(executor)
+        .await?;
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -796,67 +802,34 @@ impl TeamRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let result = sqlx::query_as(
-            "SELECT t.id
-             FROM team t
-             WHERE t.id = $1
-               AND (
-                   t.project_id IN (
-                       SELECT id FROM project WHERE id = $2 AND user_id = $3
-                   )
-               )
-             FOR UPDATE OF t",
+        let team = sqlx::query(
+            r#"
+        SELECT 1
+        FROM team t
+        WHERE t.id = $1
+          AND t.project_id = $2
+          AND EXISTS (
+              SELECT 1 FROM project
+              WHERE id = $2 AND user_id = $3
+          )
+        FOR UPDATE OF t
+        "#,
         )
         .bind(id_filter)
         .bind(project_id_filter)
         .bind(user_id_filter)
         .fetch_optional(executor)
-        .await;
+        .await
+        .map_err(AppError::DatabaseError)?;
 
-        if let Err(e) = result {
-            return Err(AppError::DatabaseError(e));
-        }
-        if let Ok(Some(o)) = result {
-            return Ok(());
-        } else {
+        if team.is_none() {
             return Err(AppError::TeamNotFound(
                 *id_filter,
                 user_id_filter.to_string(),
                 *project_id_filter,
             ));
         }
-    }
-}
 
-/// Edit deadline that applies to a team's self-service token, derived from
-/// its project's share configuration. `None` if there is no deadline
-/// configured (or no share config at all for that project).
-///
-/// Deliberately separate from `TeamRepository::select_by_token`: this joins
-/// `project`/`share`, not `address`, so it doesn't fit the
-/// `TeamWithAddressRow` shape the rest of this module reads into. The
-/// `team::get_by_token_with_deadline` service used by `get.rs` is expected
-/// to call this alongside `select_by_token` and combine the two results.
-#[tracing::instrument(skip(executor))]
-pub async fn select_edit_deadline_by_token<'e, E>(
-    executor: E,
-    access_token: &str,
-) -> Result<Option<DateTime<Utc>>, AppError>
-where
-    E: sqlx::PgExecutor<'e>,
-{
-    sqlx::query_scalar(
-        "SELECT s.edit_deadline
-         FROM team t
-         INNER JOIN project car ON car.id = t.project_id
-         LEFT JOIN share s ON s.id = car.share_team_config
-         WHERE t.access_token = $1",
-    )
-    .bind(access_token)
-    .fetch_one(executor)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => AppError::TeamNotFoundByToken,
-        other => AppError::DatabaseError(other),
-    })
+        Ok(())
+    }
 }

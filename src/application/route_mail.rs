@@ -39,7 +39,7 @@ pub async fn trigger_route_mails(
         ));
     }
 
-    let plan = PlanRepository.select(&mut *tx, project_id).await?;
+    let plan = PlanRepository.select_unsafe(&mut *tx, project_id).await?;
 
     for team in team_list {
         if team.status == TeamStatus::Canceled {

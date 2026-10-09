@@ -42,8 +42,8 @@ impl CourseRepository {
         let course = CourseEntity::from_domain(data);
 
         sqlx::query(
-            "INSERT INTO course (id, project_id, name, time, has_multiple_hosts)
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO course (id, project_id, name, time)
+             VALUES ($1, $2, $3, $4)",
         )
         .bind(course.id)
         .bind(course.project_id)
@@ -62,7 +62,7 @@ impl CourseRepository {
         E: sqlx::PgExecutor<'e>,
     {
         sqlx::query_as::<_, CourseEntity>(
-            "SELECT id, project_id, name, time, has_multiple_hosts FROM course WHERE id = $1",
+            "SELECT id, project_id, name, time FROM course WHERE id = $1",
         )
         .bind(id_filter)
         .fetch_one(executor)
@@ -130,7 +130,7 @@ impl CourseRepository {
         E: sqlx::PgExecutor<'e>,
     {
         sqlx::query_as::<_, CourseEntity>(
-            "SELECT c.id, c.project_id, c.name, c.time, c.has_multiple_hosts
+            "SELECT c.id, c.project_id, c.name, c.time
              FROM course c
              INNER JOIN project car ON car.id = c.project_id
              WHERE car.id = $1 AND car.user_id = $2

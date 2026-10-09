@@ -1,7 +1,7 @@
 use axum::{
+    Extension,
     extract::{Path, State},
     response::{IntoResponse, Json, Response},
-    Extension,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use reqwest::StatusCode;
@@ -11,11 +11,11 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    api::{auth::Claims, common::AddressDTO, course::CourseDTO, team::TeamDTO},
+    AppState,
+    api::{auth::Claims, common::AddressDTO, course::CourseDTO},
     application::plan,
     domain::plan::{Language, Plan},
     error::AppError,
-    AppState,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,8 +98,9 @@ impl PlanConfigDTO {
         }
     }
 
-    pub fn to_domain(&self) -> plan::PlanConfig {
+    pub fn to_domain(&self, project_id: Uuid) -> plan::PlanConfig {
         plan::PlanConfig {
+            id: project_id,
             access: self
                 .access
                 .iter()
@@ -270,7 +271,7 @@ pub(super) async fn get_team_plan(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
-     Path(team_id): Path<Uuid>,
+    Path(team_id): Path<Uuid>,
 ) -> Result<TeamPlanDTO, AppError> {
     !todo!("needs to be implemented")
 }

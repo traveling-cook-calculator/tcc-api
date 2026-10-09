@@ -5,16 +5,16 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client,
+    create_project, get_client,
 };
 
 #[test]
 fn test_create_share_config() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         true,
         true,
@@ -31,10 +31,10 @@ fn test_create_share_config() {
 
 #[test]
 fn test_create_created_share_config() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         true,
         true,
@@ -48,7 +48,7 @@ fn test_create_created_share_config() {
         &None,
     );
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         true,
         true,
@@ -65,7 +65,7 @@ fn test_create_created_share_config() {
 
 #[test]
 fn test_create_share_config_wrong_user() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_2();
 
@@ -84,7 +84,7 @@ fn test_create_share_config_wrong_user() {
         &vec![],
         false,
     );
-    let res = execute_create(&cook_and_run_id, payload, &token);
+    let res = execute_create(&project_id, payload, &token);
 
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
@@ -95,7 +95,7 @@ fn test_create_share_config_wrong_user() {
 /// at their defaults via `create_share_config_default`.
 #[test]
 fn test_create_share_config_with_review_settings() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
 
     let edit_deadline = DateTime::parse_from_rfc3339("2030-01-01T00:00:00Z")
@@ -103,7 +103,7 @@ fn test_create_share_config_with_review_settings() {
         .with_timezone(&Utc);
 
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &token,
         true,
         true,
@@ -117,15 +117,15 @@ fn test_create_share_config_with_review_settings() {
 }
 
 fn execute_create(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     payload: serde_json::Value,
     token: &str,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .post(format!(
-            "{}/cook_and_run/{}/share_team_config",
-            base_url, cook_and_run_id
+            "{}/project/{}/share_team_config",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -140,7 +140,7 @@ fn execute_create(
 /// [`create_share_config_default`].
 #[allow(clippy::too_many_arguments)]
 pub fn create_share_config(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
     require_email_verification: bool,
     default_needs_check: bool,
@@ -161,7 +161,7 @@ pub fn create_share_config(
         review_trigger_fields,
         notify_admin_on_review,
     );
-    let res = execute_create(cook_and_run_id, payload, token);
+    let res = execute_create(project_id, payload, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
@@ -174,7 +174,7 @@ pub fn create_share_config(
 /// existing call sites minimal.
 #[allow(clippy::too_many_arguments)]
 pub fn create_share_config_default(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
     require_email_verification: bool,
     default_needs_check: bool,
@@ -183,7 +183,7 @@ pub fn create_share_config_default(
     registration_deadline: &Option<DateTime<Utc>>,
 ) {
     create_share_config(
-        cook_and_run_id,
+        project_id,
         token,
         require_email_verification,
         default_needs_check,

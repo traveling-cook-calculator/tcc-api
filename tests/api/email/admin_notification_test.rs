@@ -1,7 +1,7 @@
 use crate::{
     auth::get_user_1,
     email::{
-        assert_no_message_to, create_cook_and_run_with_admin_email, unique_test_email,
+        assert_no_message_to, create_project_with_admin_email, unique_test_email,
         wait_for_message_to,
     },
     sharing::post_test::create_share_config,
@@ -26,11 +26,11 @@ fn team_update_payload_with_mail(mail: &str) -> serde_json::Value {
 #[test]
 fn test_admin_notified_on_review_trigger() {
     let admin_email = unique_test_email("admin-review");
-    let cook_and_run_id = create_cook_and_run_with_admin_email(&admin_email);
+    let project_id = create_project_with_admin_email(&admin_email);
     let (admin_token, _) = get_user_1();
 
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -41,11 +41,11 @@ fn test_admin_notified_on_review_trigger() {
         &vec!["mail".to_string()],
         true, // notify_admin_on_review
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("triggered@run.de");
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         None,
@@ -66,11 +66,11 @@ fn test_admin_notified_on_review_trigger() {
 #[test]
 fn test_admin_not_notified_when_toggle_off() {
     let admin_email = unique_test_email("admin-no-notify");
-    let cook_and_run_id = create_cook_and_run_with_admin_email(&admin_email);
+    let project_id = create_project_with_admin_email(&admin_email);
     let (admin_token, _) = get_user_1();
 
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -81,11 +81,11 @@ fn test_admin_not_notified_when_toggle_off() {
         &vec!["mail".to_string()],
         false, // notify_admin_on_review = off
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("triggered-quietly@run.de");
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         None,
@@ -100,11 +100,11 @@ fn test_admin_not_notified_when_toggle_off() {
 #[test]
 fn test_admin_notified_on_cancellation() {
     let admin_email = unique_test_email("admin-cancel");
-    let cook_and_run_id = create_cook_and_run_with_admin_email(&admin_email);
+    let project_id = create_project_with_admin_email(&admin_email);
     let (admin_token, _) = get_user_1();
 
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -115,10 +115,10 @@ fn test_admin_notified_on_cancellation() {
         &vec![],
         true, // notify_admin_on_review
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let res = execute_cancel(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         None,
         Some(&access_token),

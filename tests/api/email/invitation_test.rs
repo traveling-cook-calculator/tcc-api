@@ -1,6 +1,6 @@
 use crate::{
     auth::get_user_1,
-    create_cook_and_run,
+    create_project,
     email::{
         create_self_service_team_with_mail, extract_access_token_from_body, message_body,
         unique_test_email, wait_for_message_count, wait_for_message_to,
@@ -16,10 +16,10 @@ use crate::{
 /// it is a real, usable credential — not just that some email showed up.
 #[test]
 fn test_invitation_email_sent_with_working_deeplink_token() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (admin_token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -29,7 +29,7 @@ fn test_invitation_email_sent_with_working_deeplink_token() {
     );
 
     let mail = unique_test_email("invitation");
-    let team_id = create_self_service_team_with_mail(&cook_and_run_id, &mail);
+    let team_id = create_self_service_team_with_mail(&project_id, &mail);
 
     let message = wait_for_message_to(&mail, 15);
     let to = message
@@ -50,7 +50,7 @@ fn test_invitation_email_sent_with_working_deeplink_token() {
     let body = message_body(&message);
     let access_token = extract_access_token_from_body(&body);
 
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, None, Some(&access_token));
+    let res = execute_get_dual_auth(&project_id, &team_id, None, Some(&access_token));
     assert!(
         res.status().is_success(),
         "the token extracted from the invitation email should actually work: {:#?}",
@@ -65,9 +65,9 @@ fn test_invitation_email_sent_with_working_deeplink_token() {
 fn test_invitation_email_body_differs_when_verification_required() {
     let (admin_token, _) = get_user_1();
 
-    let cook_and_run_without = create_cook_and_run();
+    let project_without = create_project();
     create_share_config_default(
-        &cook_and_run_without,
+        &project_without,
         &admin_token,
         false,
         false,
@@ -76,12 +76,12 @@ fn test_invitation_email_body_differs_when_verification_required() {
         &None,
     );
     let mail_without = unique_test_email("no-verification");
-    create_self_service_team_with_mail(&cook_and_run_without, &mail_without);
+    create_self_service_team_with_mail(&project_without, &mail_without);
     let body_without = message_body(&wait_for_message_to(&mail_without, 15));
 
-    let cook_and_run_with = create_cook_and_run();
+    let project_with = create_project();
     create_share_config(
-        &cook_and_run_with,
+        &project_with,
         &admin_token,
         true,
         false,
@@ -93,7 +93,7 @@ fn test_invitation_email_body_differs_when_verification_required() {
         false,
     );
     let mail_with = unique_test_email("with-verification");
-    create_self_service_team_with_mail(&cook_and_run_with, &mail_with);
+    create_self_service_team_with_mail(&project_with, &mail_with);
     let body_with = message_body(&wait_for_message_to(&mail_with, 15));
 
     assert_ne!(
@@ -108,10 +108,10 @@ fn test_invitation_email_body_differs_when_verification_required() {
 /// a second message to the same recipient.
 #[test]
 fn test_resend_verification_sends_a_second_invitation_email() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (admin_token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -121,13 +121,13 @@ fn test_resend_verification_sends_a_second_invitation_email() {
     );
 
     let mail = unique_test_email("resend");
-    let team_id = create_self_service_team_with_mail(&cook_and_run_id, &mail);
+    let team_id = create_self_service_team_with_mail(&project_id, &mail);
 
     let first = wait_for_message_to(&mail, 15);
     let access_token = extract_access_token_from_body(&message_body(&first));
 
     let res = crate::team::self_service::execute_resend_verification(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         None,
         Some(&access_token),

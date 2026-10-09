@@ -3,19 +3,19 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client,
+    create_project, get_client,
     sharing::post_test::create_share_config_default,
     team::{self, assert_team_not_found, post_test::get_team_create_json},
 };
 
 #[test]
 fn test_create_team_all_required() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         true,
@@ -52,10 +52,10 @@ fn test_create_team_all_required() {
         set_diets,
         set_needs_check,
     );
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let team_json = team::get_team(&cook_and_run_id, &team_id);
+    let team_json = team::get_team(&project_id, &team_id);
     team::assert_team_json(
         &team_json,
         &team_id,
@@ -72,12 +72,12 @@ fn test_create_team_all_required() {
 
 #[test]
 fn test_create_team_max_teams() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         true,
@@ -93,31 +93,31 @@ fn test_create_team_max_teams() {
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 }
 
 /// "Given `share.max_teams` is reached, ... The project owner is exempt
 /// from this check." (feature MD §4.1)
 #[test]
 fn test_create_team_max_teams_owner_exempt() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, user_id) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         true,
@@ -129,24 +129,24 @@ fn test_create_team_max_teams_owner_exempt() {
     // Fill the single slot as a non-owner.
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     // The owner can still create another team despite max_teams = 1.
     let owner_team_id = Uuid::new_v4();
     let payload = get_team_create_json(Some(&user_id), true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &owner_team_id, payload, Some(&token));
+    let res = execute_create(&project_id, &owner_team_id, payload, Some(&token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
 #[test]
 fn test_create_deadline_okay() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         true,
@@ -162,19 +162,19 @@ fn test_create_deadline_okay() {
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
-    let _ = team::get_team(&cook_and_run_id, &team_id);
+    let _ = team::get_team(&project_id, &team_id);
 }
 
 #[test]
 fn test_create_deadline_over() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         true,
@@ -190,26 +190,26 @@ fn test_create_deadline_over() {
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 }
 
 /// "Given `share.registration_deadline` is in the past, ... The project
 /// owner is exempt from this check." (feature MD §4.1)
 #[test]
 fn test_create_deadline_over_owner_exempt() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, user_id) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         true,
@@ -220,19 +220,19 @@ fn test_create_deadline_over_owner_exempt() {
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(Some(&user_id), true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, Some(&token));
+    let res = execute_create(&project_id, &team_id, payload, Some(&token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
-    let _ = team::get_team(&cook_and_run_id, &team_id);
+    let _ = team::get_team(&project_id, &team_id);
 }
 
 #[test]
 fn test_create_team_all_required_not_set() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         true,
@@ -249,69 +249,69 @@ fn test_create_team_all_required_not_set() {
     //No name set
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, false, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 
     //No address set
     let payload = get_team_create_json(None, true, false, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 
     //No members set
     let payload = get_team_create_json(None, true, true, false, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 
     //No mail set
     let payload = get_team_create_json(None, true, true, true, false, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 
     //No phone set
     let payload = get_team_create_json(None, true, true, true, true, false, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 
     //No diets set
     let payload = get_team_create_json(None, true, true, true, true, true, false, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 
     // Note: the old "needs_check missing -> 400" case was removed here.
     // `needs_check` no longer exists on `TeamCreateRequest` at all (see
@@ -320,12 +320,12 @@ fn test_create_team_all_required_not_set() {
 
 #[test]
 fn test_create_team_none_required() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         false,
@@ -354,10 +354,10 @@ fn test_create_team_none_required() {
         set_diets,
         set_needs_check,
     );
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let team_json = team::get_team(&cook_and_run_id, &team_id);
+    let team_json = team::get_team(&project_id, &team_id);
     team::assert_team_json(
         &team_json,
         &team_id,
@@ -374,12 +374,12 @@ fn test_create_team_none_required() {
 
 #[test]
 fn test_create_team_none_required_all_set() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         false,
@@ -408,10 +408,10 @@ fn test_create_team_none_required_all_set() {
         set_diets,
         set_needs_check,
     );
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let team_json = team::get_team(&cook_and_run_id, &team_id);
+    let team_json = team::get_team(&project_id, &team_id);
     team::assert_team_json(
         &team_json,
         &team_id,
@@ -433,10 +433,10 @@ fn test_create_team_none_required_all_set() {
 /// (share-link) equivalent.
 #[test]
 fn test_create_team_idempotent_retry_unauthenticated() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         false,
@@ -447,10 +447,10 @@ fn test_create_team_idempotent_retry_unauthenticated() {
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload.clone(), None);
+    let res = execute_create(&project_id, &team_id, payload.clone(), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
@@ -466,10 +466,10 @@ fn test_create_team_idempotent_retry_unauthenticated() {
 /// name.
 #[test]
 fn test_create_team_access_link_without_mail() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         false,
@@ -480,7 +480,7 @@ fn test_create_team_access_link_without_mail() {
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, false, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -494,7 +494,7 @@ fn test_create_team_access_link_without_mail() {
         .map(|(_, token)| token.to_string())
         .unwrap_or_else(|| panic!("access_link did not contain a #token= fragment: {access_link}"));
 
-    let res = execute_get_self_service(&cook_and_run_id, &team_id, &access_token);
+    let res = execute_get_self_service(&project_id, &team_id, &access_token);
     assert!(
         res.status().is_success(),
         "GET with the extracted X-Access-Token failed: {:#?}",
@@ -506,10 +506,10 @@ fn test_create_team_access_link_without_mail() {
 /// `access_link`." (feature MD §4.1)
 #[test]
 fn test_create_team_no_access_link_with_mail() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &token,
         false,
         false,
@@ -520,7 +520,7 @@ fn test_create_team_no_access_link_with_mail() {
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, true, true, true, true);
-    let res = execute_create(&cook_and_run_id, &team_id, payload, None);
+    let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -542,13 +542,13 @@ fn test_create_team_no_access_link_with_mail() {
 /// "review", token or not.
 #[test]
 fn test_create_team_authenticated_non_owner_is_treated_like_unauthenticated() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (owner_token, _) = get_user_1();
     let (other_token, other_user_id) = get_user_2();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &owner_token,
         false,
         true,
@@ -568,10 +568,10 @@ fn test_create_team_authenticated_non_owner_is_treated_like_unauthenticated() {
         true,
         true,
     );
-    let res = execute_create(&cook_and_run_id, &team_id, payload, Some(&other_token));
+    let res = execute_create(&project_id, &team_id, payload, Some(&other_token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let team_json = team::get_team(&cook_and_run_id, &team_id);
+    let team_json = team::get_team(&project_id, &team_id);
     let status = team_json
         .get("status")
         .and_then(|v| v.as_str())
@@ -583,18 +583,18 @@ fn test_create_team_authenticated_non_owner_is_treated_like_unauthenticated() {
 }
 
 /// `userId` in the body must match the caller's JWT `sub` when a token is
-/// present (same rule already covered for `cook_and_run` creation).
+/// present (same rule already covered for `project` creation).
 /// Independent of the `needs_login` removal — this scenario doesn't need
 /// an active share config at all.
 #[test]
 fn test_create_team_wrong_user_id_mismatch() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (owner_token, owner_user_id) = get_user_1();
     let (other_token, _) = get_user_2();
 
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &owner_token,
         false,
         true,
@@ -614,18 +614,18 @@ fn test_create_team_wrong_user_id_mismatch() {
         true,
         true,
     );
-    let res = execute_create(&cook_and_run_id, &team_id, payload, Some(&other_token));
+    let res = execute_create(&project_id, &team_id, payload, Some(&other_token));
     assert_eq!(
         res.status(),
         StatusCode::UNAUTHORIZED,
         "Response: {:#?}",
         res
     );
-    assert_team_not_found(&cook_and_run_id, &team_id);
+    assert_team_not_found(&project_id, &team_id);
 }
 
 pub fn execute_create(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     payload: serde_json::Value,
     token: Option<&str>,
@@ -633,8 +633,8 @@ pub fn execute_create(
     let (client, base_url) = get_client();
     let request = client
         .post(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .json(&payload);
 
@@ -649,15 +649,15 @@ pub fn execute_create(
 }
 
 fn execute_get_self_service(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     access_token: &str,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .header("x-access-token", access_token)
         .header("x-forwarded-for", "127.0.0.1")

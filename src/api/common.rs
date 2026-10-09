@@ -6,13 +6,15 @@
 //! here.
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
+
+use crate::domain::address::Address;
 
 /// Used by `project::get::Point` and `team::TeamCreateData`/`TeamUpdateData`.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -26,7 +28,7 @@ pub struct AddressDTO {
 }
 
 impl AddressDTO {
-    pub fn from_domain(address: crate::address::Address) -> Self {
+    pub fn from_domain(address: Address) -> Self {
         AddressDTO {
             address: address.address,
             latitude: address.latitude,
@@ -34,8 +36,8 @@ impl AddressDTO {
         }
     }
 
-    pub fn to_domain(&self) -> crate::address::Address {
-        crate::address::Address {
+    pub fn to_domain(&self) -> Address {
+        Address {
             id: Uuid::new_v4(),
             address: self.address.clone(),
             latitude: self.latitude,

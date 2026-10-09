@@ -14,9 +14,9 @@ use crate::{
 /// here; without a valid `Authorization: Bearer`, it's a plain 401.
 #[test]
 fn test_audit_log_requires_admin_bearer() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
 
-    let res = execute_audit_log(&cook_and_run_id, &team_id, None, None, None);
+    let res = execute_audit_log(&project_id, &team_id, None, None, None);
     assert_eq!(
         res.status(),
         StatusCode::UNAUTHORIZED,
@@ -27,19 +27,19 @@ fn test_audit_log_requires_admin_bearer() {
 
 #[test]
 fn test_audit_log_wrong_user() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
     let (other_token, _) = get_user_2();
 
-    let res = execute_audit_log(&cook_and_run_id, &team_id, Some(&other_token), None, None);
+    let res = execute_audit_log(&project_id, &team_id, Some(&other_token), None, None);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
 #[test]
 fn test_audit_log_contains_creation_entry() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
     let (admin_token, _) = get_user_1();
 
-    let res = execute_audit_log(&cook_and_run_id, &team_id, Some(&admin_token), None, None);
+    let res = execute_audit_log(&project_id, &team_id, Some(&admin_token), None, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -75,10 +75,10 @@ fn test_audit_log_contains_creation_entry() {
 
 #[test]
 fn test_audit_log_contains_update_entry_with_diff() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -89,11 +89,11 @@ fn test_audit_log_contains_update_entry_with_diff() {
         &vec!["mail".to_string()],
         false,
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("audited-change@run.de");
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         None,
@@ -101,7 +101,7 @@ fn test_audit_log_contains_update_entry_with_diff() {
     );
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_audit_log(&cook_and_run_id, &team_id, Some(&admin_token), None, None);
+    let res = execute_audit_log(&project_id, &team_id, Some(&admin_token), None, None);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let entries = json
         .get("data")
@@ -131,11 +131,11 @@ fn test_audit_log_contains_update_entry_with_diff() {
 
 #[test]
 fn test_audit_log_contains_cancellation_entry() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
     let (admin_token, _) = get_user_1();
 
     let res = execute_cancel(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         None,
         Some(&access_token),
@@ -143,7 +143,7 @@ fn test_audit_log_contains_cancellation_entry() {
     );
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_audit_log(&cook_and_run_id, &team_id, Some(&admin_token), None, None);
+    let res = execute_audit_log(&project_id, &team_id, Some(&admin_token), None, None);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let entries = json
         .get("data")
@@ -161,10 +161,10 @@ fn test_audit_log_contains_cancellation_entry() {
 
 #[test]
 fn test_audit_log_pagination() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -175,13 +175,13 @@ fn test_audit_log_pagination() {
         &vec!["mail".to_string()],
         false,
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     // "created" + 3 "updated" entries = 4 total.
     for i in 0..3 {
         let payload = team_update_payload_with_mail(&format!("page-test-{i}@run.de"));
         let res = execute_patch_dual_auth(
-            &cook_and_run_id,
+            &project_id,
             &team_id,
             &payload,
             None,
@@ -191,7 +191,7 @@ fn test_audit_log_pagination() {
     }
 
     let res = execute_audit_log(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         Some(&admin_token),
         Some(1),

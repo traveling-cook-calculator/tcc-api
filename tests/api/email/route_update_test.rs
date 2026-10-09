@@ -1,6 +1,6 @@
 use crate::{
     auth::get_user_1,
-    create_cook_and_run,
+    create_project,
     email::{
         create_self_service_team_with_mail, message_body, unique_test_email, wait_for_message_to,
     },
@@ -10,7 +10,7 @@ use crate::{
 };
 
 fn patch_plan_referencing(
-    cook_and_run_id: &uuid::Uuid,
+    project_id: &uuid::Uuid,
     token: &str,
     host: &uuid::Uuid,
     guest: &uuid::Uuid,
@@ -19,8 +19,8 @@ fn patch_plan_referencing(
     let (client, base_url) = get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/plan",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -30,12 +30,12 @@ fn patch_plan_referencing(
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
-fn send_route_mails(cook_and_run_id: &uuid::Uuid, token: &str) -> reqwest::blocking::Response {
+fn send_route_mails(project_id: &uuid::Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .post(format!(
-            "{}/cook_and_run/{}/plan/send-route-mails?force=false",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan/send-route-mails?force=false",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -49,10 +49,10 @@ fn send_route_mails(cook_and_run_id: &uuid::Uuid, token: &str) -> reqwest::block
 /// receive a `route_update` email at their own address.
 #[test]
 fn test_route_update_email_sent_to_host_and_guest() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (admin_token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -63,12 +63,12 @@ fn test_route_update_email_sent_to_host_and_guest() {
 
     let host_mail = unique_test_email("route-host");
     let guest_mail = unique_test_email("route-guest");
-    let host_id = create_self_service_team_with_mail(&cook_and_run_id, &host_mail);
-    let guest_id = create_self_service_team_with_mail(&cook_and_run_id, &guest_mail);
+    let host_id = create_self_service_team_with_mail(&project_id, &host_mail);
+    let guest_id = create_self_service_team_with_mail(&project_id, &guest_mail);
 
-    patch_plan_referencing(&cook_and_run_id, &admin_token, &host_id, &guest_id);
+    patch_plan_referencing(&project_id, &admin_token, &host_id, &guest_id);
 
-    let res = send_route_mails(&cook_and_run_id, &admin_token);
+    let res = send_route_mails(&project_id, &admin_token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     for mail in [&host_mail, &guest_mail] {

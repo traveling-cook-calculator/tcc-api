@@ -3,13 +3,16 @@ use axum::{
     http::HeaderMap,
 };
 use axum_extra::TypedHeader;
-use headers::{authorization::Bearer, Authorization};
+use headers::{Authorization, authorization::Bearer};
 use serde::Deserialize;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    AppState, api::{auth::ACCESS_TOKEN_HEADER, validated_json::ValidatedJson}, application::team, error::AppError,
+    AppState,
+    api::{auth::ACCESS_TOKEN_HEADER, validated_json::ValidatedJson},
+    application::team,
+    error::AppError,
 };
 
 use super::get_user_id;
@@ -32,21 +35,20 @@ pub(super) async fn resend_verification(
     auth: Option<TypedHeader<Authorization<Bearer>>>,
     headers: HeaderMap,
 ) -> Result<(), AppError> {
-    if let Some(user_id) = get_user_id(&auth, &state.auth) {
-        let existing_team = team::get(&state.db, &project_id, &user_id, &team_id).await?;
-        team::request_verification_resend(&mut state.db, &existing_team, true).await
-    } else {
-        let access_token = headers
-            .get(ACCESS_TOKEN_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
+    let user_id_opt = get_user_id(&auth, &state.auth);
 
-        let existing_team = team::get_by_token(&state.db, access_token).await?;
-        if existing_team.id != team_id || existing_team.project_id != project_id {
-            return Err(AppError::TeamNotFoundByToken);
-        }
-        team::request_verification_resend(&mut state.db, &existing_team, false).await
-    }
+    let access_token_opt = headers
+        .get(ACCESS_TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok());
+
+    team::request_verification_resend(
+        &mut state.db,
+        &project_id,
+        &team_id,
+        access_token_opt,
+        user_id_opt.as_ref().map(|s| s.as_str()),
+    )
+    .await
 }
 
 /// Self-service: cancel the team (no delete, only a status change).
@@ -63,16 +65,12 @@ pub(super) async fn cancel_team(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
 
-    let existing = team::get_by_token(&state.db, access_token).await?;
-    if existing.id != team_id || existing.project_id != project_id {
-        return Err(AppError::TeamNotFoundByToken);
-    }
-
     team::cancel_by_token(
         &mut state.db,
         access_token,
         payload.reason.as_deref(),
-        &state.admin_team_link_base_url,
+        &project_id,
+        &team_id,
     )
     .await
 }
@@ -90,10 +88,5 @@ pub(super) async fn verify_team_email(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
 
-    let existing = team::get_by_token(&state.db, access_token).await?;
-    if existing.id != team_id || existing.project_id != project_id {
-        return Err(AppError::TeamNotFoundByToken);
-    }
-
-    team::verify_email_by_token(&mut state.db, access_token).await
+    team::verify_email_by_token(&mut state.db, &project_id, &team_id, access_token).await
 }

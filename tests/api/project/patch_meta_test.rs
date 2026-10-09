@@ -5,9 +5,9 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    cook_and_run::{
-        get_test::{execute_get, execute_get_meta, get_cook_and_run},
-        post_test::{create_cook_and_run, get_cook_and_run_create_json},
+    project::{
+        get_test::{execute_get, execute_get_meta, get_project},
+        post_test::{create_project, get_project_create_json},
     },
     get_client,
 };
@@ -15,31 +15,31 @@ use crate::{
 use super::DEFAULT_ADMIN_NOTIFICATION_EMAIL;
 
 #[test]
-fn test_patch_meta_cook_and_run() {
+fn test_patch_meta_project() {
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token);
-    patch_meta_cook_and_run(&cook_and_run_id, &token, "New Name", &Utc::now());
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token);
+    patch_meta_project(&project_id, &token, "New Name", &Utc::now());
 }
 
 #[test]
-fn test_patch_patched_meta_cook_and_run() {
+fn test_patch_patched_meta_project() {
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token);
-    patch_meta_cook_and_run(&cook_and_run_id, &token, "New Name", &Utc::now());
-    patch_meta_cook_and_run(&cook_and_run_id, &token, "New Name", &Utc::now());
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token);
+    patch_meta_project(&project_id, &token, "New Name", &Utc::now());
+    patch_meta_project(&project_id, &token, "New Name", &Utc::now());
 }
 
 #[test]
-fn test_patch_cook_and_run_wrong_user() {
+fn test_patch_project_wrong_user() {
     let (token_1, user_id) = get_user_1();
     let (token_2, _) = get_user_2();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token_1);
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token_1);
 
     let res = execute_patch_meta(
-        &cook_and_run_id,
+        &project_id,
         &token_2,
         "New Name",
         &Utc::now(),
@@ -47,7 +47,7 @@ fn test_patch_cook_and_run_wrong_user() {
     );
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    get_cook_and_run(&cook_and_run_id, &token_1);
+    get_project(&project_id, &token_1);
 }
 
 /// `admin_notification_email` became mandatory on `UpdateMetaRequest` in
@@ -56,15 +56,15 @@ fn test_patch_cook_and_run_wrong_user() {
 #[test]
 fn test_patch_meta_missing_admin_notification_email() {
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token);
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token);
 
     let (client, base_url) = get_client();
     let payload = json!({ "name": "New Name", "occur": Utc::now() });
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/metadata",
-            base_url, cook_and_run_id
+            "{}/project/{}/metadata",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -83,17 +83,17 @@ fn test_patch_meta_missing_admin_notification_email() {
 /// Confirms the new field actually round-trips through the metadata
 /// endpoint, not just that it's accepted on the way in.
 #[test]
-fn test_patch_meta_cook_and_run_updates_admin_notification_email() {
+fn test_patch_meta_project_updates_admin_notification_email() {
     const NEW_EMAIL: &str = "updated-admin@cook-and-run.test";
 
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token);
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token);
 
-    let res = execute_patch_meta(&cook_and_run_id, &token, "New Name", &Utc::now(), NEW_EMAIL);
+    let res = execute_patch_meta(&project_id, &token, "New Name", &Utc::now(), NEW_EMAIL);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get_meta(&cook_and_run_id, &token);
+    let res = execute_get_meta(&project_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let admin_notification_email = json
@@ -107,7 +107,7 @@ fn test_patch_meta_cook_and_run_updates_admin_notification_email() {
 }
 
 fn execute_patch_meta(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
     new_name: &str,
     new_time: &DateTime<Utc>,
@@ -122,8 +122,8 @@ fn execute_patch_meta(
     println!("Payload: {}", payload);
     client
         .patch(format!(
-            "{}/cook_and_run/{}/metadata",
-            base_url, cook_and_run_id
+            "{}/project/{}/metadata",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -132,14 +132,14 @@ fn execute_patch_meta(
         .expect("Failed to send request")
 }
 
-pub fn patch_meta_cook_and_run(
-    cook_and_run_id: &Uuid,
+pub fn patch_meta_project(
+    project_id: &Uuid,
     token: &str,
     new_name: &str,
     new_time: &DateTime<Utc>,
 ) {
     let res = execute_patch_meta(
-        cook_and_run_id,
+        project_id,
         token,
         new_name,
         new_time,
@@ -147,18 +147,18 @@ pub fn patch_meta_cook_and_run(
     );
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(cook_and_run_id, token);
-    assert_cook_and_run_json(
+    let res = execute_get(project_id, token);
+    assert_project_json(
         res.json().expect("Failed to parse JSON"),
-        cook_and_run_id,
+        project_id,
         new_name,
         new_time,
     );
 }
 
-fn assert_cook_and_run_json(
+fn assert_project_json(
     json: serde_json::Value,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     expected_name: &str,
     expected_time: &DateTime<Utc>,
 ) {
@@ -174,7 +174,7 @@ fn assert_cook_and_run_json(
 
     assert_eq!(
         id,
-        cook_and_run_id.to_string(),
+        project_id.to_string(),
         "Cook and Run ID does not match"
     );
     assert_eq!(name, expected_name, "Cook and Run name does not match");

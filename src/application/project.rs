@@ -2,9 +2,13 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
-    application::plan::mark_plan_stale_if_present, error::AppError, infrastructure::{
-        Database, db::{
-            CourseRepository, ProjectRepository, address::AddressRepository, plan::PlanRepository, point::PointRepository, team::TeamRepository,
+    domain::plan::PlanSortOption,
+    error::AppError,
+    infrastructure::{
+        Database,
+        db::{
+            CourseRepository, ProjectRepository, address::AddressRepository, plan::PlanRepository,
+            point::PointRepository, team::TeamRepository,
         },
     },
 };
@@ -72,11 +76,12 @@ pub async fn get_list_of_project_meta(
     user_id: &str,
     limit: u8,
     offset: u8,
+    sort: PlanSortOption,
 ) -> Result<(u8, Vec<ProjectMeta>), AppError> {
     let mut tx = db.pool.begin().await?;
     let total = ProjectRepository.count_by_user(&mut *tx, &user_id).await?;
     let projects = ProjectRepository
-        .select_page(&mut *tx, user_id, limit, offset)
+        .select_page(&mut *tx, user_id, limit, offset, sort)
         .await?;
     Ok((
         total,
@@ -131,7 +136,7 @@ pub async fn get_project(
     }
 
     //todo catch if no plan is set
-    let plan = PlanRepository.select(&mut *tx, project_id).await?;
+    let plan = PlanRepository.select_unsafe(&mut *tx, project_id).await?;
 
     project.plan = Some(plan);
 
@@ -194,12 +199,12 @@ pub async fn set_project_start_point(
             .await?;
     }
 
-    mark_plan_stale_if_present(&mut tx, project_id, user_id).await?;
+    PlanRepository
+        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .await?;
 
     Ok(())
 }
-
-
 
 pub async fn set_project_end_point(
     db: &mut Database,
@@ -227,7 +232,9 @@ pub async fn set_project_end_point(
             .await?;
     }
 
-    mark_plan_stale_if_present(&mut tx, project_id, user_id).await?;
+    PlanRepository
+        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .await?;
 
     Ok(())
 }
@@ -253,7 +260,9 @@ pub async fn delete_project_start_point(
         .delete(&mut *tx, &point.address.id)
         .await?;
 
-    mark_plan_stale_if_present(&mut tx, project_id, user_id).await?;
+    PlanRepository
+        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .await?;
 
     Ok(())
 }
@@ -279,7 +288,9 @@ pub async fn delete_project_end_point(
         .delete(&mut *tx, &point.address.id)
         .await?;
 
-    mark_plan_stale_if_present(&mut tx, project_id, user_id).await?;
+    PlanRepository
+        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .await?;
 
     Ok(())
 }

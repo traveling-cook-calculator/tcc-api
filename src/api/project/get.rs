@@ -1,7 +1,7 @@
 use axum::{
+    Extension, Json,
     extract::{Path, Query, State},
     response::{IntoResponse, Response},
-    Extension, Json,
 };
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
@@ -10,19 +10,19 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     api::{
-        auth::{is_user_authenticated, AuthUser, AuthenticatedUser, Claims},
+        PaginationInfo, TIME_REGEX,
+        auth::{AuthUser, AuthenticatedUser, Claims, is_user_authenticated},
         common::AddressDTO,
         course::CourseDTO,
         plan::{PlanConfigDTO, PlanDTO},
         sharing::ShareTeamConfigDTO,
         team::TeamDTO,
-        PaginationInfo, TIME_REGEX,
     },
     application::project::{self, ProjectMeta},
-    domain::{project::Point, Project},
+    domain::{Project, plan::PlanSortOption, project::Point},
     error::AppError,
-    AppState,
 };
 
 #[derive(Debug, Deserialize, Validate)]
@@ -45,13 +45,26 @@ impl AuthenticatedUser for ListProjectQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SortOptionDTO {
+enum SortOptionDTO {
     CreatedAsc,
     CreatedDesc,
     NameAsc,
     NameDesc,
     EditedAsc,
     EditedDesc,
+}
+
+impl SortOptionDTO {
+    fn to_domain(self) -> PlanSortOption {
+        match self {
+            SortOptionDTO::CreatedAsc => PlanSortOption::CreatedAsc,
+            SortOptionDTO::CreatedDesc => PlanSortOption::CreatedDesc,
+            SortOptionDTO::NameAsc => PlanSortOption::NameAsc,
+            SortOptionDTO::NameDesc => PlanSortOption::NameDesc,
+            SortOptionDTO::EditedAsc => PlanSortOption::EditedAsc,
+            SortOptionDTO::EditedDesc => PlanSortOption::EditedDesc,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -213,10 +226,16 @@ pub(super) async fn list_projects(
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = (page - 1) * limit;
 
-    todo!("Implement sort projects");
-
-    let (total, data) =
-        project::get_list_of_project_meta(&state.db, &params.user_id, limit, offset).await?;
+    let (total, data) = project::get_list_of_project_meta(
+        &state.db,
+        &params.user_id,
+        limit,
+        offset,
+        params
+            .sort
+            .map_or(PlanSortOption::default(), |s| s.to_domain()),
+    )
+    .await?;
 
     let data = data.iter().map(ProjectMetaDTO::from_domain).collect();
 

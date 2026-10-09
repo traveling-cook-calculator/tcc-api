@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client, get_cook_and_run,
+    create_project, get_client, get_project,
     team::post_test::create_team,
 };
 
@@ -15,24 +15,24 @@ static TEST_DATA: OnceLock<Mutex<TestData>> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct TestData {
-    cook_and_run_id: Uuid,
+    project_id: Uuid,
     team_list: Vec<(Uuid, String)>,
 }
 
 pub fn setup() -> TestData {
     let data = TEST_DATA.get_or_init(|| {
-        let cook_and_run_id = create_cook_and_run();
+        let project_id = create_project();
 
         let (token, user_id) = get_user_1();
         let mut team_list = Vec::new();
         for _ in 0..10 {
             let team_id = Uuid::new_v4();
-            create_team(&cook_and_run_id, &team_id, &user_id, &token);
+            create_team(&project_id, &team_id, &user_id, &token);
             team_list.push((team_id, user_id.clone()));
         }
 
         Mutex::new(TestData {
-            cook_and_run_id,
+            project_id,
             team_list,
         })
     });
@@ -46,7 +46,7 @@ fn test_get_team() {
     let (token, _) = get_user_1();
 
     for team in test_data.team_list {
-        get_team(&test_data.cook_and_run_id, &team.0, &team.1, &token);
+        get_team(&test_data.project_id, &team.0, &team.1, &token);
     }
 }
 
@@ -55,15 +55,15 @@ fn test_get_team_list() {
     let test_data = setup();
     let (token, _) = get_user_1();
 
-    get_team_list(&test_data.cook_and_run_id, &test_data.team_list, &token);
+    get_team_list(&test_data.project_id, &test_data.team_list, &token);
 }
 
 #[test]
-fn test_get_team_list_in_cook_and_run() {
+fn test_get_team_list_in_project() {
     let test_data = setup();
 
-    let cook_and_run = get_cook_and_run(&test_data.cook_and_run_id);
-    assert_cook_and_run_json(&cook_and_run, &test_data.team_list);
+    let project = get_project(&test_data.project_id);
+    assert_project_json(&project, &test_data.team_list);
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn test_get_team_not_found() {
     let test_data = setup();
     let (token, _) = get_user_1();
 
-    let res = execute_get(&test_data.cook_and_run_id, &Uuid::new_v4(), &token);
+    let res = execute_get(&test_data.project_id, &Uuid::new_v4(), &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
@@ -81,7 +81,7 @@ fn test_get_team_wrong_user() {
     let (token, _) = get_user_2();
 
     for team in test_data.team_list {
-        let res = execute_get(&test_data.cook_and_run_id, &team.0, &token);
+        let res = execute_get(&test_data.project_id, &team.0, &token);
         assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
     }
 }
@@ -91,19 +91,19 @@ fn test_get_team_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_user_2();
 
-    get_team_list(&test_data.cook_and_run_id, &[], &token);
+    get_team_list(&test_data.project_id, &[], &token);
 }
 
 pub fn execute_get(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     token: &str,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -111,8 +111,8 @@ pub fn execute_get(
         .expect("Failed to send request")
 }
 
-pub fn get_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token: &str) {
-    let res = execute_get(cook_and_run_id, team_id, token);
+pub fn get_team(project_id: &Uuid, team_id: &Uuid, user_id: &str, token: &str) {
+    let res = execute_get(project_id, team_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     // Organizer-created teams (as used throughout this fixture) always
     // start "active" — `default_needs_check` only affects non-owner,
@@ -131,12 +131,12 @@ pub fn get_team(cook_and_run_id: &Uuid, team_id: &Uuid, user_id: &str, token: &s
     );
 }
 
-fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
+fn execute_get_list(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/teams",
-            base_url, cook_and_run_id
+            "{}/project/{}/teams",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -144,8 +144,8 @@ fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::R
         .expect("Failed to send request")
 }
 
-pub fn get_team_list(cook_and_run_id: &Uuid, expected_team_id: &[(Uuid, String)], token: &str) {
-    let res = execute_get_list(cook_and_run_id, token);
+pub fn get_team_list(project_id: &Uuid, expected_team_id: &[(Uuid, String)], token: &str) {
+    let res = execute_get_list(project_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Expect json");
@@ -169,7 +169,7 @@ pub fn get_team_list(cook_and_run_id: &Uuid, expected_team_id: &[(Uuid, String)]
     }
 }
 
-fn assert_cook_and_run_json(json: &serde_json::Value, expected_team_id: &[(Uuid, String)]) {
+fn assert_project_json(json: &serde_json::Value, expected_team_id: &[(Uuid, String)]) {
     let team_list = json
         .get("team_list")
         .and_then(|v| v.as_array())

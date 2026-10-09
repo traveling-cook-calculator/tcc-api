@@ -4,17 +4,17 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client, get_cook_and_run,
+    create_project, get_client, get_project,
     sharing::setup,
 };
 
 #[test]
 fn test_get_share_config() {
-    let cook_and_run_id = setup();
+    let project_id = setup();
     let (token, _) = get_user_1();
 
     get_share_config(
-        &cook_and_run_id,
+        &project_id,
         &token,
         true,
         true,
@@ -34,10 +34,10 @@ fn test_get_share_config() {
 
 #[test]
 fn test_get_share_config_list() {
-    let cook_and_run_id = setup();
+    let project_id = setup();
 
-    get_share_config_cook_and_run(
-        &cook_and_run_id,
+    get_share_config_project(
+        &project_id,
         true,
         true,
         &vec![
@@ -56,10 +56,10 @@ fn test_get_share_config_list() {
 
 #[test]
 fn test_get_share_config_not_found() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
 
-    let res = execute_get(&cook_and_run_id, &token);
+    let res = execute_get(&project_id, &token);
     assert_eq!(
         res.status(),
         StatusCode::NOT_FOUND,
@@ -70,19 +70,19 @@ fn test_get_share_config_not_found() {
 
 #[test]
 fn test_get_share_config_wrong_user() {
-    let cook_and_run_id = setup();
+    let project_id = setup();
     let (token, _) = get_user_2();
 
-    let res = execute_get(&cook_and_run_id, &token);
+    let res = execute_get(&project_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
-pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
+pub fn execute_get(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/share_team_config",
-            base_url, cook_and_run_id
+            "{}/project/{}/share_team_config",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -92,7 +92,7 @@ pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Re
 
 #[allow(clippy::too_many_arguments)]
 pub fn get_share_config(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
     expected_require_email_verification: bool,
     expected_default_needs_check: bool,
@@ -103,7 +103,7 @@ pub fn get_share_config(
     expected_review_trigger_fields: &Vec<String>,
     expected_notify_admin_on_review: bool,
 ) {
-    let res = execute_get(cook_and_run_id, token);
+    let res = execute_get(project_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     assert_share_config_json(
         &res.json().expect("Failed to parse JSON"),
@@ -119,8 +119,8 @@ pub fn get_share_config(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn get_share_config_cook_and_run(
-    cook_and_run_id: &Uuid,
+pub fn get_share_config_project(
+    project_id: &Uuid,
     expected_require_email_verification: bool,
     expected_default_needs_check: bool,
     expected_required_fields: &Vec<String>,
@@ -130,7 +130,7 @@ pub fn get_share_config_cook_and_run(
     expected_review_trigger_fields: &Vec<String>,
     expected_notify_admin_on_review: bool,
 ) {
-    let res = get_cook_and_run(cook_and_run_id);
+    let res = get_project(project_id);
 
     let share_config_list = res
         .get("share_team_config")

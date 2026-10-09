@@ -1,6 +1,6 @@
 use crate::{
     auth::get_user_1,
-    create_cook_and_run,
+    create_project,
     email::{
         create_self_service_team_with_mail, message_body, set_plan_config_language,
         unique_test_email, wait_for_message_to,
@@ -8,9 +8,9 @@ use crate::{
     sharing::post_test::create_share_config_default,
 };
 
-fn invitation_body_for(cook_and_run_id: &uuid::Uuid, label: &str) -> String {
+fn invitation_body_for(project_id: &uuid::Uuid, label: &str) -> String {
     let mail = unique_test_email(label);
-    create_self_service_team_with_mail(cook_and_run_id, &mail);
+    create_self_service_team_with_mail(project_id, &mail);
     message_body(&wait_for_message_to(&mail, 15))
 }
 
@@ -22,10 +22,10 @@ fn invitation_body_for(cook_and_run_id: &uuid::Uuid, label: &str) -> String {
 /// identical teams, which is the part we can verify without guessing.
 #[test]
 fn test_invitation_email_language_differs_between_deutsch_and_english() {
-    let cook_and_run_de = create_cook_and_run();
+    let project_de = create_project();
     let (admin_token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_de,
+        &project_de,
         &admin_token,
         false,
         false,
@@ -33,12 +33,12 @@ fn test_invitation_email_language_differs_between_deutsch_and_english() {
         &None,
         &None,
     );
-    set_plan_config_language(&cook_and_run_de, "Deutsch");
-    let body_de = invitation_body_for(&cook_and_run_de, "lang-de");
+    set_plan_config_language(&project_de, "Deutsch");
+    let body_de = invitation_body_for(&project_de, "lang-de");
 
-    let cook_and_run_en = create_cook_and_run();
+    let project_en = create_project();
     create_share_config_default(
-        &cook_and_run_en,
+        &project_en,
         &admin_token,
         false,
         false,
@@ -46,8 +46,8 @@ fn test_invitation_email_language_differs_between_deutsch_and_english() {
         &None,
         &None,
     );
-    set_plan_config_language(&cook_and_run_en, "English");
-    let body_en = invitation_body_for(&cook_and_run_en, "lang-en");
+    set_plan_config_language(&project_en, "English");
+    let body_en = invitation_body_for(&project_en, "lang-en");
 
     assert_ne!(
         body_de, body_en,
@@ -64,9 +64,9 @@ fn test_invitation_email_language_differs_between_deutsch_and_english() {
 fn test_invitation_email_defaults_to_german_without_plan_config() {
     let (admin_token, _) = get_user_1();
 
-    let cook_and_run_explicit_de = create_cook_and_run();
+    let project_explicit_de = create_project();
     create_share_config_default(
-        &cook_and_run_explicit_de,
+        &project_explicit_de,
         &admin_token,
         false,
         false,
@@ -74,12 +74,12 @@ fn test_invitation_email_defaults_to_german_without_plan_config() {
         &None,
         &None,
     );
-    set_plan_config_language(&cook_and_run_explicit_de, "Deutsch");
-    let body_explicit_de = invitation_body_for(&cook_and_run_explicit_de, "lang-explicit-de");
+    set_plan_config_language(&project_explicit_de, "Deutsch");
+    let body_explicit_de = invitation_body_for(&project_explicit_de, "lang-explicit-de");
 
-    let cook_and_run_no_config = create_cook_and_run();
+    let project_no_config = create_project();
     create_share_config_default(
-        &cook_and_run_no_config,
+        &project_no_config,
         &admin_token,
         false,
         false,
@@ -88,7 +88,7 @@ fn test_invitation_email_defaults_to_german_without_plan_config() {
         &None,
     );
     // No plan_config PATCH at all for this project.
-    let body_default = invitation_body_for(&cook_and_run_no_config, "lang-default");
+    let body_default = invitation_body_for(&project_no_config, "lang-default");
 
     assert_eq!(
         body_explicit_de, body_default,

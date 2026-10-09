@@ -1,11 +1,10 @@
 use uuid::Uuid;
 
-use crate::{auth::get_user_1, cook_and_run::post_test::get_cook_and_run_create_json};
+use crate::{auth::get_user_1, project::post_test::get_project_create_json};
 
 mod auth;
-mod cook_and_run;
+mod project;
 mod course;
-mod email;
 mod health;
 mod plan;
 mod plan_config;
@@ -19,16 +18,16 @@ fn get_client() -> (reqwest::blocking::Client, String) {
     )
 }
 
-pub fn create_cook_and_run() -> Uuid {
+pub fn create_project() -> Uuid {
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    cook_and_run::post_test::create_cook_and_run(&cook_and_run_id, payload, &token);
-    cook_and_run_id
+    let (project_id, payload) = get_project_create_json(&user_id);
+    project::post_test::create_project(&project_id, payload, &token);
+    project_id
 }
 
-pub fn get_cook_and_run(cook_and_run_id: &Uuid) -> serde_json::Value {
+pub fn get_project(project_id: &Uuid) -> serde_json::Value {
     let (token, _) = get_user_1();
-    let res = cook_and_run::get_test::execute_get(cook_and_run_id, &token);
+    let res = project::get_test::execute_get(project_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     res.json().expect("Failed to parse JSON")
 }

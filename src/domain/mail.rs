@@ -33,7 +33,8 @@ pub enum EmailStatus {
 #[derive(Debug, Clone, Serialize)]
 pub enum AdminNotificationReason {
     TeamRegestration,
-    TeamUpdate
+    TeamUpdate,
+    TeamCanceled,
 }
 
 #[derive(Debug, Clone, Serialize)]

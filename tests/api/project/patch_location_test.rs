@@ -5,9 +5,9 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    cook_and_run::{
-        get_test::{execute_get, get_cook_and_run},
-        post_test::{create_cook_and_run, get_cook_and_run_create_json},
+    project::{
+        get_test::{execute_get, get_project},
+        post_test::{create_project, get_project_create_json},
     },
     get_client,
 };
@@ -15,46 +15,46 @@ use crate::{
 #[test]
 fn test_patch_start_point() {
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token);
-    patch_start_point_cook_and_run(&cook_and_run_id, &token);
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token);
+    patch_start_point_project(&project_id, &token);
 }
 
 #[test]
 fn test_patch_end_point() {
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token);
-    patch_end_point_cook_and_run(&cook_and_run_id, &token);
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token);
+    patch_end_point_project(&project_id, &token);
 }
 
 #[test]
 fn test_patch_combinded_point() {
     let (token, user_id) = get_user_1();
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id);
-    create_cook_and_run(&cook_and_run_id, payload, &token);
+    let (project_id, payload) = get_project_create_json(&user_id);
+    create_project(&project_id, payload, &token);
 
     let (addr_start, payload_start) = get_point_create_json();
     let (addr_end, payload_end) = get_point_create_json();
 
-    let res = execute_patch_start_point(&cook_and_run_id, &token, &payload_start);
+    let res = execute_patch_start_point(&project_id, &token, &payload_start);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(&cook_and_run_id, &token);
-    assert_cook_and_run_json(
+    let res = execute_get(&project_id, &token);
+    assert_project_json(
         res.json().expect("Failed to parse JSON"),
-        &cook_and_run_id,
+        &project_id,
         Some(&addr_start),
         None,
     );
 
-    let res = execute_patch_end_point(&cook_and_run_id, &token, &payload_end);
+    let res = execute_patch_end_point(&project_id, &token, &payload_end);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(&cook_and_run_id, &token);
-    assert_cook_and_run_json(
+    let res = execute_get(&project_id, &token);
+    assert_project_json(
         res.json().expect("Failed to parse JSON"),
-        &cook_and_run_id,
+        &project_id,
         Some(&addr_start),
         Some(&addr_end),
     );
@@ -65,14 +65,14 @@ fn test_patch_start_point_wrong_user() {
     let (token_1, user_id_1) = get_user_1();
     let (token_2, _) = get_user_2();
 
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id_1);
-    create_cook_and_run(&cook_and_run_id, payload, &token_1);
+    let (project_id, payload) = get_project_create_json(&user_id_1);
+    create_project(&project_id, payload, &token_1);
 
     let (_, payload) = get_point_create_json();
-    let res = execute_patch_start_point(&cook_and_run_id, &token_2, &payload);
+    let res = execute_patch_start_point(&project_id, &token_2, &payload);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    get_cook_and_run(&cook_and_run_id, &token_1);
+    get_project(&project_id, &token_1);
 }
 
 #[test]
@@ -80,26 +80,26 @@ fn test_patch_end_point_wrong_user() {
     let (token_1, user_id_1) = get_user_1();
     let (token_2, _) = get_user_2();
 
-    let (cook_and_run_id, payload) = get_cook_and_run_create_json(&user_id_1);
-    create_cook_and_run(&cook_and_run_id, payload, &token_1);
+    let (project_id, payload) = get_project_create_json(&user_id_1);
+    create_project(&project_id, payload, &token_1);
 
     let (_, payload) = get_point_create_json();
-    let res = execute_patch_end_point(&cook_and_run_id, &token_2, &payload);
+    let res = execute_patch_end_point(&project_id, &token_2, &payload);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    get_cook_and_run(&cook_and_run_id, &token_1);
+    get_project(&project_id, &token_1);
 }
 
 fn execute_patch_start_point(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
     payload: &serde_json::Value,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .patch(format!(
-            "{}/cook_and_run/{}/start_point",
-            base_url, cook_and_run_id
+            "{}/project/{}/start_point",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -109,15 +109,15 @@ fn execute_patch_start_point(
 }
 
 fn execute_patch_end_point(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
     payload: &serde_json::Value,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .patch(format!(
-            "{}/cook_and_run/{}/end_point",
-            base_url, cook_and_run_id
+            "{}/project/{}/end_point",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -126,39 +126,39 @@ fn execute_patch_end_point(
         .expect("Failed to send request")
 }
 
-pub fn patch_start_point_cook_and_run(cook_and_run_id: &Uuid, token: &str) -> String {
+pub fn patch_start_point_project(project_id: &Uuid, token: &str) -> String {
     let (addr, payload) = get_point_create_json();
-    let res = execute_patch_start_point(cook_and_run_id, token, &payload);
+    let res = execute_patch_start_point(project_id, token, &payload);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(cook_and_run_id, token);
-    assert_cook_and_run_json(
+    let res = execute_get(project_id, token);
+    assert_project_json(
         res.json().expect("Failed to parse JSON"),
-        cook_and_run_id,
+        project_id,
         Some(&addr),
         None,
     );
     addr
 }
 
-pub fn patch_end_point_cook_and_run(cook_and_run_id: &Uuid, token: &str) -> String {
+pub fn patch_end_point_project(project_id: &Uuid, token: &str) -> String {
     let (addr, payload) = get_point_create_json();
-    let res = execute_patch_end_point(cook_and_run_id, token, &payload);
+    let res = execute_patch_end_point(project_id, token, &payload);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(cook_and_run_id, token);
-    assert_cook_and_run_json(
+    let res = execute_get(project_id, token);
+    assert_project_json(
         res.json().expect("Failed to parse JSON"),
-        cook_and_run_id,
+        project_id,
         None,
         Some(&addr),
     );
     addr
 }
 
-pub fn assert_cook_and_run_json(
+pub fn assert_project_json(
     json: serde_json::Value,
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     expected_start_point: Option<&str>,
     expected_end_point: Option<&str>,
 ) {
@@ -168,7 +168,7 @@ pub fn assert_cook_and_run_json(
 
     assert_eq!(
         id,
-        cook_and_run_id.to_string(),
+        project_id.to_string(),
         "Cook and Run ID does not match. Response: {}",
         json
     );

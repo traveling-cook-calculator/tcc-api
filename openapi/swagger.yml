@@ -1,8 +1,8 @@
 # NOTE ON SOURCES
 # This file was rewritten from scratch rather than incrementally patched.
 # It is based on:
-#   1. The full REST layer for cook_and_run, team, sharing, and plan
-#      (src/rest/cook_and_run.rs, team.rs, sharing.rs, plan.rs, auth.rs,
+#   1. The full REST layer for project, team, sharing, and plan
+#      (src/rest/project.rs, team.rs, sharing.rs, plan.rs, auth.rs,
 #      models.rs) as finalized in the v0.2.0 email/self-service feature work.
 #   2. The previous swagger.yml, for the Courses and Team Notes sections
 #      ONLY — those REST handlers (src/rest/course.rs, note.rs) were not
@@ -112,7 +112,7 @@ paths:
       tags:
         - Health
 
-  /cook_and_run:
+  /project:
     get:
       summary: List all cook and run projects for a user
       description: |
@@ -177,7 +177,7 @@ paths:
       tags:
         - Cook and Run
 
-  /cook_and_run/{cookAndRunId}:
+  /project/{cookAndRunId}:
     post:
       summary: Create a new cook and run project
       description: |
@@ -251,7 +251,7 @@ paths:
       tags:
         - Cook and Run
 
-  /cook_and_run/{cookAndRunId}/metadata:
+  /project/{cookAndRunId}/metadata:
     get:
       summary: Get project metadata
       operationId: getCookAndRunMetadata
@@ -305,7 +305,7 @@ paths:
       tags:
         - Cook and Run
 
-  /cook_and_run/{cookAndRunId}/start_point:
+  /project/{cookAndRunId}/start_point:
     get:
       summary: Get the start point
       operationId: getStartPoint
@@ -378,7 +378,7 @@ paths:
       tags:
         - Locations
 
-  /cook_and_run/{cookAndRunId}/end_point:
+  /project/{cookAndRunId}/end_point:
     get:
       summary: Get the end point
       operationId: getEndPoint
@@ -448,7 +448,7 @@ paths:
       tags:
         - Locations
 
-  /cook_and_run/{cookAndRunId}/courses:
+  /project/{cookAndRunId}/courses:
     get:
       summary: List all courses
       description: 'Not part of the v0.2.0 feature work — carried forward, see the file header note.'
@@ -487,7 +487,7 @@ paths:
       tags:
         - Courses
 
-  /cook_and_run/{cookAndRunId}/course/{courseId}:
+  /project/{cookAndRunId}/course/{courseId}:
     post:
       summary: Create a course
       description: 'Client-generated ID (same pattern as team creation). Not part of the v0.2.0 feature work — see file header note.'
@@ -586,7 +586,7 @@ paths:
       tags:
         - Courses
 
-  /cook_and_run/{cookAndRunId}/teams:
+  /project/{cookAndRunId}/teams:
     get:
       summary: List all teams
       description: |
@@ -641,7 +641,7 @@ paths:
       tags:
         - Teams
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}:
+  /project/{cookAndRunId}/team/{teamId}:
     post:
       summary: Create (register) a team
       description: |
@@ -812,7 +812,7 @@ paths:
       tags:
         - Teams
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}/audit-log:
+  /project/{cookAndRunId}/team/{teamId}/audit-log:
     get:
       summary: Get a team's change history
       description: Organizer only. Records creation, updates (with before/after diffs), cancellation, and plan-invalidation events.
@@ -853,7 +853,7 @@ paths:
       tags:
         - Teams
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}/resend-verification:
+  /project/{cookAndRunId}/team/{teamId}/resend-verification:
     post:
       summary: Resend the verification email (dual authentication)
       description: |
@@ -890,7 +890,7 @@ paths:
       tags:
         - Teams
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}/cancel:
+  /project/{cookAndRunId}/team/{teamId}/cancel:
     post:
       summary: Cancel the team (participant only)
       description: |
@@ -931,7 +931,7 @@ paths:
       tags:
         - Teams
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}/verify:
+  /project/{cookAndRunId}/team/{teamId}/verify:
     post:
       summary: Confirm the team's email address (participant only)
       description: |
@@ -962,7 +962,7 @@ paths:
       tags:
         - Teams
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}/notes:
+  /project/{cookAndRunId}/team/{teamId}/notes:
     get:
       summary: List all notes for a team
       description: 'Not part of the v0.2.0 feature work — carried forward, see the file header note.'
@@ -1002,7 +1002,7 @@ paths:
       tags:
         - Team Notes
 
-  /cook_and_run/{cookAndRunId}/team/{teamId}/note/{noteId}:
+  /project/{cookAndRunId}/team/{teamId}/note/{noteId}:
     get:
       summary: Get a note
       operationId: getNote
@@ -1077,7 +1077,7 @@ paths:
       tags:
         - Team Notes
 
-  /cook_and_run/{cookAndRunId}/share_team_config:
+  /project/{cookAndRunId}/share_team_config:
     post:
       summary: Create the team self-registration configuration
       description: |
@@ -1178,7 +1178,7 @@ paths:
       tags:
         - Team Sharing
 
-  /cook_and_run/{cookAndRunId}/plan:
+  /project/{cookAndRunId}/plan:
     get:
       summary: Get the computed plan
       description: |
@@ -1256,7 +1256,7 @@ paths:
       tags:
         - Event Planning
 
-  /cook_and_run/{cookAndRunId}/plan/confirm:
+  /project/{cookAndRunId}/plan/confirm:
     post:
       summary: Confirm the current plan is still valid
       description: |
@@ -1282,7 +1282,7 @@ paths:
       tags:
         - Event Planning
 
-  /cook_and_run/{cookAndRunId}/plan/send-route-mails:
+  /project/{cookAndRunId}/plan/send-route-mails:
     post:
       summary: Send route emails to teams (smart update)
       description: |
@@ -1326,7 +1326,7 @@ paths:
       tags:
         - Event Planning
 
-  /cook_and_run/{cookAndRunId}/plan_config:
+  /project/{cookAndRunId}/plan_config:
     get:
       summary: Get the plan configuration
       operationId: getPlanConfig
@@ -1643,12 +1643,12 @@ components:
 
     Team:
       type: object
-      required: [id, cook_and_run_id, name, address, note_list, created, edited, status]
+      required: [id, project_id, name, address, note_list, created, edited, status]
       properties:
         id:
           type: string
           format: uuid
-        cook_and_run_id:
+        project_id:
           type: string
           format: uuid
         name:

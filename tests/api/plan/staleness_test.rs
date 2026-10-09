@@ -1,18 +1,12 @@
 use crate::{
-    auth::get_user_1,
-    create_cook_and_run, get_cook_and_run,
-    plan::{
-        change_team_address, hard_delete_team, patch_test::patch_plan, plan_json_referencing_team,
-        set_start_point,
-    },
-    team::{
+    auth::get_user_1, create_project, get_project, plan::{change_team_address, hard_delete_team, patch_test::patch_plan, plan_json_referencing_team, set_start_point}, team::{
         post_test::create_team,
         self_service::{create_self_service_team_in, execute_cancel},
     },
 };
 
-fn is_stale(cook_and_run_id: &uuid::Uuid) -> bool {
-    let json = get_cook_and_run(cook_and_run_id);
+fn is_stale(project_id: &uuid::Uuid) -> bool {
+    let json = get_project(project_id);
     json.get("plan")
         .and_then(|plan| plan.get("stale_since"))
         .is_some_and(|v| !v.is_null())
@@ -23,20 +17,20 @@ fn is_stale(cook_and_run_id: &uuid::Uuid) -> bool {
 /// team is actually referenced in the plan." (§4.6)
 #[test]
 fn test_address_change_of_referenced_team_marks_plan_stale() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = uuid::Uuid::new_v4();
     let guest_id = uuid::Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token);
+    create_team(&project_id, &host_id, &user_id, &token);
+    create_team(&project_id, &guest_id, &user_id, &token);
 
     let payload = plan_json_referencing_team(&host_id, &[guest_id]);
     let (client, base_url) = crate::get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/plan",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -45,12 +39,12 @@ fn test_address_change_of_referenced_team_marks_plan_stale() {
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    assert!(!is_stale(&cook_and_run_id), "plan should start fresh");
+    assert!(!is_stale(&project_id), "plan should start fresh");
 
-    change_team_address(&cook_and_run_id, &host_id);
+    change_team_address(&project_id, &host_id);
 
     assert!(
-        is_stale(&cook_and_run_id),
+        is_stale(&project_id),
         "changing a referenced team's address should mark the plan stale"
     );
 }
@@ -58,20 +52,20 @@ fn test_address_change_of_referenced_team_marks_plan_stale() {
 /// Companion rule: "Unrelated teams do not trigger staleness."
 #[test]
 fn test_address_change_of_unrelated_team_does_not_mark_plan_stale() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = uuid::Uuid::new_v4();
     let guest_id = uuid::Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token);
+    create_team(&project_id, &host_id, &user_id, &token);
+    create_team(&project_id, &guest_id, &user_id, &token);
 
     let payload = plan_json_referencing_team(&host_id, &[guest_id]);
     let (client, base_url) = crate::get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/plan",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -82,11 +76,11 @@ fn test_address_change_of_unrelated_team_does_not_mark_plan_stale() {
 
     // A third team that the plan above never mentions.
     let unrelated_id = uuid::Uuid::new_v4();
-    create_team(&cook_and_run_id, &unrelated_id, &user_id, &token);
-    change_team_address(&cook_and_run_id, &unrelated_id);
+    create_team(&project_id, &unrelated_id, &user_id, &token);
+    change_team_address(&project_id, &unrelated_id);
 
     assert!(
-        !is_stale(&cook_and_run_id),
+        !is_stale(&project_id),
         "changing an unrelated team's address should not mark the plan stale"
     );
 }
@@ -94,19 +88,19 @@ fn test_address_change_of_unrelated_team_does_not_mark_plan_stale() {
 /// "... or is canceled (via ... self-service update) ..." (§4.6)
 #[test]
 fn test_cancellation_of_referenced_team_marks_plan_stale() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = uuid::Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    let (guest_id, guest_access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    create_team(&project_id, &host_id, &user_id, &token);
+    let (guest_id, guest_access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = plan_json_referencing_team(&host_id, &[guest_id]);
     let (client, base_url) = crate::get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/plan",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -115,10 +109,10 @@ fn test_cancellation_of_referenced_team_marks_plan_stale() {
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    assert!(!is_stale(&cook_and_run_id), "plan should start fresh");
+    assert!(!is_stale(&project_id), "plan should start fresh");
 
     let res = execute_cancel(
-        &cook_and_run_id,
+        &project_id,
         &guest_id,
         None,
         Some(&guest_access_token),
@@ -127,7 +121,7 @@ fn test_cancellation_of_referenced_team_marks_plan_stale() {
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     assert!(
-        is_stale(&cook_and_run_id),
+        is_stale(&project_id),
         "canceling a referenced team should mark the plan stale"
     );
 }
@@ -137,12 +131,12 @@ fn test_cancellation_of_referenced_team_marks_plan_stale() {
 /// (§4.6)
 #[test]
 fn test_first_staleness_occurrence_wins() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
-    patch_plan(&cook_and_run_id, &token);
+    patch_plan(&project_id, &token);
 
-    set_start_point(&cook_and_run_id);
-    let first = get_cook_and_run(&cook_and_run_id);
+    set_start_point(&project_id);
+    let first = get_project(&project_id);
     let first_stale_since = first
         .get("plan")
         .and_then(|p| p.get("stale_since"))
@@ -153,8 +147,8 @@ fn test_first_staleness_occurrence_wins() {
     // A second, independent staleness trigger (a full plan re-PATCH isn't
     // one — see `patch::test_patch_plan` — so reuse start_point, which is
     // itself idempotent-safe to call twice).
-    set_start_point(&cook_and_run_id);
-    let second = get_cook_and_run(&cook_and_run_id);
+    set_start_point(&project_id);
+    let second = get_project(&project_id);
     let second_stale_since = second
         .get("plan")
         .and_then(|p| p.get("stale_since"))
@@ -173,14 +167,14 @@ fn test_first_staleness_occurrence_wins() {
 /// staleness here really is unconditional.
 #[test]
 fn test_start_point_change_marks_plan_stale_unconditionally() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
-    patch_plan(&cook_and_run_id, &token);
+    patch_plan(&project_id, &token);
 
-    assert!(!is_stale(&cook_and_run_id), "plan should start fresh");
-    set_start_point(&cook_and_run_id);
+    assert!(!is_stale(&project_id), "plan should start fresh");
+    set_start_point(&project_id);
     assert!(
-        is_stale(&cook_and_run_id),
+        is_stale(&project_id),
         "setting the start point should mark the plan stale, regardless of which teams it references"
     );
 }
@@ -189,20 +183,20 @@ fn test_start_point_change_marks_plan_stale_unconditionally() {
 /// the same staleness check applies ..." (§4.6)
 #[test]
 fn test_hard_delete_of_referenced_team_marks_plan_stale() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = uuid::Uuid::new_v4();
     let guest_id = uuid::Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token);
+    create_team(&project_id, &host_id, &user_id, &token);
+    create_team(&project_id, &guest_id, &user_id, &token);
 
     let payload = plan_json_referencing_team(&host_id, &[guest_id]);
     let (client, base_url) = crate::get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/plan",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -211,12 +205,12 @@ fn test_hard_delete_of_referenced_team_marks_plan_stale() {
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    assert!(!is_stale(&cook_and_run_id), "plan should start fresh");
+    assert!(!is_stale(&project_id), "plan should start fresh");
 
-    hard_delete_team(&cook_and_run_id, &guest_id);
+    hard_delete_team(&project_id, &guest_id);
 
     assert!(
-        is_stale(&cook_and_run_id),
+        is_stale(&project_id),
         "hard-deleting a referenced team should mark the plan stale"
     );
 }

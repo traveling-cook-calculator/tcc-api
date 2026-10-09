@@ -1,22 +1,17 @@
 use uuid::Uuid;
 
 use crate::{
-    db::Database,
+    domain::audit_log::AuditLog,
     error::AppError,
-    infrastructure::db::team::TeamRepository,
-    infrastructure::db::audit_log::AuditLogRepository,
-};
-
-// Re-exported as-is: `TeamAuditLogEntry` already has exactly the shape
-// (id, actor_type, actor_label, action, changes, created_at) the API
-// layer's `AuditLogDTO::from` expects.
-pub use crate::infrastructure::db::audit_log::{
-    AuditAction, AuditActorType, TeamAuditLogEntry as AuditLogEntry,
+    infrastructure::{
+        Database,
+        db::{audit_log::AuditLogRepository, team::TeamRepository},
+    },
 };
 
 pub struct AuditLogPage {
-    pub entries: Vec<AuditLogEntry>,
-    pub total: u64,
+    pub entries: Vec<AuditLog>,
+    pub total: u8,
 }
 
 pub async fn get_for_team(
@@ -24,24 +19,24 @@ pub async fn get_for_team(
     team_id: &Uuid,
     project_id: &Uuid,
     user_id: &str,
-    page: u32,
-    limit: u32,
+    page: u8,
+    limit: u8,
 ) -> Result<AuditLogPage, AppError> {
     let mut tx = db.pool.begin().await?;
 
-    // Ownership check: the team must belong to project_id/user_id before
-    // its history is exposed to that admin.
     TeamRepository
         .select_to_check_existinse(&mut *tx, team_id, project_id, user_id)
         .await?;
 
     let offset = (page.max(1) - 1) as i64 * limit as i64;
-    let (entries, total) = AuditLogRepository
+    let entries = AuditLogRepository
         .select_for_team(&mut *tx, team_id, limit as i64, offset)
         .await?;
 
+    let count = AuditLogRepository.count_by_team(&mut *tx, team_id).await?;
+
     Ok(AuditLogPage {
         entries,
-        total: total as u64,
+        total: count as u8,
     })
 }

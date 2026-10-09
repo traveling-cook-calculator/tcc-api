@@ -1,7 +1,7 @@
 use axum::{
-    extract::{Path, Query, State},
-    response::{IntoResponse, Json, Response},
     Extension,
+    extract::{Path, State},
+    response::{IntoResponse, Json, Response},
 };
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -9,18 +9,7 @@ use uuid::Uuid;
 
 use crate::{AppState, api::auth::Claims, application::course, domain::Course, error::AppError};
 
-#[derive(Debug, Deserialize)]
-pub struct ListCoursesQuery {
-    pub sort: Option<CourseSortOption>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CourseSortOption {
-    TimeAsc,
-    TimeDesc,
-}
-
+ 
 #[derive(Debug, Serialize)]
 pub struct CourseListDTO {
     pub data: Vec<CourseDTO>,
@@ -61,7 +50,6 @@ pub(super) async fn list_courses(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    Query(_): Query<ListCoursesQuery>,
 ) -> Result<CourseListDTO, AppError> {
     let result: Vec<CourseDTO> = course::get_list(&state.db, &project_id, &claims.sub)
         .await?

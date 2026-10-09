@@ -17,6 +17,7 @@ pub enum Language {
 
 #[derive(Debug, Clone)]
 pub struct PlanConfig {
+    pub id: Uuid,
     pub access: Vec<Access>,
     pub title: String,
     pub description: String,
@@ -42,4 +43,20 @@ pub struct Plan {
     /// means the plan is current. Populated separately in `get_by_id`
     /// (see below) rather than stored on `db::models::Plan` itself.
     pub stale_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug)]
+pub enum PlanSortOption {
+    CreatedAsc,
+    CreatedDesc,
+    NameAsc,
+    NameDesc,
+    EditedAsc,
+    EditedDesc,
+}
+
+impl Default for PlanSortOption {
+    fn default() -> Self {
+        PlanSortOption::NameAsc
+    }
 }

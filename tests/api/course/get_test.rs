@@ -7,31 +7,31 @@ use uuid::Uuid;
 use crate::{
     auth::{get_user_1, get_user_2},
     course::post_test::create_course,
-    create_cook_and_run, get_client, get_cook_and_run,
+    create_project, get_client, get_project,
 };
 
 static TEST_DATA: OnceLock<Mutex<TestData>> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct TestData {
-    cook_and_run_id: Uuid,
+    project_id: Uuid,
     course_list: Vec<Uuid>,
 }
 
 pub fn setup() -> TestData {
     let data = TEST_DATA.get_or_init(|| {
-        let cook_and_run_id = create_cook_and_run();
+        let project_id = create_project();
 
         let (token, _) = get_user_1();
         let mut course_list = Vec::new();
         for _ in 0..10 {
             let course_id = Uuid::new_v4();
-            create_course(&cook_and_run_id, &course_id, &token);
+            create_course(&project_id, &course_id, &token);
             course_list.push(course_id);
         }
 
         Mutex::new(TestData {
-            cook_and_run_id,
+            project_id,
             course_list,
         })
     });
@@ -45,7 +45,7 @@ fn test_get_course() {
     let (token, _) = get_user_1();
 
     for course in test_data.course_list {
-        get_course(&test_data.cook_and_run_id, &course, &token);
+        get_course(&test_data.project_id, &course, &token);
     }
 }
 
@@ -54,15 +54,15 @@ fn test_get_course_list() {
     let test_data = setup();
     let (token, _) = get_user_1();
 
-    get_course_list(&test_data.cook_and_run_id, &test_data.course_list, &token);
+    get_course_list(&test_data.project_id, &test_data.course_list, &token);
 }
 
 #[test]
-fn test_get_course_list_in_cook_and_run() {
+fn test_get_course_list_in_project() {
     let test_data = setup();
 
-    let cook_and_run = get_cook_and_run(&test_data.cook_and_run_id);
-    assert_cook_and_run_json(&cook_and_run, &test_data.course_list);
+    let project = get_project(&test_data.project_id);
+    assert_project_json(&project, &test_data.course_list);
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn test_get_course_not_found() {
     let test_data = setup();
     let (token, _) = get_user_1();
 
-    let res = execute_get(&test_data.cook_and_run_id, &Uuid::new_v4(), &token);
+    let res = execute_get(&test_data.project_id, &Uuid::new_v4(), &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
@@ -80,7 +80,7 @@ fn test_get_course_wrong_user() {
     let (token, _) = get_user_2();
 
     for course in test_data.course_list {
-        let res = execute_get(&test_data.cook_and_run_id, &course, &token);
+        let res = execute_get(&test_data.project_id, &course, &token);
         assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
     }
 }
@@ -90,19 +90,19 @@ fn test_get_course_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_user_2();
 
-    get_course_list(&test_data.cook_and_run_id, &[], &token);
+    get_course_list(&test_data.project_id, &[], &token);
 }
 
 pub fn execute_get(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     course_id: &Uuid,
     token: &str,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/course/{}",
-            base_url, cook_and_run_id, course_id
+            "{}/project/{}/course/{}",
+            base_url, project_id, course_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -110,18 +110,18 @@ pub fn execute_get(
         .expect("Failed to send request")
 }
 
-pub fn get_course(cook_and_run_id: &Uuid, course_id: &Uuid, token: &str) {
-    let res = execute_get(cook_and_run_id, course_id, token);
+pub fn get_course(project_id: &Uuid, course_id: &Uuid, token: &str) {
+    let res = execute_get(project_id, course_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     assert_course_json(&res.json().expect("Failed to parse JSON"), course_id, false);
 }
 
-fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
+fn execute_get_list(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/courses",
-            base_url, cook_and_run_id
+            "{}/project/{}/courses",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -129,8 +129,8 @@ fn execute_get_list(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::R
         .expect("Failed to send request")
 }
 
-pub fn get_course_list(cook_and_run_id: &Uuid, expected_course_id: &[Uuid], token: &str) {
-    let res = execute_get_list(cook_and_run_id, token);
+pub fn get_course_list(project_id: &Uuid, expected_course_id: &[Uuid], token: &str) {
+    let res = execute_get_list(project_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Expect json");
@@ -143,7 +143,7 @@ pub fn get_course_list(cook_and_run_id: &Uuid, expected_course_id: &[Uuid], toke
     }
 }
 
-fn assert_cook_and_run_json(json: &serde_json::Value, expected_course_id: &[Uuid]) {
+fn assert_project_json(json: &serde_json::Value, expected_course_id: &[Uuid]) {
     let course_list = json
         .get("course_list")
         .and_then(|v| v.as_array())

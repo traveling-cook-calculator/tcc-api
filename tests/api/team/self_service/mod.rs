@@ -8,13 +8,13 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::get_user_1, create_cook_and_run, get_client,
+    auth::get_user_1, create_project, get_client,
     sharing::post_test::create_share_config_default, team::post_test::get_team_create_json,
 };
 
 /// Registers a team through an (unauthenticated) share link on a fresh
 /// project + minimal share config (no required fields, `default_needs_check
-/// = false`) and returns `(cook_and_run_id, team_id, access_token)`.
+/// = false`) and returns `(project_id, team_id, access_token)`.
 ///
 /// `with_mail`: whether the created team has a `mail` set. Set it `false`
 /// to get a usable `access_link`/token back in the create response — a
@@ -22,10 +22,10 @@ use crate::{
 /// `sharing::post_team_test::test_create_team_no_access_link_with_mail`),
 /// so most self-service tests want `false` here.
 pub fn create_self_service_team(with_mail: bool) -> (Uuid, Uuid, String) {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (admin_token, _) = get_user_1();
     create_share_config_default(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -34,19 +34,19 @@ pub fn create_self_service_team(with_mail: bool) -> (Uuid, Uuid, String) {
         &None,
     );
 
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, with_mail);
-    (cook_and_run_id, team_id, access_token)
+    let (team_id, access_token) = create_self_service_team_in(&project_id, with_mail);
+    (project_id, team_id, access_token)
 }
 
 /// Same as [`create_self_service_team`], but against an already-configured
 /// project — use this when a test needs specific share-config settings
 /// (`edit_deadline`, `review_trigger_fields`, `require_email_verification`,
 /// ...) that [`create_self_service_team`]'s minimal default doesn't set.
-pub fn create_self_service_team_in(cook_and_run_id: &Uuid, with_mail: bool) -> (Uuid, String) {
+pub fn create_self_service_team_in(project_id: &Uuid, with_mail: bool) -> (Uuid, String) {
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(None, true, true, true, with_mail, true, true, true);
     let res =
-        crate::sharing::post_team_test::execute_create(cook_and_run_id, &team_id, payload, None);
+        crate::sharing::post_team_test::execute_create(project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -81,15 +81,15 @@ pub fn team_update_payload_with_mail(mail: &str) -> serde_json::Value {
 }
 
 pub fn execute_get_dual_auth(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     bearer: Option<&str>,
     access_token: Option<&str>,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     let mut request = client.get(format!(
-        "{}/cook_and_run/{}/team/{}",
-        base_url, cook_and_run_id, team_id
+        "{}/project/{}/team/{}",
+        base_url, project_id, team_id
     ));
     if let Some(t) = bearer {
         request = request.header("authorization", format!("Bearer {}", t));
@@ -104,7 +104,7 @@ pub fn execute_get_dual_auth(
 }
 
 pub fn execute_patch_dual_auth(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     payload: &serde_json::Value,
     bearer: Option<&str>,
@@ -113,8 +113,8 @@ pub fn execute_patch_dual_auth(
     let (client, base_url) = get_client();
     let mut request = client
         .patch(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .json(payload);
     if let Some(t) = bearer {
@@ -130,7 +130,7 @@ pub fn execute_patch_dual_auth(
 }
 
 pub fn execute_cancel(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     bearer: Option<&str>,
     access_token: Option<&str>,
@@ -139,8 +139,8 @@ pub fn execute_cancel(
     let (client, base_url) = get_client();
     let mut request = client
         .post(format!(
-            "{}/cook_and_run/{}/team/{}/cancel",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}/cancel",
+            base_url, project_id, team_id
         ))
         .json(&json!({ "reason": reason }));
     if let Some(t) = bearer {
@@ -156,14 +156,14 @@ pub fn execute_cancel(
 }
 
 pub fn execute_verify(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     access_token: Option<&str>,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     let mut request = client.post(format!(
-        "{}/cook_and_run/{}/team/{}/verify",
-        base_url, cook_and_run_id, team_id
+        "{}/project/{}/team/{}/verify",
+        base_url, project_id, team_id
     ));
     if let Some(t) = access_token {
         request = request.header("x-access-token", t);
@@ -175,15 +175,15 @@ pub fn execute_verify(
 }
 
 pub fn execute_resend_verification(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     bearer: Option<&str>,
     access_token: Option<&str>,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     let mut request = client.post(format!(
-        "{}/cook_and_run/{}/team/{}/resend-verification",
-        base_url, cook_and_run_id, team_id
+        "{}/project/{}/team/{}/resend-verification",
+        base_url, project_id, team_id
     ));
     if let Some(t) = bearer {
         request = request.header("authorization", format!("Bearer {}", t));
@@ -198,7 +198,7 @@ pub fn execute_resend_verification(
 }
 
 pub fn execute_audit_log(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     team_id: &Uuid,
     bearer: Option<&str>,
     page: Option<u32>,
@@ -219,8 +219,8 @@ pub fn execute_audit_log(
     };
 
     let mut request = client.get(format!(
-        "{}/cook_and_run/{}/team/{}/audit-log{}",
-        base_url, cook_and_run_id, team_id, query_string
+        "{}/project/{}/team/{}/audit-log{}",
+        base_url, project_id, team_id, query_string
     ));
     if let Some(t) = bearer {
         request = request.header("authorization", format!("Bearer {}", t));

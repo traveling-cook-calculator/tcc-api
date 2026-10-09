@@ -1,14 +1,20 @@
 use axum::{
+    Extension,
     extract::{Path, State},
     response::{IntoResponse, Json, Response},
-    Extension,
 };
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{AppState, api::auth::Claims, application::sharing, domain::team::{RequiredField, ShareTeamConfig}, error::AppError};
+use crate::{
+    AppState,
+    api::auth::Claims,
+    application::sharing,
+    domain::team::{RequiredField, ShareTeamConfig},
+    error::AppError,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,7 +26,7 @@ pub enum RequiredFieldDTO {
 }
 
 impl RequiredFieldDTO {
-    pub(super) fn from_domain(field:  RequiredField) -> Self {
+    pub(super) fn from_domain(field: RequiredField) -> Self {
         match field {
             RequiredField::Mail => RequiredFieldDTO::Mail,
             RequiredField::Phone => RequiredFieldDTO::Phone,
@@ -45,7 +51,7 @@ pub struct ShareTeamConfigDTO {
     pub require_email_verification: bool,
     pub default_needs_check: bool,
     pub required_fields: Vec<RequiredFieldDTO>,
-    pub max_teams: Option<u32>,
+    pub max_teams: Option<u8>,
     pub registration_deadline: Option<DateTime<Utc>>,
     pub edit_deadline: Option<DateTime<Utc>>,
     pub review_trigger_fields: Vec<RequiredFieldDTO>,

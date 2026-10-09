@@ -13,12 +13,12 @@ use crate::{
 
 #[test]
 fn test_patch_share_config() {
-    let cook_and_run_id = setup();
+    let project_id = setup();
 
     let (token, _) = get_user_1();
     let payload = get_share_patch_json();
-    patch_share_config(&cook_and_run_id, payload, &token);
-    let res = execute_get(&cook_and_run_id, &token);
+    patch_share_config(&project_id, payload, &token);
+    let res = execute_get(&project_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     assert_share_config_json(
         &res.json().expect("Failed to parse JSON"),
@@ -35,27 +35,27 @@ fn test_patch_share_config() {
 
 #[test]
 fn test_patch_share_config_wrong_user() {
-    let cook_and_run_id = setup();
+    let project_id = setup();
 
     let (token, _) = get_user_2();
     let payload = get_share_patch_json();
-    let res = execute_patch(&cook_and_run_id, payload, &token); // Second deletion
+    let res = execute_patch(&project_id, payload, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
     let (token, _) = get_user_1();
-    get_share_config(&cook_and_run_id, &token);
+    get_share_config(&project_id, &token);
 }
 
 fn execute_patch(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     payload: serde_json::Value,
     token: &str,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .patch(format!(
-            "{}/cook_and_run/{}/share_team_config",
-            base_url, cook_and_run_id
+            "{}/project/{}/share_team_config",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -64,8 +64,8 @@ fn execute_patch(
         .expect("Failed to send request")
 }
 
-pub fn patch_share_config(cook_and_run_id: &Uuid, payload: serde_json::Value, token: &str) {
-    let res = execute_patch(cook_and_run_id, payload, token);
+pub fn patch_share_config(project_id: &Uuid, payload: serde_json::Value, token: &str) {
+    let res = execute_patch(project_id, payload, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 

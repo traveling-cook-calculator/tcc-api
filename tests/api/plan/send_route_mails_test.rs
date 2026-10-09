@@ -3,18 +3,18 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client,
+    create_project, get_client,
     plan::{create_team_without_mail, plan_json_referencing_team, set_start_point},
     team::{post_test::create_team, self_service::execute_cancel},
 };
 
-fn patch_plan_referencing(cook_and_run_id: &Uuid, token: &str, host_id: &Uuid, guest_ids: &[Uuid]) {
+fn patch_plan_referencing(project_id: &Uuid, token: &str, host_id: &Uuid, guest_ids: &[Uuid]) {
     let payload = plan_json_referencing_team(host_id, guest_ids);
     let (client, base_url) = get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/plan",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -25,15 +25,15 @@ fn patch_plan_referencing(cook_and_run_id: &Uuid, token: &str, host_id: &Uuid, g
 }
 
 fn execute_send_route_mails(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
     force: bool,
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .post(format!(
-            "{}/cook_and_run/{}/plan/send-route-mails?force={}",
-            base_url, cook_and_run_id, force
+            "{}/project/{}/plan/send-route-mails?force={}",
+            base_url, project_id, force
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -46,21 +46,21 @@ fn execute_send_route_mails(
 /// force." (§4.7)
 #[test]
 fn test_send_route_mails_stale_plan_conflict() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = Uuid::new_v4();
     let guest_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token);
-    patch_plan_referencing(&cook_and_run_id, &token, &host_id, &[guest_id]);
+    create_team(&project_id, &host_id, &user_id, &token);
+    create_team(&project_id, &guest_id, &user_id, &token);
+    patch_plan_referencing(&project_id, &token, &host_id, &[guest_id]);
 
-    set_start_point(&cook_and_run_id);
+    set_start_point(&project_id);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert_eq!(res.status(), StatusCode::CONFLICT, "Response: {:#?}", res);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, true);
+    let res = execute_send_route_mails(&project_id, &token, true);
     assert_eq!(
         res.status(),
         StatusCode::CONFLICT,
@@ -74,16 +74,16 @@ fn test_send_route_mails_stale_plan_conflict() {
 /// new email." A team with no prior hash counts as changed.
 #[test]
 fn test_send_route_mails_sends_to_teams_without_prior_hash() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = Uuid::new_v4();
     let guest_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token);
-    patch_plan_referencing(&cook_and_run_id, &token, &host_id, &[guest_id]);
+    create_team(&project_id, &host_id, &user_id, &token);
+    create_team(&project_id, &guest_id, &user_id, &token);
+    patch_plan_referencing(&project_id, &token, &host_id, &[guest_id]);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -111,19 +111,19 @@ fn test_send_route_mails_sends_to_teams_without_prior_hash() {
 /// unchanged from the first call, so both are silently skipped.
 #[test]
 fn test_send_route_mails_skips_unchanged_teams_on_second_call() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = Uuid::new_v4();
     let guest_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token);
-    patch_plan_referencing(&cook_and_run_id, &token, &host_id, &[guest_id]);
+    create_team(&project_id, &host_id, &user_id, &token);
+    create_team(&project_id, &guest_id, &user_id, &token);
+    patch_plan_referencing(&project_id, &token, &host_id, &[guest_id]);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let sent_to = json
@@ -143,19 +143,19 @@ fn test_send_route_mails_skips_unchanged_teams_on_second_call() {
 /// comparison." (§4.7)
 #[test]
 fn test_send_route_mails_force_resends_regardless_of_hash() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = Uuid::new_v4();
     let guest_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token);
-    patch_plan_referencing(&cook_and_run_id, &token, &host_id, &[guest_id]);
+    create_team(&project_id, &host_id, &user_id, &token);
+    create_team(&project_id, &guest_id, &user_id, &token);
+    patch_plan_referencing(&project_id, &token, &host_id, &[guest_id]);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, true);
+    let res = execute_send_route_mails(&project_id, &token, true);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let sent_to: Vec<String> = json
@@ -174,15 +174,15 @@ fn test_send_route_mails_force_resends_regardless_of_hash() {
 /// under skipped_no_mail_team_ids, not under failed." (§4.7)
 #[test]
 fn test_send_route_mails_skips_team_without_mail() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
-    let no_mail_guest_id = create_team_without_mail(&cook_and_run_id);
-    patch_plan_referencing(&cook_and_run_id, &token, &host_id, &[no_mail_guest_id]);
+    create_team(&project_id, &host_id, &user_id, &token);
+    let no_mail_guest_id = create_team_without_mail(&project_id);
+    patch_plan_referencing(&project_id, &token, &host_id, &[no_mail_guest_id]);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -221,17 +221,17 @@ fn test_send_route_mails_skips_team_without_mail() {
 /// computation entirely." (§4.7)
 #[test]
 fn test_send_route_mails_excludes_canceled_team() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, user_id) = get_user_1();
 
     let host_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token);
+    create_team(&project_id, &host_id, &user_id, &token);
     let (guest_id, guest_access_token) =
-        crate::team::self_service::create_self_service_team_in(&cook_and_run_id, false);
-    patch_plan_referencing(&cook_and_run_id, &token, &host_id, &[guest_id]);
+        crate::team::self_service::create_self_service_team_in(&project_id, false);
+    patch_plan_referencing(&project_id, &token, &host_id, &[guest_id]);
 
     let res = execute_cancel(
-        &cook_and_run_id,
+        &project_id,
         &guest_id,
         None,
         Some(&guest_access_token),
@@ -245,8 +245,8 @@ fn test_send_route_mails_excludes_canceled_team() {
     let (client, base_url) = get_client();
     let res = client
         .post(format!(
-            "{}/cook_and_run/{}/plan/confirm",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan/confirm",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -254,7 +254,7 @@ fn test_send_route_mails_excludes_canceled_team() {
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -274,26 +274,26 @@ fn test_send_route_mails_excludes_canceled_team() {
 
 #[test]
 fn test_send_route_mails_not_found() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
 
     // No plan was ever created for this project.
-    let res = execute_send_route_mails(&cook_and_run_id, &token, false);
+    let res = execute_send_route_mails(&project_id, &token, false);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
 #[test]
 fn test_send_route_mails_wrong_user() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token_1, user_id) = get_user_1();
 
     let host_id = Uuid::new_v4();
     let guest_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &host_id, &user_id, &token_1);
-    create_team(&cook_and_run_id, &guest_id, &user_id, &token_1);
-    patch_plan_referencing(&cook_and_run_id, &token_1, &host_id, &[guest_id]);
+    create_team(&project_id, &host_id, &user_id, &token_1);
+    create_team(&project_id, &guest_id, &user_id, &token_1);
+    patch_plan_referencing(&project_id, &token_1, &host_id, &[guest_id]);
 
     let (token_2, _) = get_user_2();
-    let res = execute_send_route_mails(&cook_and_run_id, &token_2, false);
+    let res = execute_send_route_mails(&project_id, &token_2, false);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }

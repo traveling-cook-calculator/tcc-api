@@ -1,30 +1,27 @@
 use axum::{
+    Extension,
     extract::{Path, State},
     http::HeaderMap,
-    response::{IntoResponse, Json, Response},
-    Extension,
 };
 use axum_extra::TypedHeader;
 use chrono::{DateTime, Utc};
-use headers::{authorization::Bearer, Authorization};
-use reqwest::StatusCode;
+use headers::{Authorization, authorization::Bearer};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     api::{
-        auth::{is_user_authenticated, AuthUser, AuthenticatedUser, Claims, ACCESS_TOKEN_HEADER},
+        auth::{ACCESS_TOKEN_HEADER, AuthUser, AuthenticatedUser, Claims, is_user_authenticated},
         common::AddressDTO,
         validated_json::ValidatedJson,
     },
     application::team,
     domain::team::{Team, TeamStatus},
     error::AppError,
-    AppState,
 };
 
-use super::get::TeamDTO;
 use super::get_user_id;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -142,42 +139,6 @@ impl TeamUpdateDTO {
     }
 }
 
-/// Response to team creation. `access_link`/`warning` are only set when no
-/// email address was provided — in that case the response is the only way
-/// the creator ever gets the deeplink. With an email, the link is sent only
-/// by mail and not repeated here.
-#[derive(Debug, Clone, Serialize)]
-pub struct TeamCreateResponse {
-    #[serde(flatten)]
-    pub team: TeamDTO,
-    pub access_link: Option<String>,
-}
-
-impl TeamCreateResponse {
-    pub fn new(team: Team, deeplink_base_url: &str) -> Self {
-        let project_id = team.project_id;
-        let team_id = team.id;
-        let access_token = team.access_token.clone();
-        let team_dto = TeamDTO::from_domain(team);
-
-        TeamCreateResponse {
-            team: team_dto,
-            access_link: Some(crate::email::build_team_deeplink_url(
-                deeplink_base_url,
-                &project_id,
-                &team_id,
-                &access_token,
-            )),
-        }
-    }
-}
-
-impl IntoResponse for TeamCreateResponse {
-    fn into_response(self) -> Response {
-        (StatusCode::CREATED, Json(self)).into_response()
-    }
-}
-
 /// Create a team. Authentication is optional — public registrations via
 /// share links are allowed. Returns the deeplink only if no email was
 /// provided (see TeamCreateResponse).
@@ -187,17 +148,17 @@ pub(super) async fn create_team(
     Path((project_id, team_id)): Path<(Uuid, Uuid)>,
     auth: Option<TypedHeader<Authorization<Bearer>>>,
     ValidatedJson(payload): ValidatedJson<TeamCreateDTO>,
-) -> Result<TeamCreateResponse, AppError> {
+) -> Result<(), AppError> {
     let user_id = get_user_id(&auth, &state.auth);
     is_user_authenticated(&payload, user_id.as_deref())?;
     let time = chrono::Utc::now();
     let created_team = team::create(
         &mut state.db,
-        &user_id,
+        user_id.as_ref().map(|s| s.as_str()),
         &payload.to(&project_id, &team_id, &time),
     )
     .await?;
-    Ok(TeamCreateResponse::new(created_team))
+    Ok(())
 }
 
 /// Update a team. URL structure identical to all other team routes.
@@ -226,16 +187,10 @@ pub(super) async fn update_team(
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
 
-        let existing = team::get_by_token(&state.db, access_token).await?;
-        if existing.id != team_id || existing.project_id != project_id {
-            return Err(AppError::TeamNotFoundByToken);
-        }
-
         team::update_by_token(
             &mut state.db,
             access_token,
             &payload.to_domain(&project_id, &team_id, "token-user", &time),
-            &state.admin_team_link_base_url,
         )
         .await
     }

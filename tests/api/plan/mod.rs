@@ -46,15 +46,15 @@ pub fn plan_json_referencing_team(
 /// route-mail "no email address -> skipped" case.
 /// `team::post_test::create_team` always sets `mail`, so it can't be
 /// reused here.
-pub fn create_team_without_mail(cook_and_run_id: &Uuid) -> Uuid {
+pub fn create_team_without_mail(project_id: &Uuid) -> Uuid {
     let (token, user_id) = get_user_1();
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(Some(&user_id), true, true, true, false, true, true, true);
     let (client, base_url) = get_client();
     let res = client
         .post(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -69,7 +69,7 @@ pub fn create_team_without_mail(cook_and_run_id: &Uuid) -> Uuid {
 /// .../team/{id}`, keeping every other field as the `create_team` fixture
 /// set it) — used to exercise the "address change marks the plan stale"
 /// rule without depending on `team::patch_test`'s fixed payload helper.
-pub fn change_team_address(cook_and_run_id: &Uuid, team_id: &Uuid) {
+pub fn change_team_address(project_id: &Uuid, team_id: &Uuid) {
     let (token, _) = get_user_1();
     let payload = json!({
         "name": "TestTeam",
@@ -86,8 +86,8 @@ pub fn change_team_address(cook_and_run_id: &Uuid, team_id: &Uuid) {
     let (client, base_url) = get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -100,13 +100,13 @@ pub fn change_team_address(cook_and_run_id: &Uuid, team_id: &Uuid) {
 /// Hard-deletes a team as the admin — kept local (rather than reusing
 /// `team::delete_test`, which is private to the `team` module) since it's
 /// only needed here to exercise the plan-staleness side effect.
-pub fn hard_delete_team(cook_and_run_id: &Uuid, team_id: &Uuid) {
+pub fn hard_delete_team(project_id: &Uuid, team_id: &Uuid) {
     let (token, _) = get_user_1();
     let (client, base_url) = get_client();
     let res = client
         .delete(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -118,7 +118,7 @@ pub fn hard_delete_team(cook_and_run_id: &Uuid, team_id: &Uuid) {
 /// Marks the plan stale unconditionally by setting the project's start
 /// point (independent of which teams the plan references — see feature MD
 /// §4.6, "the project's start or end point is set, changed, or deleted").
-pub fn set_start_point(cook_and_run_id: &Uuid) {
+pub fn set_start_point(project_id: &Uuid) {
     let (token, _) = get_user_1();
     let payload = json!({
         "address": {
@@ -132,8 +132,8 @@ pub fn set_start_point(cook_and_run_id: &Uuid) {
     let (client, base_url) = get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/start_point",
-            base_url, cook_and_run_id
+            "{}/project/{}/start_point",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)

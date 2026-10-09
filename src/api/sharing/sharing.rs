@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, State},
     Extension,
+    extract::{Path, State},
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -8,11 +8,11 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     api::{auth::Claims, validated_json::ValidatedJson},
     application::sharing,
     domain::team::ShareTeamConfig,
     error::AppError,
-    AppState,
 };
 
 use super::get::RequiredFieldDTO;
@@ -30,7 +30,7 @@ pub struct CreateShareConfigRequest {
     #[validate(length(max = 4, message = "may be empty or contain at most 4 required fields"))]
     pub required_fields: Vec<RequiredFieldDTO>,
     #[validate(range(min = 1, max = 128, message = "must be between 1 and 128"))]
-    pub max_teams: Option<u32>,
+    pub max_teams: Option<u8>,
     pub registration_deadline: Option<DateTime<Utc>>,
     pub edit_deadline: Option<DateTime<Utc>>,
     #[validate(length(
@@ -39,6 +39,8 @@ pub struct CreateShareConfigRequest {
     ))]
     pub review_trigger_fields: Vec<RequiredFieldDTO>,
     pub notify_admin_on_review: bool,
+    pub notify_admin_on_create: bool,
+    pub notify_admin_on_cancel: bool,
 }
 
 impl CreateShareConfigRequest {
@@ -61,6 +63,8 @@ impl CreateShareConfigRequest {
                 .map(RequiredFieldDTO::to_domain)
                 .collect(),
             notify_admin_on_review: self.notify_admin_on_review,
+            notify_admin_on_cancel: self.notify_admin_on_cancel,
+            notify_admin_on_create: self.notify_admin_on_create,
             created: *time,
         }
     }

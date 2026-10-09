@@ -11,9 +11,9 @@ use crate::{
 
 #[test]
 fn test_get_team_missing_auth_header() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
 
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, None, None);
+    let res = execute_get_dual_auth(&project_id, &team_id, None, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -24,10 +24,10 @@ fn test_get_team_missing_auth_header() {
 
 #[test]
 fn test_patch_team_missing_auth_header() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
     let payload = team_update_payload_with_mail("still@run.de");
 
-    let res = execute_patch_dual_auth(&cook_and_run_id, &team_id, &payload, None, None);
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, None, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -42,10 +42,10 @@ fn test_patch_team_missing_auth_header() {
 /// not produce a distinct 401." (feature MD §4.2)
 #[test]
 fn test_get_team_invalid_jwt_falls_through_to_missing_header() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
 
     let res = execute_get_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         Some("this-is-not-a-valid-jwt"),
         None,
@@ -63,18 +63,18 @@ fn test_get_team_invalid_jwt_falls_through_to_missing_header() {
 /// (feature MD §4.2)
 #[test]
 fn test_get_team_wrong_token_for_path() {
-    let cook_and_run_id = {
+    let project_id = {
         let (id, _, _) = create_self_service_team(false);
         id
     };
-    let (other_team_id, _) = create_self_service_team_in(&cook_and_run_id, false);
+    let (other_team_id, _) = create_self_service_team_in(&project_id, false);
     let (_, _, first_team_token) = create_self_service_team(false);
 
     // `first_team_token` belongs to a team in a *different* project than
     // `other_team_id` lives in — using it against `other_team_id`'s path
     // must not leak whether that path otherwise exists.
     let res = execute_get_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &other_team_id,
         None,
         Some(&first_team_token),
@@ -84,10 +84,10 @@ fn test_get_team_wrong_token_for_path() {
 
 #[test]
 fn test_get_team_admin_omits_edit_deadline() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -98,9 +98,9 @@ fn test_get_team_admin_omits_edit_deadline() {
         &vec![],
         false,
     );
-    let (team_id, _) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, _) = create_self_service_team_in(&project_id, false);
 
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&admin_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     assert!(
@@ -112,10 +112,10 @@ fn test_get_team_admin_omits_edit_deadline() {
 
 #[test]
 fn test_get_team_participant_includes_edit_deadline() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -126,9 +126,9 @@ fn test_get_team_participant_includes_edit_deadline() {
         &vec![],
         false,
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, None, Some(&access_token));
+    let res = execute_get_dual_auth(&project_id, &team_id, None, Some(&access_token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let edit_deadline = json
@@ -148,10 +148,10 @@ fn test_get_team_participant_includes_edit_deadline() {
 /// self-service `PATCH`, then `team.status` becomes `review`." (§4.3)
 #[test]
 fn test_patch_team_participant_edit_of_trigger_field_triggers_review() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -162,11 +162,11 @@ fn test_patch_team_participant_edit_of_trigger_field_triggers_review() {
         &vec!["mail".to_string()],
         false,
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("changed@run.de");
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         None,
@@ -174,7 +174,7 @@ fn test_patch_team_participant_edit_of_trigger_field_triggers_review() {
     );
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&admin_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let status = json
         .get("status")
@@ -190,10 +190,10 @@ fn test_patch_team_participant_edit_of_trigger_field_triggers_review() {
 /// self-service), then the team status is not changed to review." (§4.3)
 #[test]
 fn test_patch_team_admin_edit_of_trigger_field_does_not_trigger_review() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -204,11 +204,11 @@ fn test_patch_team_admin_edit_of_trigger_field_does_not_trigger_review() {
         &vec!["mail".to_string()],
         false,
     );
-    let (team_id, _) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, _) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("changed-by-admin@run.de");
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         Some(&admin_token),
@@ -216,7 +216,7 @@ fn test_patch_team_admin_edit_of_trigger_field_does_not_trigger_review() {
     );
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&admin_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let status = json
         .get("status")
@@ -229,10 +229,10 @@ fn test_patch_team_admin_edit_of_trigger_field_does_not_trigger_review() {
 /// PATCH ..., then the response is `400 EditDeadlineExceeded`." (§4.3)
 #[test]
 fn test_patch_team_participant_edit_deadline_exceeded() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -243,11 +243,11 @@ fn test_patch_team_participant_edit_deadline_exceeded() {
         &vec![],
         false,
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("too-late@run.de");
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         None,
@@ -266,10 +266,10 @@ fn test_patch_team_participant_edit_deadline_exceeded() {
 /// `PATCH`/`cancel` are deadline-gated).
 #[test]
 fn test_patch_team_admin_not_subject_to_edit_deadline() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -280,11 +280,11 @@ fn test_patch_team_admin_not_subject_to_edit_deadline() {
         &vec![],
         false,
     );
-    let (team_id, _) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, _) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("admin-can-still-edit@run.de");
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         Some(&admin_token),

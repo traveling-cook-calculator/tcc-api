@@ -2,32 +2,28 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
+    api::auth::ACCESS_TOKEN_HEADER,
     domain::{
-        Project,
-        audit_log::{AuditAction, AuditActorType, CreatedEntry, UpdateEntry},
+        audit_log::{
+            AuditAction::{self},
+            AuditActorType, CanceledEntry, CreatedEntry, ResendVerificationMailEntry, UpdateEntry,
+        },
         mail::{AdminNotificationMail, AdminNotificationReason, EmailType, InvitationMail},
         team::{
-            RequiredField, ShareTeamConfig, TeamSortOption,
-            TeamStatus::{self, Review},
+            RequiredField, ShareTeamConfig, Team, TeamSortOption,
+            TeamStatus::{self},
         },
     },
     error::AppError,
     infrastructure::{
         Database,
         db::{
-            ProjectRepository,
-            address::AddressRepository,
-            audit_log::AuditLogRepository,
-            email_context::select_email_project_context,
-            email_outbox::EmailOutboxRepository,
-            plan::PlanRepository,
-            sharing::ShareRepository,
-            team::{TeamRepository, select_edit_deadline_by_token},
+            ProjectRepository, address::AddressRepository, audit_log::AuditLogRepository,
+            email_outbox::EmailOutboxRepository, plan::PlanRepository, sharing::ShareRepository,
+            team::TeamRepository,
         },
     },
 };
-
-pub use {Team, TeamStatus};
 
 pub async fn get_list(
     db: &Database,
@@ -69,21 +65,29 @@ pub async fn get(
         .await
 }
 
-pub async fn get_by_token(db: &Database, access_token: &str) -> Result<Team, AppError> {
+pub async fn get_by_token(
+    db: &Database,
+    project_id: &Uuid,
+    team_id: &Uuid,
+    access_token: &str,
+) -> Result<Team, AppError> {
     let mut tx = db.pool.begin().await?;
-    TeamRepository.select_by_token(&mut *tx, access_token).await
+    TeamRepository
+        .select_by_token(&mut *tx, project_id, team_id, access_token)
+        .await
 }
 
 pub async fn get_by_token_with_deadline(
     db: &Database,
+    project_id: &Uuid,
+    team_id: &Uuid,
     access_token: &str,
-) -> Result<(Team, Option<DateTime<Utc>>), AppError> {
+) -> Result<Team, AppError> {
     let mut tx = db.pool.begin().await?;
     let team = TeamRepository
-        .select_by_token(&mut *tx, access_token)
+        .select_by_token(&mut *tx, project_id, team_id, access_token)
         .await?;
-    let deadline = select_edit_deadline_by_token(&mut *tx, access_token).await?;
-    Ok((team, deadline))
+    Ok(team)
 }
 
 pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result<(), AppError> {
@@ -200,7 +204,7 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
         .await?;
 
     PlanRepository
-        .mark_stale(&mut *tx, &data.project_id, &now)
+        .mark_stale_unsafe(&mut *tx, &data.project_id, &now)
         .await?;
 
     Ok(())
@@ -266,7 +270,9 @@ pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(),
         team.address.latitude = data.address.latitude.clone();
         team.address.longitude = data.address.longitude.clone();
         AddressRepository.update(&mut *tx, &team.address).await?;
-        PlanRepository.mark_stale(&mut *tx, &data.id, &now).await?;
+        PlanRepository
+            .mark_stale_unsafe(&mut *tx, &data.id, &now)
+            .await?;
     }
 
     TeamRepository.update_fields(&mut *tx, &team).await?;
@@ -336,7 +342,9 @@ pub async fn update_by_token(
         team.address.latitude = data.address.latitude.clone();
         team.address.longitude = data.address.longitude.clone();
         AddressRepository.update(&mut *tx, &team.address).await?;
-        PlanRepository.mark_stale(&mut *tx, &data.id, &now).await?;
+        PlanRepository
+            .mark_stale_unsafe(&mut *tx, &data.id, &now)
+            .await?;
     }
 
     TeamRepository.update_fields(&mut *tx, &team).await?;
@@ -388,10 +396,6 @@ pub async fn update_by_token(
     Ok(())
 }
 
-/// Admin-only hard delete. Also tears down the team's address and marks a
-/// linked plan stale (removed team). Deletions aren't audit-logged: the
-/// `team_audit_log` table is scoped to a `team_id` that's about to stop
-/// existing, and `AuditAction` has no "deleted" variant.
 pub async fn delete(
     db: &mut Database,
     project_id: &Uuid,
@@ -401,45 +405,34 @@ pub async fn delete(
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
-    let existing = TeamRepository
-        .select(&mut *tx, team_id, project_id, user_id)
-        .await?;
-
     TeamRepository
         .delete(&mut *tx, team_id, project_id, user_id)
         .await?;
-    AddressRepository
-        .delete(&mut *tx, &existing.address.id)
-        .await?;
 
-    if let Some(plan_id) = ProjectRepository
-        .select_plan_id(&mut *tx, project_id, user_id)
-        .await?
-    {
-        PlanRepository.mark_stale(&mut *tx, &plan_id, &now).await?;
-    }
+    PlanRepository
+        .mark_stale_unsafe(&mut *tx, project_id, &now)
+        .await?;
 
     Ok(())
 }
 
-/// Self-service cancellation (status change, not a delete). Marks a linked
-/// plan stale and notifies the admin, mirroring `update_by_token`.
 pub async fn cancel_by_token(
     db: &mut Database,
     access_token: &str,
     reason: Option<&str>,
-    admin_team_link_base_url: &str,
+    project_id: &Uuid,
+    team_id: &Uuid,
 ) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
     let existing = TeamRepository
-        .select_locked_by_token(&mut *tx, access_token)
+        .select_locked_by_token(&mut *tx, team_id, project_id, access_token)
         .await?
         .ok_or(AppError::TeamNotFoundByToken)?;
 
     if existing.status == TeamStatus::Canceled {
-        return Err(AppError::TeamCanceled);
+        return Ok(());
     }
 
     TeamRepository
@@ -453,144 +446,152 @@ pub async fn cancel_by_token(
             AuditActorType::Participant,
             None,
             AuditAction::Canceled,
-            &serde_json::json!({ "reason": reason }),
+            &CanceledEntry {},
             &now,
         )
         .await?;
 
-    let owner_user_id = ProjectRepository
-        .select_owner_user_id(&mut *tx, &existing.project_id)
+    PlanRepository
+        .mark_stale_unsafe(&mut *tx, project_id, &now)
         .await?;
-    if let Some(plan_id) = ProjectRepository
-        .select_plan_id(&mut *tx, &existing.project_id, &owner_user_id)
-        .await?
-    {
-        if PlanRepository.mark_stale(&mut *tx, &plan_id, &now).await? {
-            AuditLogRepository
-                .insert(
-                    &mut *tx,
-                    &existing.id,
-                    AuditActorType::Participant,
-                    None,
-                    AuditAction::PlanInvalidated,
-                    &serde_json::json!({}),
-                    &now,
-                )
-                .await?;
 
-            notify_admin_of_change(
-                &mut tx,
-                &existing,
-                admin_team_link_base_url,
-                "Team abgesagt",
+    let project = ProjectRepository
+        .select_unsafe(&mut *tx, &existing.project_id)
+        .await?;
+
+    let share_config = ShareRepository
+        .select(&mut *tx, &existing.project_id)
+        .await?;
+
+    if !share_config.notify_admin_on_cancel {
+        return Ok(());
+    }
+
+    if let Some(admin_mail) = project.admin_notification_email {
+        let context = AdminNotificationMail {
+            project_name: project.name.clone(),
+            team_name: existing.name.clone(),
+            reason: AdminNotificationReason::TeamCanceled,
+        };
+
+        EmailOutboxRepository
+            .insert(
+                &mut *tx,
+                &admin_mail,
+                EmailType::AdminNotification,
+                &context,
                 &now,
             )
             .await?;
-        }
+    } else {
+        tracing::warn!(
+            project.id = %project.id,
+            "project has no admin notification email"
+        );
     }
 
     Ok(())
 }
 
-pub async fn verify_email_by_token(db: &mut Database, access_token: &str) -> Result<(), AppError> {
+pub async fn verify_email_by_token(
+    db: &mut Database,
+    project_id: &Uuid,
+    team_id: &Uuid,
+    access_token: &str,
+) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
     TeamRepository
-        .verify_email_by_token(&mut *tx, access_token, &now)
+        .verify_email_by_token(&mut *tx, project_id, team_id, access_token, &now)
         .await
 }
 
-/// Re-sends the invitation email. Participants are limited to 3 attempts
-/// (enforced via `verification_resend_count`); admins are unlimited.
-///
-/// NOTE: the API layer doesn't thread a `deeplink_base_url` into this call
-/// (see `self_service::resend_verification`), so the email context here
-/// carries project/team name but not a fresh deeplink. If the resend email
-/// needs the link again, add a base-url parameter here similarly to
-/// `team::create`.
 pub async fn request_verification_resend(
     db: &mut Database,
-    existing_team: &Team,
-    is_admin: bool,
+    project_id: &Uuid,
+    team_id: &Uuid,
+    access_token_opt: Option<&str>,
+    user_id_opt: Option<&str>,
 ) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
-    if !is_admin && existing_team.verification_resend_count >= 3 {
-        return Err(AppError::VerificationResendLimitReached(existing_team.id));
+    let (is_admin, team) = if let Some(user_id) = user_id_opt {
+        (
+            true,
+            TeamRepository
+                .select_locked_for_admin_update(&mut *tx, team_id, project_id, user_id)
+                .await?
+                .ok_or_else(|| {
+                    AppError::TeamNotFound(team_id.clone(), user_id.to_string(), project_id.clone())
+                })?,
+        )
+    } else if let Some(access_token) = access_token_opt {
+        (
+            false,
+            TeamRepository
+                .select_locked_by_token(&mut *tx, team_id, project_id, access_token)
+                .await?
+                .ok_or_else(|| {
+                    AppError::TeamNotFound(team_id.clone(), "NONE".to_string(), project_id.clone())
+                })?,
+        )
+    } else {
+        return Err(AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()));
+    };
+
+    if !is_admin && team.verification_resend_count >= 3 {
+        return Err(AppError::VerificationResendLimitReached(team.id));
     }
 
-    let Some(mail) = &existing_team.mail else {
-        // Nothing to resend to — a no-op rather than an error.
-        return Ok(());
+    let team_mail = if let Some(mail) = team.mail {
+        mail
+    } else {
+        return Err(AppError::MissingField("mail".to_string(), team.id));
     };
 
     if !is_admin {
         TeamRepository
-            .increment_resend_count_by_token(&mut *tx, &existing_team.access_token)
+            .increment_resend_count_by_token(&mut *tx, team_id)
             .await?;
     }
 
-    let context_row = select_email_project_context(&mut *tx, &existing_team.project_id).await?;
-    let context = serde_json::json!({
-        "project_name": context_row.project_name,
-        "team_name": existing_team.name,
-    });
-
-    EmailOutboxRepository
-        .insert(
-            &mut *tx,
-            Some(existing_team.id),
-            mail,
-            EmailType::Invitation,
-            &context,
-            &now,
-        )
-        .await
-}
-
-/// Queues an `AdminNotification` email if the project has an admin
-/// notification address configured. Best-effort: silently does nothing if
-/// there is none.
-///
-/// NOTE: the admin link is built with plain string formatting here, since
-/// there's no confirmed `crate::email` helper for it (only
-/// `build_team_deeplink_url` is known to exist) — adjust to match whatever
-/// the real link format is.
-async fn notify_admin_of_change(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    team: &Team,
-    admin_team_link_base_url: &str,
-    change_kind: &str,
-    time: &DateTime<Utc>,
-) -> Result<(), AppError> {
-    let context_row = select_email_project_context(&mut *tx, &team.project_id).await?;
-
-    let Some(admin_email) = context_row.admin_notification_email else {
-        return Ok(());
+    let actor = if is_admin {
+        AuditActorType::Admin
+    } else {
+        AuditActorType::Participant
     };
 
-    let admin_link = format!(
-        "{}/{}/{}",
-        admin_team_link_base_url.trim_end_matches('/'),
-        team.project_id,
-        team.id
-    );
-    let context = serde_json::json!({
-        "project_name": context_row.project_name,
-        "team_name": team.name,
-        "change_kind": change_kind,
-        "admin_link": admin_link,
-    });
+    AuditLogRepository
+        .insert(
+            &mut *tx,
+            team_id,
+            actor,
+            user_id_opt,
+            AuditAction::ResendVerificationMail,
+            &ResendVerificationMailEntry {},
+            &now,
+        )
+        .await?;
+
+    let share_config = ShareRepository.select(&mut *tx, project_id).await?;
+    let project = ProjectRepository
+        .select_unsafe(&mut *tx, project_id)
+        .await?;
 
     EmailOutboxRepository
         .insert(
             &mut *tx,
-            Some(team.id),
-            &admin_email,
-            EmailType::AdminNotification,
-            &context,
-            time,
+            &team_mail,
+            EmailType::Invitation,
+            &InvitationMail {
+                team_name: team.name.clone(),
+                project_name: project.name.clone(),
+                access_token: team.access_token.clone(),
+                require_email_verification: share_config.require_email_verification,
+            },
+            &now,
         )
-        .await
+        .await?;
+    Ok(())
 }

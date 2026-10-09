@@ -1,27 +1,27 @@
 use axum::{
+    Extension,
     extract::{Path, Query, State},
     http::HeaderMap,
     response::{IntoResponse, Json, Response},
-    Extension,
 };
 use axum_extra::TypedHeader;
 use chrono::{DateTime, Utc};
-use headers::{authorization::Bearer, Authorization};
+use headers::{Authorization, authorization::Bearer};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     api::{
-        auth::{Claims, ACCESS_TOKEN_HEADER},
-        common::AddressDTO,
         PaginationInfo,
+        auth::{ACCESS_TOKEN_HEADER, Claims},
+        common::AddressDTO,
     },
     application::team,
     domain::team::{Team, TeamSortOption, TeamStatus},
     error::AppError,
-    AppState,
 };
 
 use super::get_user_id;
@@ -252,27 +252,19 @@ pub(super) async fn get_team(
     Path((project_id, team_id)): Path<(Uuid, Uuid)>,
     auth: Option<TypedHeader<Authorization<Bearer>>>,
     headers: HeaderMap,
-) -> Result<TeamSelfServiceResponse, AppError> {
+) -> Result<TeamDTO, AppError> {
     if let Some(user_id) = get_user_id(&auth, &state.auth) {
         let team = team::get(&state.db, &project_id, &user_id, &team_id).await?;
-        Ok(TeamSelfServiceResponse {
-            team: TeamDTO::from_domain(team),
-            edit_deadline: None,
-        })
+        Ok(TeamDTO::from_domain(team))
     } else {
         let access_token = headers
             .get(ACCESS_TOKEN_HEADER)
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
 
-        let (team, edit_deadline) =
-            team::get_by_token_with_deadline(&state.db, access_token).await?;
-        if team.id != team_id || team.project_id != project_id {
-            return Err(AppError::TeamNotFoundByToken);
-        }
-        Ok(TeamSelfServiceResponse {
-            team: TeamDTO::from_domain(team),
-            edit_deadline,
-        })
+        let team = team::get_by_token_with_deadline(&state.db, &project_id, &team_id, access_token)
+            .await?;
+
+        Ok(TeamDTO::from_domain(team))
     }
 }

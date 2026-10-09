@@ -2,6 +2,7 @@ use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
 use crate::application::project::ProjectMeta;
+use crate::domain::plan::PlanSortOption;
 use crate::domain::project::Project;
 use crate::error::AppError;
 
@@ -126,22 +127,33 @@ impl ProjectRepository {
         user_id_filter: &str,
         limit: u8,
         offset: u8,
+        sort: PlanSortOption,
     ) -> Result<Vec<Project>, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
+        let sort_option = match sort {
+            PlanSortOption::CreatedAsc => "created ASC",
+            PlanSortOption::CreatedDesc => "created DESC",
+            PlanSortOption::NameAsc => "name ASC",
+            PlanSortOption::NameDesc => "name DESC",
+            PlanSortOption::EditedAsc => "edited ASC",
+            PlanSortOption::EditedDesc => "edited DESC",
+        };
+
         sqlx::query_as::<_, ProjectEntity>(
             "SELECT id, user_id, name, created, edited, occur,
                 start_point, end_point, share_team_config, plan, plan_config,
                 admin_notification_email
          FROM project
          WHERE user_id = $1
-         ORDER BY created DESC, id
+         ORDER BY $4
          LIMIT $2 OFFSET $3",
         )
         .bind(user_id_filter)
         .bind(limit as i8)
         .bind(offset as i8)
+        .bind(sort_option)
         .fetch_all(executor)
         .await
         .map_err(AppError::DatabaseError)

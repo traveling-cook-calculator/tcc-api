@@ -49,6 +49,8 @@ struct ShareTeamConfigEntity {
     edit_deadline: Option<chrono::DateTime<chrono::Utc>>,
     review_trigger_fields: Option<Vec<Option<RequiredFieldEntity>>>,
     notify_admin_on_review: bool,
+    notify_admin_on_create: bool,
+    notify_admin_on_cancel: bool,
 }
 
 impl ShareTeamConfigEntity {
@@ -76,6 +78,8 @@ impl ShareTeamConfigEntity {
                     .collect(),
             ),
             notify_admin_on_review: share.notify_admin_on_review,
+            notify_admin_on_create: share.notify_admin_on_create,
+            notify_admin_on_cancel: share.notify_admin_on_cancel,
         }
     }
 
@@ -99,7 +103,7 @@ impl ShareTeamConfigEntity {
                         .collect()
                 })
                 .unwrap_or_default(),
-            max_teams: self.max_teams.map(|max_teams| max_teams as u32),
+            max_teams: self.max_teams.map(|max_teams| max_teams as u8),
             registration_deadline: self.registration_deadline,
             edit_deadline: self.edit_deadline,
             review_trigger_fields: self
@@ -117,6 +121,8 @@ impl ShareTeamConfigEntity {
                 })
                 .unwrap_or_default(),
             notify_admin_on_review: self.notify_admin_on_review,
+            notify_admin_on_create: self.notify_admin_on_create,
+            notify_admin_on_cancel: self.notify_admin_on_cancel,
         }
     }
 }

@@ -1,23 +1,25 @@
 use axum::{
-    extract::{Path, Query, State},
-    response::{IntoResponse, Response},
-    Extension, Json,
+    Extension,
+    extract::{Path, State},
 };
-use reqwest::StatusCode;
 use serde::Deserialize;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     api::{auth::Claims, validated_json::ValidatedJson},
     application::route_mail,
     error::AppError,
-    AppState,
 };
 
 #[derive(Debug, Clone, Deserialize, Validate)]
 pub struct RouteMailTriggerRequestDTO {
-    #[validate(length(min = 1, max = 128, message = "must be between 1 and 128 unique team ids"))]
+    #[validate(length(
+        min = 1,
+        max = 128,
+        message = "must be between 1 and 128 unique team ids"
+    ))]
     pub sent_to_team_ids: Vec<Uuid>,
 }
 

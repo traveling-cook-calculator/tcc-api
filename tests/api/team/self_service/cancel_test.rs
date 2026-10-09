@@ -11,10 +11,10 @@ use crate::{
 
 #[test]
 fn test_cancel_team_participant() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
 
     let res = execute_cancel(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         None,
         Some(&access_token),
@@ -23,7 +23,7 @@ fn test_cancel_team_participant() {
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let (admin_token, _) = get_user_1();
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&admin_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
 
     let status = json
@@ -45,13 +45,13 @@ fn test_cancel_team_participant() {
 
 #[test]
 fn test_cancel_team_without_reason() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
 
-    let res = execute_cancel(&cook_and_run_id, &team_id, None, Some(&access_token), None);
+    let res = execute_cancel(&project_id, &team_id, None, Some(&access_token), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let (admin_token, _) = get_user_1();
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&admin_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let status = json
         .get("status")
@@ -69,10 +69,10 @@ fn test_cancel_team_without_reason() {
 /// cancel_reason." (§4.3)
 #[test]
 fn test_cancel_team_idempotent() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
 
     let res = execute_cancel(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         None,
         Some(&access_token),
@@ -81,7 +81,7 @@ fn test_cancel_team_idempotent() {
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let (admin_token, _) = get_user_1();
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&admin_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
     let first_json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let first_canceled_at = first_json
         .get("canceled_at")
@@ -91,7 +91,7 @@ fn test_cancel_team_idempotent() {
 
     // Second call, with a *different* reason — must not overwrite anything.
     let res = execute_cancel(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         None,
         Some(&access_token),
@@ -99,7 +99,7 @@ fn test_cancel_team_idempotent() {
     );
     assert_eq!(res.status(), StatusCode::OK, "Response: {:#?}", res);
 
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&admin_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
     let second_json: serde_json::Value = res.json().expect("Failed to parse JSON");
     let second_canceled_at = second_json
         .get("canceled_at")
@@ -123,10 +123,10 @@ fn test_cancel_team_idempotent() {
 /// valid credential here.
 #[test]
 fn test_cancel_team_requires_access_token() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
     let (admin_token, _) = get_user_1();
 
-    let res = execute_cancel(&cook_and_run_id, &team_id, None, None, None);
+    let res = execute_cancel(&project_id, &team_id, None, None, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -134,7 +134,7 @@ fn test_cancel_team_requires_access_token() {
         res
     );
 
-    let res = execute_cancel(&cook_and_run_id, &team_id, Some(&admin_token), None, None);
+    let res = execute_cancel(&project_id, &team_id, Some(&admin_token), None, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -145,19 +145,19 @@ fn test_cancel_team_requires_access_token() {
 
 #[test]
 fn test_cancel_team_wrong_token_for_path() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
     let (_, _, other_token) = create_self_service_team(false);
 
-    let res = execute_cancel(&cook_and_run_id, &team_id, None, Some(&other_token), None);
+    let res = execute_cancel(&project_id, &team_id, None, Some(&other_token), None);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
 #[test]
 fn test_cancel_team_edit_deadline_exceeded() {
-    let cook_and_run_id = crate::create_cook_and_run();
+    let project_id = crate::create_project();
     let (admin_token, _) = get_user_1();
     create_share_config(
-        &cook_and_run_id,
+        &project_id,
         &admin_token,
         false,
         false,
@@ -168,9 +168,9 @@ fn test_cancel_team_edit_deadline_exceeded() {
         &vec![],
         false,
     );
-    let (team_id, access_token) = create_self_service_team_in(&cook_and_run_id, false);
+    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
-    let res = execute_cancel(&cook_and_run_id, &team_id, None, Some(&access_token), None);
+    let res = execute_cancel(&project_id, &team_id, None, Some(&access_token), None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -183,16 +183,16 @@ fn test_cancel_team_edit_deadline_exceeded() {
 /// then the response is 409 TeamCanceled." (§4.3)
 #[test]
 fn test_patch_canceled_team_conflict() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
     let (admin_token, _) = get_user_1();
 
-    let res = execute_cancel(&cook_and_run_id, &team_id, None, Some(&access_token), None);
+    let res = execute_cancel(&project_id, &team_id, None, Some(&access_token), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let payload = team_update_payload_with_mail("wont-work@run.de");
 
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         None,
@@ -201,7 +201,7 @@ fn test_patch_canceled_team_conflict() {
     assert_eq!(res.status(), StatusCode::CONFLICT, "Response: {:#?}", res);
 
     let res = execute_patch_dual_auth(
-        &cook_and_run_id,
+        &project_id,
         &team_id,
         &payload,
         Some(&admin_token),
@@ -215,15 +215,15 @@ fn test_patch_canceled_team_conflict() {
 /// only ever used for admin-side resources.
 #[test]
 fn test_cancel_team_does_not_affect_other_project() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
     let (other_token, _) = get_user_2();
 
     // A second admin user has no visibility into this team at all — dual
     // auth on GET still requires *some* valid credential, an unrelated
     // Bearer token doesn't grant access to somebody else's project.
-    let res = execute_get_dual_auth(&cook_and_run_id, &team_id, Some(&other_token), None);
+    let res = execute_get_dual_auth(&project_id, &team_id, Some(&other_token), None);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    let res = execute_cancel(&cook_and_run_id, &team_id, None, Some(&access_token), None);
+    let res = execute_cancel(&project_id, &team_id, None, Some(&access_token), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }

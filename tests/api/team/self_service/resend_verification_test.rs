@@ -7,9 +7,9 @@ use crate::{
 
 #[test]
 fn test_resend_verification_participant() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
 
-    let res = execute_resend_verification(&cook_and_run_id, &team_id, None, Some(&access_token));
+    let res = execute_resend_verification(&project_id, &team_id, None, Some(&access_token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
@@ -19,11 +19,11 @@ fn test_resend_verification_participant() {
 /// and the 4th fails.
 #[test]
 fn test_resend_verification_participant_limit_exceeded() {
-    let (cook_and_run_id, team_id, access_token) = create_self_service_team(false);
+    let (project_id, team_id, access_token) = create_self_service_team(false);
 
     for attempt in 1..=3 {
         let res =
-            execute_resend_verification(&cook_and_run_id, &team_id, None, Some(&access_token));
+            execute_resend_verification(&project_id, &team_id, None, Some(&access_token));
         assert!(
             res.status().is_success(),
             "Attempt {attempt} should succeed. Response: {:#?}",
@@ -31,7 +31,7 @@ fn test_resend_verification_participant_limit_exceeded() {
         );
     }
 
-    let res = execute_resend_verification(&cook_and_run_id, &team_id, None, Some(&access_token));
+    let res = execute_resend_verification(&project_id, &team_id, None, Some(&access_token));
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -44,11 +44,11 @@ fn test_resend_verification_participant_limit_exceeded() {
 /// no attempt limit." (§4.4)
 #[test]
 fn test_resend_verification_admin_no_limit() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
     let (admin_token, _) = get_user_1();
 
     for attempt in 1..=5 {
-        let res = execute_resend_verification(&cook_and_run_id, &team_id, Some(&admin_token), None);
+        let res = execute_resend_verification(&project_id, &team_id, Some(&admin_token), None);
         assert!(
             res.status().is_success(),
             "Admin attempt {attempt} should succeed. Response: {:#?}",
@@ -59,9 +59,9 @@ fn test_resend_verification_admin_no_limit() {
 
 #[test]
 fn test_resend_verification_requires_some_credential() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
 
-    let res = execute_resend_verification(&cook_and_run_id, &team_id, None, None);
+    let res = execute_resend_verification(&project_id, &team_id, None, None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -72,9 +72,9 @@ fn test_resend_verification_requires_some_credential() {
 
 #[test]
 fn test_resend_verification_wrong_token_for_path() {
-    let (cook_and_run_id, team_id, _) = create_self_service_team(false);
+    let (project_id, team_id, _) = create_self_service_team(false);
     let (_, _, other_token) = create_self_service_team(false);
 
-    let res = execute_resend_verification(&cook_and_run_id, &team_id, None, Some(&other_token));
+    let res = execute_resend_verification(&project_id, &team_id, None, Some(&other_token));
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }

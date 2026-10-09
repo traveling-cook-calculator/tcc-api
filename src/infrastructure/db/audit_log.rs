@@ -1,33 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    domain::audit_log::{AuditAction, AuditActorType, AuditLog}, error::AppError,
+    domain::audit_log::{AuditAction, AuditActorType, AuditLog},
+    error::AppError,
 };
-
-/// Snapshot der auditierbaren Team-Felder für Vorher/Nachher-Vergleiche.
-/// Kein eigenes DB-Entity — reine Hilfsstruktur zum Bauen von `changes`,
-/// gehört daher nicht ins Repository selbst.
-#[derive(Debug, Clone, PartialEq, sqlx::FromRow, Serialize)]
-pub(super) struct TeamAuditSnapshot {
-    pub name: String,
-    pub mail: Option<String>,
-    pub phone: Option<String>,
-    pub members: Option<i32>,
-    pub diets: Option<String>,
-    pub address_text: String,
-    pub latitude: f64,
-    pub longitude: f64,
-}
-
-pub(super) fn diff_json(
-    before: &TeamAuditSnapshot,
-    after: &TeamAuditSnapshot,
-) -> serde_json::Value {
-    json!({ "before": before, "after": after })
-}
 
 pub struct AuditLogRepository;
 
@@ -38,6 +16,22 @@ enum AuditActorTypeEntity {
     Participant,
 }
 
+impl AuditActorTypeEntity {
+    fn to_domain(&self) -> AuditActorType {
+        match self {
+            AuditActorTypeEntity::Admin => AuditActorType::Admin,
+            AuditActorTypeEntity::Participant => AuditActorType::Participant,
+        }
+    }
+
+    fn from_domain(actor_type: &AuditActorType) -> Self {
+        match actor_type {
+            AuditActorType::Admin => AuditActorTypeEntity::Admin,
+            AuditActorType::Participant => AuditActorTypeEntity::Participant,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize)]
 #[sqlx(type_name = "audit_action", rename_all = "snake_case")]
 enum AuditActionEntity {
@@ -45,15 +39,38 @@ enum AuditActionEntity {
     Updated,
     Canceled,
     PlanInvalidated,
+    ResendVerificationMail,
+}
+
+impl AuditActionEntity {
+    fn to_domain(&self) -> AuditAction {
+        match self {
+            AuditActionEntity::Created => AuditAction::Created,
+            AuditActionEntity::Updated => AuditAction::Updated,
+            AuditActionEntity::Canceled => AuditAction::Canceled,
+            AuditActionEntity::PlanInvalidated => AuditAction::PlanInvalidated,
+            AuditActionEntity::ResendVerificationMail => AuditAction::ResendVerificationMail,
+        }
+    }
+
+    fn from_domain(action: &AuditAction) -> Self {
+        match action {
+            AuditAction::Created => AuditActionEntity::Created,
+            AuditAction::Updated => AuditActionEntity::Updated,
+            AuditAction::Canceled => AuditActionEntity::Canceled,
+            AuditAction::ResendVerificationMail => AuditActionEntity::ResendVerificationMail,
+            AuditAction::PlanInvalidated => AuditActionEntity::PlanInvalidated,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct CreatedEntry {}
 
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct AuditLogEntity {
     id: Uuid,
+    team_id: Uuid,
     actor_type: AuditActorTypeEntity,
     actor_label: Option<String>,
     action: AuditActionEntity,
@@ -65,11 +82,24 @@ impl AuditLogEntity {
     fn to_domain(&self) -> AuditLog {
         AuditLog {
             id: self.id,
-            actor_type: self.actor_type,
+            team_id: self.team_id,
+            actor_type: self.actor_type.to_domain(),
             actor_label: self.actor_label.clone(),
-            action: self.action,
+            action: self.action.to_domain(),
             changes: self.changes.clone(),
             created_at: self.created_at,
+        }
+    }
+
+    fn from_domain(audit_log: &AuditLog) -> Self {
+        Self {
+            id: audit_log.id,
+            team_id: audit_log.team_id,
+            actor_type: AuditActorTypeEntity::from_domain(&audit_log.actor_type),
+            actor_label: audit_log.actor_label.clone(),
+            action: AuditActionEntity::from_domain(&audit_log.action),
+            changes: audit_log.changes.clone(),
+            created_at: audit_log.created_at,
         }
     }
 }
@@ -91,19 +121,20 @@ impl AuditLogRepository {
     {
         sqlx::query(
             "INSERT INTO team_audit_log
-                (id, team_id, actor_type, actor_label, action, changes, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (id, team_id, actor_type, actor_label, action, changes, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(Uuid::new_v4())
         .bind(team_id)
-        .bind(actor_type)
+        .bind(AuditActorTypeEntity::from_domain(&actor_type))
         .bind(actor_label)
-        .bind(action)
-        .bind(changes)
+        .bind(AuditActionEntity::from_domain(&action))
+        .bind(sqlx::types::Json(changes))
         .bind(time)
         .execute(executor)
         .await
         .map_err(AppError::DatabaseError)?;
+
         Ok(())
     }
 
@@ -114,24 +145,12 @@ impl AuditLogRepository {
         team_id_filter: &Uuid,
         limit: i64,
         offset: i64,
-    ) -> Result<(Vec<TeamAuditLogEntry>, i64), AppError>
+    ) -> Result<Vec<AuditLog>, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        #[derive(sqlx::FromRow)]
-        struct PageRow {
-            id: Uuid,
-            actor_type: AuditActorType,
-            actor_label: Option<String>,
-            action: AuditAction,
-            changes: serde_json::Value,
-            created_at: DateTime<Utc>,
-            total_count: i64,
-        }
-
-        let rows: Vec<PageRow> = sqlx::query_as(
-            "SELECT id, actor_type, actor_label, action, changes, created_at,
-                    COUNT(*) OVER() AS total_count
+        let rows: Vec<AuditLogEntity> = sqlx::query_as(
+            "SELECT id, team_id, actor_type, actor_label, action, changes, created_at
              FROM team_audit_log
              WHERE team_id = $1
              ORDER BY created_at DESC
@@ -144,20 +163,21 @@ impl AuditLogRepository {
         .await
         .map_err(AppError::DatabaseError)?;
 
-        let total = rows.first().map(|r| r.total_count).unwrap_or(0);
-        let entries = rows
-            .iter()
-            .map(|r| AuditLogEntity {
-                id: r.id,
-                actor_type: r.actor_type,
-                actor_label: r.actor_label.clone(),
-                action: r.action,
-                changes: r.changes.clone(),
-                created_at: r.created_at,
-            })
-            .map(|e| e.to_domain())
-            .collect();
+        Ok(rows.iter().map(AuditLogEntity::to_domain).collect())
+    }
 
-        Ok((entries, total))
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn count_by_team<'e, E>(&self, executor: E, team_id: &Uuid) -> Result<i64, AppError>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        let count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM team_audit_log WHERE team_id = $1")
+                .bind(team_id)
+                .fetch_one(executor)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
+        Ok(count)
     }
 }

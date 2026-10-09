@@ -17,14 +17,13 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use lettre::message::{header::ContentType, Mailbox, MultiPart, SinglePart};
+use lettre::message::{Mailbox, MultiPart, SinglePart, header::ContentType};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use tracing::{debug, error, warn};
 
-use crate::db::models::EmailOutboxRow;
-use crate::db::Database;
-use crate::email_templates::EmailTemplates;
+use crate::application::mail::templates::EmailTemplates;
 use crate::error::AppError;
+use crate::infrastructure::Database;
 
 #[derive(Debug, Clone)]
 pub struct EmailWorkerConfig {

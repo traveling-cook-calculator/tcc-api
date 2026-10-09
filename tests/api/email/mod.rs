@@ -18,7 +18,7 @@ const MAILPIT_BASE_URL: &str = "http://localhost:8025";
 /// default (single `[[test]]` target, no `--test-threads=1` in the CI run
 /// command — see `ci-cd.yml`), and Mailpit is a single shared mail server
 /// for the entire run. Never assert against the suite's other fixed test
-/// addresses (`cook@run.de`, `cook_and_run::DEFAULT_ADMIN_NOTIFICATION_EMAIL`,
+/// addresses (`cook@run.de`, `project::DEFAULT_ADMIN_NOTIFICATION_EMAIL`,
 /// ...) here — a concurrently running unrelated test can and will send
 /// mail to those too. Always build recipients through this function
 /// instead, and never call anything that clears Mailpit's mailbox.
@@ -26,13 +26,13 @@ pub fn unique_test_email(label: &str) -> String {
     format!("{label}-{}@run-test.example", Uuid::new_v4())
 }
 
-/// Creates a project (`cook_and_run`) with a specific, caller-chosen
+/// Creates a project (`project`) with a specific, caller-chosen
 /// `admin_notification_email` instead of the suite-wide fixture default —
 /// needed for every admin-notification test, for the same mailbox-sharing
 /// reason as [`unique_test_email`].
-pub fn create_cook_and_run_with_admin_email(admin_email: &str) -> Uuid {
+pub fn create_project_with_admin_email(admin_email: &str) -> Uuid {
     let (token, user_id) = get_user_1();
-    let cook_and_run_id = Uuid::new_v4();
+    let project_id = Uuid::new_v4();
     let payload = json!({
         "name": "Test Cook & Run",
         "userId": user_id,
@@ -40,14 +40,14 @@ pub fn create_cook_and_run_with_admin_email(admin_email: &str) -> Uuid {
     });
     let (client, base_url) = get_client();
     let res = client
-        .post(format!("{}/cook_and_run/{}", base_url, cook_and_run_id))
+        .post(format!("{}/project/{}", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
         .send()
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
-    cook_and_run_id
+    project_id
 }
 
 /// Sets `plan_config.language` for a project to a specific value (the raw
@@ -55,7 +55,7 @@ pub fn create_cook_and_run_with_admin_email(admin_email: &str) -> Uuid {
 /// than the fixed `"eng"` used by `plan_config::patch_test`'s fixture,
 /// which isn't one of the two values the email feature actually
 /// recognizes.
-pub fn set_plan_config_language(cook_and_run_id: &Uuid, language: &str) {
+pub fn set_plan_config_language(project_id: &Uuid, language: &str) {
     let (token, _) = get_user_1();
     let payload = json!({
         "title": "Test Plan Config",
@@ -66,8 +66,8 @@ pub fn set_plan_config_language(cook_and_run_id: &Uuid, language: &str) {
     let (client, base_url) = get_client();
     let res = client
         .patch(format!(
-            "{}/cook_and_run/{}/plan_config",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan_config",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -80,14 +80,14 @@ pub fn set_plan_config_language(cook_and_run_id: &Uuid, language: &str) {
 /// Registers a team through an (unauthenticated) share link with a
 /// specific `mail` — needed instead of `team::self_service`'s helpers,
 /// which only toggle a fixed address on/off, not choose one. Requires an
-/// active `ShareTeamConfig` to already exist for `cook_and_run_id` (e.g.
+/// active `ShareTeamConfig` to already exist for `project_id` (e.g.
 /// via `sharing::post_test::create_share_config_default`).
 ///
 /// Because `mail` was supplied, the create response does **not** include
 /// `access_link` (feature MD §4.1) — the only way to get the participant's
 /// deeplink token for a team like this is out of the invitation email
 /// itself, via [`extract_access_token_from_body`].
-pub fn create_self_service_team_with_mail(cook_and_run_id: &Uuid, mail: &str) -> Uuid {
+pub fn create_self_service_team_with_mail(project_id: &Uuid, mail: &str) -> Uuid {
     let team_id = Uuid::new_v4();
     let payload = json!({
         "name": "TestTeam",
@@ -104,8 +104,8 @@ pub fn create_self_service_team_with_mail(cook_and_run_id: &Uuid, mail: &str) ->
     let (client, base_url) = get_client();
     let res = client
         .post(format!(
-            "{}/cook_and_run/{}/team/{}",
-            base_url, cook_and_run_id, team_id
+            "{}/project/{}/team/{}",
+            base_url, project_id, team_id
         ))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")

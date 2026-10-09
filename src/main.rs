@@ -1,34 +1,34 @@
-pub mod error;
 mod api;
 mod application;
-pub mod infrastructure;
 pub mod domain;
+pub mod error;
+pub mod infrastructure;
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::{HeaderName, HeaderValue};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, Tokio1Executor};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
 use reqwest::{
-    header::{AUTHORIZATION, CONTENT_TYPE},
     Method, StatusCode,
+    header::{AUTHORIZATION, CONTENT_TYPE},
 };
 use tower::ServiceBuilder;
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
 use tower_http::{
     classify::ServerErrorsFailureClass, cors::CorsLayer, limit::RequestBodyLimitLayer,
     set_header::SetResponseHeaderLayer, timeout::TimeoutLayer, trace::TraceLayer,
 };
-use tracing::{debug, error, info, warn, Span};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing::{Span, debug, error, info, warn};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::{db::Database, rest::auth::AuthState};
+use crate::api::auth::{ACCESS_TOKEN_HEADER, AuthState};
+use crate::infrastructure::Database;
 
 const DEFAULT_DATABASE_URL: &str = "postgresql://postgres:password123@localhost:5432/tcc_db";
 const DEFAULT_ADDR: &str = "0.0.0.0:3000";
@@ -53,10 +53,6 @@ const RATE_LIMIT_PER_SECOND: u64 = 5;
 /// tokens and then spend them all at once before being throttled.
 const RATE_LIMIT_BURST: u32 = 20;
 
-const DEFAULT_TEAM_DEEPLINK_BASE_URL: &str = "http://localhost:8080";
-const DEFAULT_ADMIN_TEAM_LINK_BASE_URL: &str = "http://localhost:8080/admin";
-const DEFAULT_EMAIL_TEMPLATES_DIR: &str = "./email_templates";
-
 const DEFAULT_SMTP_PORT: u16 = 587;
 const DEFAULT_EMAIL_WORKER_POLL_INTERVAL_SECS: u64 = 10;
 const DEFAULT_EMAIL_WORKER_BATCH_SIZE: i64 = 10;
@@ -67,9 +63,6 @@ const DEFAULT_EMAIL_WORKER_MAX_ATTEMPTS: i32 = 5;
 struct AppState {
     auth: AuthState,
     db: Database,
-    team_deeplink_base_url: String,
-    admin_team_link_base_url: String,
-    email_templates: Arc<email_templates::EmailTemplates>,
 }
 
 #[tokio::main]
@@ -171,32 +164,13 @@ async fn main() {
         DEFAULT_ADDR.to_string()
     });
 
-    let team_deeplink_base_url = std::env::var("TEAM_DEEPLINK_BASE_URL").unwrap_or_else(|_| {
-        warn!(
-            operation = "Loading environment variable",
-            variable = "TEAM_DEEPLINK_BASE_URL",
-            default = DEFAULT_TEAM_DEEPLINK_BASE_URL,
-            "TEAM_DEEPLINK_BASE_URL not set. Using built-in default. \
-             Set this to your frontend's self-service route before exposing the service to the internet."
-        );
-        DEFAULT_TEAM_DEEPLINK_BASE_URL.to_string()
-    });
-
-    let admin_team_link_base_url = std::env::var("ADMIN_TEAM_LINK_BASE_URL").unwrap_or_else(|_| {
-        warn!(
-            operation = "Loading environment variable",
-            variable = "ADMIN_TEAM_LINK_BASE_URL",
-            default = DEFAULT_ADMIN_TEAM_LINK_BASE_URL,
-            "ADMIN_TEAM_LINK_BASE_URL not set. Using built-in default."
-        );
-        DEFAULT_ADMIN_TEAM_LINK_BASE_URL.to_string()
-    });
-
     // Build the list of allowed CORS origins. Invalid values are logged and
     // skipped rather than panicking.
-    let mut allow_origins: Vec<HeaderValue> = vec![DEFAULT_ALLOW_ORIGIN
-        .parse()
-        .expect("DEFAULT_ALLOW_ORIGIN is a compile-time constant and must be valid")];
+    let mut allow_origins: Vec<HeaderValue> = vec![
+        DEFAULT_ALLOW_ORIGIN
+            .parse()
+            .expect("DEFAULT_ALLOW_ORIGIN is a compile-time constant and must be valid"),
+    ];
 
     if let Ok(extra_origin) = std::env::var("ALLOW_ORIGIN") {
         match extra_origin.parse::<HeaderValue>() {
@@ -251,40 +225,9 @@ async fn main() {
     };
     debug!("Database initialized.");
 
-    let email_templates_dir = std::env::var("EMAIL_TEMPLATES_DIR").unwrap_or_else(|_| {
-        warn!(
-            operation = "Loading environment variable",
-            variable = "EMAIL_TEMPLATES_DIR",
-            default = DEFAULT_EMAIL_TEMPLATES_DIR,
-            "EMAIL_TEMPLATES_DIR not set. Using built-in default."
-        );
-        DEFAULT_EMAIL_TEMPLATES_DIR.to_string()
-    });
-
-    debug!("Loading email templates...");
-    let email_templates = match email_templates::EmailTemplates::load_from_dir(
-        std::path::Path::new(&email_templates_dir),
-    ) {
-        Ok(t) => Arc::new(t),
-        Err(e) => {
-            error!(operation = "Load email templates", "Failed: {}", e);
-            panic!("Cannot start with invalid or missing email templates");
-        }
-    };
-    debug!("Email templates loaded.");
-
-    let app_state = AppState {
-        auth,
-        db: database,
-        team_deeplink_base_url,
-        admin_team_link_base_url,
-        email_templates,
-    };
+    let app_state = AppState { auth, db: database };
 
     // --- Email worker (SMTP) -------------------------------------------------
-    // Fail-soft: fehlt SMTP_HOST oder EMAIL_SENDER_ADDRESS, startet das
-    // Backend trotzdem (nur mit Warnung) — Outbox-Einträge stauen sich dann
-    // nur, bis beides gesetzt ist.
     match (
         std::env::var("SMTP_HOST").ok(),
         std::env::var("EMAIL_SENDER_ADDRESS").ok(),
@@ -318,8 +261,8 @@ async fn main() {
                 transport_builder =
                     transport_builder.credentials(Credentials::new(username, password));
             }
-
-            let email_worker_config = email_worker::EmailWorkerConfig {
+            /*
+            let email_worker_config = EmailWorkerConfig {
                 poll_interval: Duration::from_secs(
                     std::env::var("EMAIL_WORKER_POLL_INTERVAL_SECONDS")
                         .ok()
@@ -341,13 +284,13 @@ async fn main() {
             };
 
             info!("Starting email worker...");
-            email_worker::spawn(
+             email_worker::spawn(
                 app_state.db.clone(),
                 app_state.email_templates.clone(),
                 transport_builder.build(),
                 sender,
                 email_worker_config,
-            );
+            );*/
         }
         _ => {
             warn!(
@@ -413,10 +356,10 @@ async fn main() {
         .allow_headers([
             AUTHORIZATION,
             CONTENT_TYPE,
-            HeaderName::from_static(rest::auth::ACCESS_TOKEN_HEADER),
+            HeaderName::from_static(ACCESS_TOKEN_HEADER),
         ]);
 
-    let app = rest::get_routes(app_state.clone())
+    let app = api::get_routes(app_state.clone())
         .layer(security_headers)
         .layer(cors_layer)
         //Reject bodies larger than MAX_BODY_BYTES before reading them.

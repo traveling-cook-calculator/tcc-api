@@ -99,44 +99,120 @@ impl PlanEntity {
 
 impl PlanRepository {
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn insert<'e, E>(&self, executor: E, data: &Plan) -> Result<(), AppError>
+    pub async fn upsert<'e, E>(
+        &self,
+        executor: E,
+        data: &Plan,
+        user_id: &str,
+    ) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
         let plan_entity = PlanEntity::from_domain(data);
-        sqlx::query("INSERT INTO plan (id, data) VALUES ($1, $2)")
-            .bind(plan_entity.id)
-            .bind(Json(&plan_entity.data))
-            .execute(executor)
-            .await
-            .map_err(AppError::DatabaseError)?;
+
+        let affected = sqlx::query(
+            r#"
+        INSERT INTO plan (id, data, stale_at)
+        SELECT $1, $2, $3
+        FROM project
+        WHERE id = $1 AND user_id = $4
+        ON CONFLICT (id) DO UPDATE
+        SET 
+            data = EXCLUDED.data,
+            stale_at = EXCLUDED.stale_at
+        "#,
+        )
+        .bind(plan_entity.id)
+        .bind(Json(&plan_entity.data))
+        .bind(plan_entity.stale_at)
+        .bind(user_id)
+        .execute(executor)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+        }
+
         Ok(())
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<Plan, AppError>
+    pub async fn select<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+        user_id: &str,
+    ) -> Result<Plan, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        sqlx::query_as::<_, PlanEntity>("SELECT id, data, stale_at FROM plan WHERE id = $1")
-            .bind(id_filter)
-            .fetch_one(executor)
-            .await
-            .map_err(AppError::DatabaseError)
-            .map(|row| row.to_domain())
+        sqlx::query_as::<_, PlanEntity>(
+            r#"
+        SELECT p.id, p.data, p.stale_at
+        FROM plan p
+        WHERE id = $1
+        AND EXISTS (
+              SELECT 1 FROM project
+              WHERE id = $1 AND user_id = $2
+          ) 
+        "#,
+        )
+        .bind(id_filter)
+        .bind(user_id)
+        .fetch_one(executor)
+        .await
+        .map_err(AppError::DatabaseError)
+        .map(|row| row.to_domain())
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn delete<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<(), AppError>
+    pub async fn select_unsafe<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+    ) -> Result<Plan, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let affected = sqlx::query("DELETE FROM plan WHERE id = $1")
-            .bind(id_filter)
-            .execute(executor)
-            .await
-            .map_err(AppError::DatabaseError)?
-            .rows_affected();
+        sqlx::query_as::<_, PlanEntity>(
+            r#"
+        SELECT p.id, p.data, p.stale_at
+        FROM plan p
+        WHERE id = $1
+        "#,
+        )
+        .bind(id_filter)
+        .fetch_one(executor)
+        .await
+        .map_err(AppError::DatabaseError)
+        .map(|row| row.to_domain())
+    }
+
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn delete<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+        user_id: &str,
+    ) -> Result<(), AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        let affected = sqlx::query(
+            "DELETE FROM plan WHERE id = $1  
+            AND EXISTS (
+              SELECT 1 FROM project
+              WHERE id = $1 AND user_id = $2
+          )",
+        )
+        .bind(id_filter)
+        .bind(user_id)
+        .execute(executor)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
 
         if affected == 0 {
             return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
@@ -149,21 +225,62 @@ impl PlanRepository {
         &self,
         executor: E,
         id_filter: &Uuid,
+        user_id: &str,
         time: &DateTime<Utc>,
-    ) -> Result<bool, AppError>
+    ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let affected =
-            sqlx::query("UPDATE plan SET stale_at = $1 WHERE id = $2 AND stale_at IS NULL")
-                .bind(time)
-                .bind(id_filter)
-                .execute(executor)
-                .await
-                .map_err(AppError::DatabaseError)?
-                .rows_affected();
+        let affected = sqlx::query(
+            r#"
+        UPDATE plan
+        SET stale_at = $1
+        WHERE id = $2
+          AND EXISTS (
+              SELECT 1 FROM project
+              WHERE id = $2 AND user_id = $3
+          )
+        "#,
+        )
+        .bind(time)
+        .bind(id_filter)
+        .bind(user_id)
+        .execute(executor)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
 
-        Ok(affected > 0)
+        if affected == 0 {
+            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+        }
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn mark_stale_unsafe<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+        time: &DateTime<Utc>,
+    ) -> Result<(), AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        sqlx::query(
+            r#"
+        UPDATE plan
+        SET stale_at = $1
+        WHERE id = $2
+        "#,
+        )
+        .bind(time)
+        .bind(id_filter)
+        .execute(executor)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(())
     }
 }
 
@@ -257,6 +374,7 @@ impl PlanConfigEntity {
 
     fn to_domain(&self) -> PlanConfig {
         PlanConfig {
+            id: self.id,
             access: AccessEntity::to_domain_list(&self.access),
             title: self.title.clone(),
             description: self.description.clone(),
@@ -268,15 +386,31 @@ impl PlanConfigEntity {
 
 impl PlanConfigRepository {
     #[tracing::instrument(skip(self, executor, data))]
-    pub async fn insert<'e, E>(&self, executor: E, data: &PlanConfig) -> Result<(), AppError>
+    pub async fn upsert<'e, E>(
+        &self,
+        executor: E,
+        data: &PlanConfig,
+        user_id: &str,
+    ) -> Result<(), AppError>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
         let config = PlanConfigEntity::from_domain(data);
 
-        sqlx::query(
-            "INSERT INTO plan_config (id, access, title, description, date, language)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+        let affected = sqlx::query(
+            r#"
+        INSERT INTO plan_config (id, access, title, description, date, language)
+        SELECT $1, $2, $3, $4, $5, $6
+        FROM project
+        WHERE id = $1 AND user_id = $7
+        ON CONFLICT (id) DO UPDATE
+        SET
+            access = EXCLUDED.access,
+            title = EXCLUDED.title,
+            description = EXCLUDED.description,
+            date = EXCLUDED.date,
+            language = EXCLUDED.language
+        "#,
         )
         .bind(config.id)
         .bind(&config.access)
@@ -284,22 +418,42 @@ impl PlanConfigRepository {
         .bind(&config.description)
         .bind(config.date)
         .bind(config.language)
+        .bind(user_id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+        }
 
         Ok(())
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<PlanConfig, AppError>
+    pub async fn select<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+        user_id: &str,
+    ) -> Result<PlanConfig, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
         sqlx::query_as::<_, PlanConfigEntity>(
-            "SELECT id, access, title, description, date, language FROM plan_config WHERE id = $1",
+            r#"
+        SELECT id, access, title, description, date, language
+        FROM plan_config
+        WHERE id = $1
+          AND EXISTS (
+              SELECT 1 FROM project
+              WHERE id = $1 AND user_id = $2
+          )
+        "#,
         )
         .bind(id_filter)
+        .bind(user_id)
         .fetch_one(executor)
         .await
         .map_err(AppError::DatabaseError)
@@ -307,20 +461,36 @@ impl PlanConfigRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn delete<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<(), AppError>
+    pub async fn delete<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+        user_id: &str,
+    ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
-        let affected = sqlx::query("DELETE FROM plan_config WHERE id = $1")
-            .bind(id_filter)
-            .execute(executor)
-            .await
-            .map_err(AppError::DatabaseError)?
-            .rows_affected();
+        let affected = sqlx::query(
+            r#"
+        DELETE FROM plan_config
+        WHERE id = $1
+          AND EXISTS (
+              SELECT 1 FROM project
+              WHERE id = $1 AND user_id = $2
+          )
+        "#,
+        )
+        .bind(id_filter)
+        .bind(user_id)
+        .execute(executor)
+        .await
+        .map_err(AppError::DatabaseError)?
+        .rows_affected();
 
         if affected == 0 {
             return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
         }
+
         Ok(())
     }
 }

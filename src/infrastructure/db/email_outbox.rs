@@ -105,7 +105,7 @@ impl EmailOutboxRepository {
         .bind(Uuid::new_v4())
         .bind(recipient_email)
         .bind(EmailTypeEntity::from_domain(email_type))
-        .bind(context)
+        .bind(sqlx::types::Json(context))
         .bind(time)
         .execute(executor)
         .await

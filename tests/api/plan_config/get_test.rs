@@ -3,35 +3,35 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client, get_cook_and_run,
+    create_project, get_client, get_project,
     plan_config::patch_test::patch_plan_config,
 };
 
 #[test]
 fn test_get_plan_config() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
-    patch_plan_config(&cook_and_run_id, &token);
-    let response = execute_get(&cook_and_run_id, &token);
+    patch_plan_config(&project_id, &token);
+    let response = execute_get(&project_id, &token);
     assert!(response.status().is_success(), "Response: {:#?}", response);
     assert_plan_config_json(&response.json().expect("Failed to parse JSON"));
 }
 
 #[test]
-fn test_get_plan_config_in_cook_and_run() {
-    let cook_and_run_id = create_cook_and_run();
+fn test_get_plan_config_in_project() {
+    let project_id = create_project();
     let (token, _) = get_user_1();
-    patch_plan_config(&cook_and_run_id, &token);
-    let cook_and_run = get_cook_and_run(&cook_and_run_id);
-    assert_cook_and_run_json(&cook_and_run, true);
+    patch_plan_config(&project_id, &token);
+    let project = get_project(&project_id);
+    assert_project_json(&project, true);
 }
 
 #[test]
 fn test_get_plan_config_not_found() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
 
-    let response = execute_get(&cook_and_run_id, &token);
+    let response = execute_get(&project_id, &token);
     assert_eq!(
         response.status(),
         StatusCode::NOT_FOUND,
@@ -41,19 +41,19 @@ fn test_get_plan_config_not_found() {
 }
 
 #[test]
-fn test_get_plan_config_not_found_in_cook_and_run() {
-    let cook_and_run_id = create_cook_and_run();
-    let cook_and_run = get_cook_and_run(&cook_and_run_id);
-    assert_cook_and_run_json(&cook_and_run, false);
+fn test_get_plan_config_not_found_in_project() {
+    let project_id = create_project();
+    let project = get_project(&project_id);
+    assert_project_json(&project, false);
 }
 
 #[test]
 fn test_get_plan_config_wrong_user() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token_1, _) = get_user_1();
-    patch_plan_config(&cook_and_run_id, &token_1);
+    patch_plan_config(&project_id, &token_1);
     let (token_2, _) = get_user_2();
-    let response = execute_get(&cook_and_run_id, &token_2);
+    let response = execute_get(&project_id, &token_2);
     assert_eq!(
         response.status(),
         StatusCode::NOT_FOUND,
@@ -62,12 +62,12 @@ fn test_get_plan_config_wrong_user() {
     );
 }
 
-pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
+pub fn execute_get(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/plan_config",
-            base_url, cook_and_run_id
+            "{}/project/{}/plan_config",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -75,14 +75,14 @@ pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Re
         .expect("Failed to send request")
 }
 
-pub fn get_plan_config(cook_and_run_id: &Uuid, token: &str) {
-    let res = execute_get(cook_and_run_id, token);
+pub fn get_plan_config(project_id: &Uuid, token: &str) {
+    let res = execute_get(project_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     assert_plan_config_json(&res.json().expect("Failed to parse JSON"));
 }
 
-fn assert_cook_and_run_json(json: &serde_json::Value, expect_plan_config: bool) {
+fn assert_project_json(json: &serde_json::Value, expect_plan_config: bool) {
     let plan_config_opt = json.get("plan_config");
 
     if expect_plan_config {
