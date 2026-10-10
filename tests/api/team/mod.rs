@@ -1,7 +1,7 @@
 use reqwest::StatusCode;
 use uuid::Uuid;
 
-use crate::{auth::get_user_1, create_cook_and_run, team::post_test::create_team};
+use crate::{auth::get_user_1, create_project, team::post_test::create_team};
 
 mod delete_test;
 mod get_test;
@@ -9,30 +9,39 @@ mod patch_test;
 pub mod post_test;
 
 mod note;
+pub mod self_service;
 
 pub fn setup() -> (Uuid, Uuid) {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, user_id) = get_user_1();
     let team_id = Uuid::new_v4();
-    create_team(&cook_and_run_id, &team_id, &user_id, &token);
+    create_team(&project_id, &team_id, &user_id, &token);
 
-    (cook_and_run_id, team_id)
+    (project_id, team_id)
 }
 
-pub fn get_team(cook_and_run_id: &Uuid, team_id: &Uuid) -> serde_json::Value {
+pub fn get_team(project_id: &Uuid, team_id: &Uuid) -> serde_json::Value {
     let (token, _) = get_user_1();
-    let res = get_test::execute_get(cook_and_run_id, team_id, &token);
+    let res = get_test::execute_get(project_id, team_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     res.json().expect("Failed to parse JSON")
 }
 
-pub fn assert_team_not_found(cook_and_run_id: &Uuid, team_id: &Uuid) {
+pub fn assert_team_not_found(project_id: &Uuid, team_id: &Uuid) {
     let (token, _) = get_user_1();
-    let res = get_test::execute_get(cook_and_run_id, team_id, &token);
+    let res = get_test::execute_get(project_id, team_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
+/// `team.needs_check` (bool) was replaced by `team.status` (enum:
+/// active/review/canceled) in v0.2.0. The `expected_needs_check` parameter
+/// is kept for source compatibility with existing callers outside this
+/// module (e.g. the sharing tests, not yet migrated) — `true` now maps to
+/// the expected status `"review"`, `false` to `"active"`, mirroring what
+/// `share.default_needs_check` used to control directly. Once all callers
+/// are migrated this should be replaced with an `expected_status: &str`
+/// parameter throughout.
 #[allow(clippy::too_many_arguments)]
 pub fn assert_team_json(
     json: &serde_json::Value,
@@ -46,6 +55,12 @@ pub fn assert_team_json(
     expected_diets: bool,
     expected_needs_check: bool,
 ) {
+    let expected_status = if expected_needs_check {
+        "review"
+    } else {
+        "active"
+    };
+
     get_test::assert_team_json(
         json,
         expected_team_id,
@@ -56,6 +71,6 @@ pub fn assert_team_json(
         expected_mail,
         expected_phone,
         expected_diets,
-        expected_needs_check,
+        expected_status,
     );
 }

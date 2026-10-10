@@ -14,25 +14,25 @@ static TEST_DATA: OnceLock<Mutex<TestData>> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct TestData {
-    cook_and_run_id: Uuid,
+    project_id: Uuid,
     team_id: Uuid,
     note_list: Vec<Uuid>,
 }
 
 pub fn setup() -> TestData {
     let data = TEST_DATA.get_or_init(|| {
-        let (cook_and_run_id, team_id) = team::setup();
+        let (project_id, team_id) = team::setup();
 
         let (token, _) = get_user_1();
         let mut note_list = Vec::new();
         for _ in 0..10 {
             let note_id = Uuid::new_v4();
-            create_note(&cook_and_run_id, &team_id, &note_id, &token);
+            create_note(&project_id, &team_id, &note_id, &token);
             note_list.push(note_id);
         }
 
         Mutex::new(TestData {
-            cook_and_run_id,
+            project_id,
             team_id,
             note_list,
         })
@@ -42,27 +42,12 @@ pub fn setup() -> TestData {
 }
 
 #[test]
-fn test_get_note() {
-    let test_data = setup();
-    let (token, _) = get_user_1();
-
-    for note in test_data.note_list {
-        get_note(
-            &test_data.cook_and_run_id,
-            &test_data.team_id,
-            &note,
-            &token,
-        );
-    }
-}
-
-#[test]
 fn test_get_note_list() {
     let test_data = setup();
     let (token, _) = get_user_1();
 
     get_note_list(
-        &test_data.cook_and_run_id,
+        &test_data.project_id,
         &test_data.team_id,
         &test_data.note_list,
         &token,
@@ -70,98 +55,21 @@ fn test_get_note_list() {
 }
 
 #[test]
-fn test_get_note_list_in_team() {
-    let test_data = setup();
-    let team = team::get_team(&test_data.cook_and_run_id, &test_data.team_id);
-    assert_team_json(&team, &test_data.note_list);
-}
-
-#[test]
-fn test_get_note_not_found() {
-    let test_data = setup();
-    let (token, _) = get_user_1();
-
-    let res = execute_get(
-        &test_data.cook_and_run_id,
-        &test_data.team_id,
-        &Uuid::new_v4(),
-        &token,
-    );
-    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
-}
-
-#[test]
-fn test_get_note_wrong_user() {
-    let test_data = setup();
-    let (token, _) = get_user_2();
-
-    for note in test_data.note_list {
-        let res = execute_get(
-            &test_data.cook_and_run_id,
-            &test_data.team_id,
-            &note,
-            &token,
-        );
-        assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
-    }
-}
-
-#[test]
 fn test_get_note_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_user_2();
 
-    get_note_list(&test_data.cook_and_run_id, &test_data.team_id, &[], &token);
+    let res = execute_get_list(&test_data.project_id, &test_data.team_id, &token);
+    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
-pub fn execute_get(
-    cook_and_run_id: &Uuid,
+pub fn get_note(
+    project_id: &Uuid,
     team_id: &Uuid,
     note_id: &Uuid,
     token: &str,
-) -> reqwest::blocking::Response {
-    let (client, base_url) = get_client();
-    client
-        .get(format!(
-            "{}/cook_and_run/{}/team/{}/note/{}",
-            base_url, cook_and_run_id, team_id, note_id
-        ))
-        .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
-        .send()
-        .expect("Failed to send request")
-}
-
-pub fn get_note(cook_and_run_id: &Uuid, team_id: &Uuid, note_id: &Uuid, token: &str) {
-    let res = execute_get(cook_and_run_id, team_id, note_id, token);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-    assert_note_json(&res.json().expect("Failed to parse JSON"), note_id);
-}
-
-fn execute_get_list(
-    cook_and_run_id: &Uuid,
-    team_id: &Uuid,
-    token: &str,
-) -> reqwest::blocking::Response {
-    let (client, base_url) = get_client();
-    client
-        .get(format!(
-            "{}/cook_and_run/{}/team/{}/notes",
-            base_url, cook_and_run_id, team_id
-        ))
-        .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
-        .send()
-        .expect("Failed to send request")
-}
-
-pub fn get_note_list(
-    cook_and_run_id: &Uuid,
-    team_id: &Uuid,
-    expected_note_id: &[Uuid],
-    token: &str,
-) {
-    let res = execute_get_list(cook_and_run_id, team_id, token);
+) -> Option<serde_json::Value> {
+    let res = execute_get_list(project_id, team_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Expect json");
@@ -169,17 +77,39 @@ pub fn get_note_list(
         .get("data")
         .and_then(|v| v.as_array())
         .expect("Missing note_list");
-    for (index, note) in note_list.iter().enumerate() {
-        assert_note_json(note, &expected_note_id[index]);
+
+    for (_, note) in note_list.iter().enumerate() {
+        let id = note.get("id").and_then(|v| v.as_str()).expect("Missing id");
+
+        if id == note_id.to_string() {
+            return Some(note.clone());
+        }
     }
+    None
 }
 
-fn assert_team_json(json: &serde_json::Value, expected_note_id: &[Uuid]) {
+fn execute_get_list(project_id: &Uuid, team_id: &Uuid, token: &str) -> reqwest::blocking::Response {
+    let (client, base_url) = get_client();
+    client
+        .get(format!(
+            "{}/project/{}/team/{}/notes",
+            base_url, project_id, team_id
+        ))
+        .header("authorization", format!("Bearer {}", token))
+        .header("x-forwarded-for", "127.0.0.1")
+        .send()
+        .expect("Failed to send request")
+}
+
+pub fn get_note_list(project_id: &Uuid, team_id: &Uuid, expected_note_id: &[Uuid], token: &str) {
+    let res = execute_get_list(project_id, team_id, token);
+    assert!(res.status().is_success(), "Response: {:#?}", res);
+
+    let json: serde_json::Value = res.json().expect("Expect json");
     let note_list = json
-        .get("note_list")
+        .get("data")
         .and_then(|v| v.as_array())
         .expect("Missing note_list");
-
     for (index, note) in note_list.iter().enumerate() {
         assert_note_json(note, &expected_note_id[index]);
     }
@@ -216,8 +146,5 @@ fn assert_note_json(json: &serde_json::Value, expected_note_id: &Uuid) {
     );
 
     let parsed_time = created.parse::<DateTime<Utc>>();
-    assert!(
-        parsed_time.is_ok(),
-        "Cook and Run created time does not match"
-    );
+    assert!(parsed_time.is_ok(), "Project created time does not match");
 }

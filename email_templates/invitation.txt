@@ -1,0 +1,7 @@
+{{heading_prefix}} {{project_name}}!
+
+{{greeting_prefix}} {{team_name}},
+
+{{intro}}{{#if requires_verification}} {{verify_note}}{{/if}}
+
+{{button_label}}: {{deeplink_url}}

@@ -285,7 +285,7 @@ The API uses structured error responses with descriptive messages and HTTP statu
 - `notes` - Shared notes for plans
 - `points` - Points/locations within plans
 - `sharing` - Sharing permissions and access control
-- `cook_and_runs` - Event/execution records
+- `projects` - Event/execution records
 
 ### Special Features
 - **Soft Deletes**: `deleted_at` column for recoverable deletions

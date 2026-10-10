@@ -263,6 +263,21 @@ jobs:
         env:
           DISABLE_RATE_LIMIT: "true"
           DATABASE_URL: postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/tcc_db
+          SMTP_HOST: localhost
+          SMTP_PORT: "1025"
+          SMTP_USERNAME: ""
+          SMTP_PASSWORD: ""
+          EMAIL_SENDER_ADDRESS: "no-reply@cook-and-run.test"
+          # TODO: an das tatsächliche Verzeichnis im Repo anpassen — ich kenne
+          # den echten Pfad nicht, das ist nur ein Platzhalter.
+          EMAIL_TEMPLATES_DIR: ${{ github.workspace }}/email_templates
+          TEAM_DEEPLINK_BASE_URL: "http://localhost:5173/team"
+          ADMIN_TEAM_LINK_BASE_URL: "http://localhost:5173/admin/team"
+          # Klein halten, sonst müssen die Email-Tests unnötig lang pollen.
+          EMAIL_WORKER_POLL_INTERVAL_SECONDS: "1"
+          EMAIL_WORKER_BATCH_SIZE: "50"
+          EMAIL_WORKER_LEASE_SECONDS: "30"
+          EMAIL_WORKER_MAX_ATTEMPTS: "5"
         run: |
           set -euo pipefail
           chmod +x "artifacts/${BINARY_NAME}"

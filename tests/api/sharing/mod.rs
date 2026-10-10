@@ -1,19 +1,19 @@
 mod delete_test;
 mod get_test;
 mod patch_test;
-mod post_team_test;
-mod post_test;
+pub mod post_team_test;
+pub mod post_test;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::{auth::get_user_1, create_cook_and_run, sharing::post_test::create_share_config};
+use crate::{auth::get_user_1, create_project, sharing::post_test::create_share_config_default};
 
 pub fn setup() -> Uuid {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
 
     let (token, _) = get_user_1();
-    create_share_config(
-        &cook_and_run_id,
+    create_share_config_default(
+        &project_id,
         &token,
         true,
         true,
@@ -30,12 +30,12 @@ pub fn setup() -> Uuid {
                 .with_timezone(&Utc),
         ),
     );
-    cook_and_run_id
+    project_id
 }
 
-pub fn get_share_config(cook_and_run_id: &Uuid, token: &str) {
+pub fn get_share_config(project_id: &Uuid, token: &str) {
     get_test::get_share_config(
-        cook_and_run_id,
+        project_id,
         token,
         true,
         true,
@@ -47,5 +47,10 @@ pub fn get_share_config(cook_and_run_id: &Uuid, token: &str) {
         ],
         &Some(5),
         &Some("2015-09-05T23:56:00Z"),
+        &None,
+        &vec![],
+        false,
+        false,
+        false,
     );
 }

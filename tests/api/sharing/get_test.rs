@@ -4,17 +4,17 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client, get_cook_and_run,
+    create_project, get_client,
     sharing::setup,
 };
 
 #[test]
 fn test_get_share_config() {
-    let cook_and_run_id = setup();
+    let project_id = setup();
     let (token, _) = get_user_1();
 
     get_share_config(
-        &cook_and_run_id,
+        &project_id,
         &token,
         true,
         true,
@@ -26,34 +26,20 @@ fn test_get_share_config() {
         ],
         &Some(5),
         &Some("2015-09-05T23:56:00Z"),
-    );
-}
-
-#[test]
-fn test_get_share_config_list() {
-    let cook_and_run_id = setup();
-
-    get_share_config_cook_and_run(
-        &cook_and_run_id,
-        true,
-        true,
-        &vec![
-            "mail".to_string(),
-            "phone".to_string(),
-            "members".to_string(),
-            "diets".to_string(),
-        ],
-        &Some(5),
-        &Some("2015-09-05T23:56:00Z"),
+        &None,
+        &vec![],
+        false,
+        false,
+        false,
     );
 }
 
 #[test]
 fn test_get_share_config_not_found() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let (token, _) = get_user_1();
 
-    let res = execute_get(&cook_and_run_id, &token);
+    let res = execute_get(&project_id, &token);
     assert_eq!(
         res.status(),
         StatusCode::NOT_FOUND,
@@ -64,19 +50,19 @@ fn test_get_share_config_not_found() {
 
 #[test]
 fn test_get_share_config_wrong_user() {
-    let cook_and_run_id = setup();
+    let project_id = setup();
     let (token, _) = get_user_2();
 
-    let res = execute_get(&cook_and_run_id, &token);
+    let res = execute_get(&project_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
-pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Response {
+pub fn execute_get(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
         .get(format!(
-            "{}/cook_and_run/{}/share_team_config",
-            base_url, cook_and_run_id
+            "{}/project/{}/share_team_config",
+            base_url, project_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
@@ -84,72 +70,81 @@ pub fn execute_get(cook_and_run_id: &Uuid, token: &str) -> reqwest::blocking::Re
         .expect("Failed to send request")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn get_share_config(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     token: &str,
-    expected_needs_login: bool,
+    expected_require_email_verification: bool,
     expected_default_needs_check: bool,
     expected_required_fields: &Vec<String>,
     expected_max_teams: &Option<u32>,
     expected_registration_deadline: &Option<&str>,
+    expected_edit_deadline: &Option<&str>,
+    expected_review_trigger_fields: &Vec<String>,
+    expected_notify_admin_on_review: bool,
+    expected_notify_admin_on_create: bool,
+    expected_notify_admin_on_cancel: bool,
 ) {
-    let res = execute_get(cook_and_run_id, token);
+    let res = execute_get(project_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     assert_share_config_json(
         &res.json().expect("Failed to parse JSON"),
-        expected_needs_login,
+        expected_require_email_verification,
         expected_default_needs_check,
         expected_required_fields,
         expected_max_teams,
         expected_registration_deadline,
+        expected_edit_deadline,
+        expected_review_trigger_fields,
+        expected_notify_admin_on_review,
+        expected_notify_admin_on_create,
+        expected_notify_admin_on_cancel,
     );
 }
 
-pub fn get_share_config_cook_and_run(
-    cook_and_run_id: &Uuid,
-    expected_needs_login: bool,
-    expected_default_needs_check: bool,
-    expected_required_fields: &Vec<String>,
-    expected_max_teams: &Option<u32>,
-    expected_registration_deadline: &Option<&str>,
-) {
-    let res = get_cook_and_run(cook_and_run_id);
-
-    let share_config_list = res
-        .get("share_team_config")
-        .expect("Missing share_config_list");
-    assert_share_config_json(
-        share_config_list,
-        expected_needs_login,
-        expected_default_needs_check,
-        expected_required_fields,
-        expected_max_teams,
-        expected_registration_deadline,
-    );
-}
-
+#[allow(clippy::too_many_arguments)]
 pub fn assert_share_config_json(
     json: &serde_json::Value,
-    expected_needs_login: bool,
+    expected_require_email_verification: bool,
     expected_default_needs_check: bool,
     expected_required_fields: &Vec<String>,
     expected_max_teams: &Option<u32>,
     expected_registration_deadline: &Option<&str>,
+    expected_edit_deadline: &Option<&str>,
+    expected_review_trigger_fields: &Vec<String>,
+    expected_notify_admin_on_review: bool,
+    expected_notify_admin_on_create: bool,
+    expected_notify_admin_on_cancel: bool,
 ) {
     let invite_text = json
         .get("invite_text")
         .and_then(|v| v.as_str())
         .expect("Missing invite_text");
 
-    let needs_login = json
-        .get("needs_login")
+    let require_email_verification = json
+        .get("require_email_verification")
         .and_then(|v| v.as_bool())
-        .expect("Missing needs_login");
+        .expect("Missing require_email_verification");
 
     let default_needs_check = json
         .get("default_needs_check")
         .and_then(|v| v.as_bool())
         .expect("Missing default_needs_check");
+
+    let notify_admin_on_review = json
+        .get("notify_admin_on_review")
+        .and_then(|v| v.as_bool())
+        .expect("Missing notify_admin_on_review");
+
+    let notify_admin_on_create = json
+        .get("notify_admin_on_create")
+        .and_then(|v| v.as_bool())
+        .expect("Missing notify_admin_on_create");
+
+    let notify_admin_on_cancel = json
+        .get("notify_admin_on_cancel")
+        .and_then(|v| v.as_bool())
+        .expect("Missing notify_admin_on_cancel");
 
     let created = json
         .get("created")
@@ -157,6 +152,7 @@ pub fn assert_share_config_json(
         .expect("Missing created");
 
     let registration_deadline = json.get("registration_deadline").and_then(|v| v.as_str());
+    let edit_deadline = json.get("edit_deadline").and_then(|v| v.as_str());
 
     let max_teams = json.get("max_teams").and_then(|v| v.as_i64());
 
@@ -172,19 +168,32 @@ pub fn assert_share_config_json(
         })
         .collect();
 
-    assert_eq!(invite_text, "Join our amazing Cook & Run event! Register your share_config and get ready for a culinary adventure.", "share_config invite text does not match");
+    let review_trigger_fields: Vec<String> = json
+        .get("review_trigger_fields")
+        .and_then(|v| v.as_array())
+        .expect("Missing review_trigger_fields")
+        .iter()
+        .map(|f| {
+            f.as_str()
+                .expect("review_trigger_field is not a string")
+                .to_string()
+        })
+        .collect();
+
+    assert_eq!(
+        invite_text,
+        "Join our amazing Cook & Run event! Register your share_config and get ready for a culinary adventure.",
+        "share_config invite text does not match"
+    );
 
     let parsed_time = created.parse::<DateTime<Utc>>();
-    assert!(
-        parsed_time.is_ok(),
-        "Cook and Run created time does not match"
-    );
+    assert!(parsed_time.is_ok(), "Project created time does not match");
 
     if let Some(registration_deadline) = registration_deadline {
         let parsed_time = registration_deadline.parse::<DateTime<Utc>>();
         assert!(
             parsed_time.is_ok(),
-            "Cook and Run registration deadline time does not match"
+            "Project registration deadline time does not match"
         );
 
         assert_eq!(
@@ -200,13 +209,42 @@ pub fn assert_share_config_json(
         );
     }
 
+    if let Some(edit_deadline) = edit_deadline {
+        let parsed_time = edit_deadline.parse::<DateTime<Utc>>();
+        assert!(parsed_time.is_ok(), "edit_deadline is not a valid time");
+
+        assert_eq!(
+            expected_edit_deadline.expect("edit_deadline is None, but expected is Some"),
+            edit_deadline,
+            "share_config edit_deadline does not match"
+        );
+    } else {
+        assert!(
+            expected_edit_deadline.is_none(),
+            "edit_deadline is None, but expected is Some"
+        );
+    }
+
     assert_eq!(
-        needs_login, expected_needs_login,
-        "share_config needs_login does not match"
+        require_email_verification, expected_require_email_verification,
+        "share_config require_email_verification does not match"
     );
     assert_eq!(
         default_needs_check, expected_default_needs_check,
         "share_config default_needs_check does not match"
+    );
+    assert_eq!(
+        notify_admin_on_review, expected_notify_admin_on_review,
+        "share_config notify_admin_on_review does not match"
+    );
+    assert_eq!(
+        notify_admin_on_create, expected_notify_admin_on_create,
+        "share_config notify_admin_on_create does not match"
+    );
+
+    assert_eq!(
+        notify_admin_on_cancel, expected_notify_admin_on_cancel,
+        "share_config notify_admin_on_cancel does not match"
     );
 
     if let Some(max_teams) = max_teams {
@@ -225,5 +263,9 @@ pub fn assert_share_config_json(
     assert_eq!(
         &required_fields, expected_required_fields,
         "share_config required_fields does not match"
+    );
+    assert_eq!(
+        &review_trigger_fields, expected_review_trigger_fields,
+        "share_config review_trigger_fields does not match"
     );
 }

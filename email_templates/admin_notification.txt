@@ -1,0 +1,6 @@
+{{heading}}
+
+{{intro_prefix}} {{team_name}}{{intro_middle}}{{project_name}}{{intro_suffix}}
+{{reason_summary}}
+
+{{button_label}}: {{admin_team_link_url}}
