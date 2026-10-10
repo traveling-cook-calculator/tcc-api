@@ -4,10 +4,7 @@ use uuid::Uuid;
 use crate::{
     auth::{get_user_1, get_user_2},
     get_client,
-    team::note::{
-        get_test::{execute_get, get_note},
-        setup,
-    },
+    team::note::{get_test::get_note, setup},
 };
 
 #[test]
@@ -17,8 +14,8 @@ fn test_delete_note() {
     let (token, _) = get_user_1();
 
     delete_note(&project_id, &team_id, &note_id, &token);
-    let res = execute_get(&project_id, &team_id, &note_id, &token);
-    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
+    let res = get_note(&project_id, &team_id, &note_id, &token);
+    assert_eq!(res.is_none(), true, "Response: {:#?}", res);
 }
 
 #[test]

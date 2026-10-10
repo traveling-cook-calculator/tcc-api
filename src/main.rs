@@ -10,7 +10,9 @@ use axum::http::{HeaderName, HeaderValue};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, Tokio1Executor};
 use opentelemetry::{KeyValue, global};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
 use reqwest::{
     Method, StatusCode,
@@ -67,47 +69,49 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // 1. OTLP Exporter konfigurieren (Zielt auf deinen OTel-Collector)
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
+    let span_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
-        .with_endpoint("http://localhost:4317") // Passe Host/Port an dein Docker Setup an
+        .with_endpoint("http://localhost:4317")
         .build()
-        .expect("test");
+        .expect("Span-Export could be created");
 
-    // 1. Resource über den Builder erstellen
     let resource = Resource::builder()
-        // Hier kannst du deinen Vektor mit Attributen übergeben
-        .with_attributes(vec![
-            KeyValue::new("service.name", "my-rust-service"),
-            KeyValue::new("environment", "development"), // Optional: Weitere nützliche Metadaten
-        ])
+        .with_attributes(vec![KeyValue::new("service.name", "tcc-api")])
         .build();
 
-    // 2. Tracer Provider mit der neuen Resource zusammenbauen
     let tracer_provider = SdkTracerProvider::builder()
-        .with_batch_exporter(exporter)
+        .with_batch_exporter(span_exporter)
+        .with_resource(resource.clone())
+        .build();
+
+    global::set_tracer_provider(tracer_provider.clone());
+    let tracer = global::tracer("tcc-api-service");
+
+    let log_exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://localhost:4317")
+        .build()
+        .expect("Log-Export could be created");
+
+    let logger_provider = SdkLoggerProvider::builder()
+        .with_batch_exporter(log_exporter)
         .with_resource(resource)
         .build();
 
-    // 3. Provider global registrieren
-    global::set_tracer_provider(tracer_provider.clone());
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"))
+        .add_directive("hyper=off".parse().unwrap())
+        .add_directive("tonic=off".parse().unwrap())
+        .add_directive("h2=off".parse().unwrap())
+        .add_directive("opentelemetry=off".parse().unwrap());
 
-    // 4. Einen Tracer für den Subscriber erstellen
-    let tracer = global::tracer("my-rust-service");
-
-    // 5. OpenTelemetry-Layer für tracing konfigurieren
-    let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
-    // 6. Tracing Subscriber zusammenbauen (OTel + Konsolen-Output)
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     Registry::default()
         .with(env_filter)
-        .with(telemetry_layer)
-        .with(tracing_subscriber::fmt::layer()) // Für lokales Debugging in stdout
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .with(OpenTelemetryTracingBridge::new(&logger_provider))
+        .with(tracing_subscriber::fmt::layer())
         .init();
-    /*tracing_subscriber::fmt()
-    .with_max_level(tracing::Level::DEBUG)
-    .init();*/
+
     info!("Loading environment variables...");
 
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {

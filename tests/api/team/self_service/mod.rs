@@ -1,15 +1,14 @@
 mod audit_log_test;
 mod cancel_test;
 mod dual_auth_test;
-mod resend_verification_test;
 mod verify_test;
 
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::get_user_1, create_project, get_client,
-    sharing::post_test::create_share_config_default, team::post_test::get_team_create_json,
+    auth::get_user_1, create_project, get_client, sharing::post_test::create_share_config_default,
+    team::post_test::get_team_create_json,
 };
 
 /// Registers a team through an (unauthenticated) share link on a fresh
@@ -44,25 +43,21 @@ pub fn create_self_service_team(with_mail: bool) -> (Uuid, Uuid, String) {
 /// ...) that [`create_self_service_team`]'s minimal default doesn't set.
 pub fn create_self_service_team_in(project_id: &Uuid, with_mail: bool) -> (Uuid, String) {
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, with_mail, true, true, true);
-    let res =
-        crate::sharing::post_team_test::execute_create(project_id, &team_id, payload, None);
+    let access_token = Uuid::new_v4().to_string();
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        with_mail,
+        true,
+        true,
+        access_token.clone(),
+    );
+    let res = crate::sharing::post_team_test::execute_create(project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let json: serde_json::Value = res.json().expect("Failed to parse JSON");
-    let access_link = json
-        .get("access_link")
-        .and_then(|v| v.as_str())
-        .expect("Missing access_link — team must be created without mail to obtain a token");
-
-    (team_id, extract_access_token(access_link))
-}
-
-pub fn extract_access_token(access_link: &str) -> String {
-    access_link
-        .split_once("#token=")
-        .map(|(_, token)| token.to_string())
-        .unwrap_or_else(|| panic!("access_link did not contain a #token= fragment: {access_link}"))
+    (team_id, access_token)
 }
 
 /// Minimal valid `TeamUpdateRequest` payload with a custom `mail` — handy

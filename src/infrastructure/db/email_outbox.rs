@@ -109,7 +109,7 @@ impl EmailOutboxRepository {
         .bind(time)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
         Ok(())
     }
 
@@ -150,7 +150,7 @@ impl EmailOutboxRepository {
         .bind(lease_seconds as f64)
         .fetch_all(executor)
         .await
-        .map_err(AppError::DatabaseError)
+        .map_err(AppError::from)
         .map(|rows| rows.iter().map(EmailOutboxEntity::to_domain).collect())
     }
 
@@ -171,7 +171,7 @@ impl EmailOutboxRepository {
         .bind(id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
         Ok(())
     }
 
@@ -197,7 +197,7 @@ impl EmailOutboxRepository {
                 .bind(id)
                 .execute(executor)
                 .await
-                .map_err(AppError::DatabaseError)?;
+                .map_err(AppError::from)?;
         } else {
             sqlx::query(
                 "UPDATE email_outbox
@@ -210,7 +210,7 @@ impl EmailOutboxRepository {
             .bind(id)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
         }
         Ok(())
     }

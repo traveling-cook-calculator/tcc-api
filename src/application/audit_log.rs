@@ -35,6 +35,7 @@ pub async fn get_for_team(
 
     let count = AuditLogRepository.count_by_team(&mut *tx, team_id).await?;
 
+    tx.commit().await?;
     Ok(AuditLogPage {
         entries,
         total: count as u8,

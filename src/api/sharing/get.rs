@@ -56,6 +56,8 @@ pub struct ShareTeamConfigDTO {
     pub edit_deadline: Option<DateTime<Utc>>,
     pub review_trigger_fields: Vec<RequiredFieldDTO>,
     pub notify_admin_on_review: bool,
+    pub notify_admin_on_create: bool,
+    pub notify_admin_on_cancel: bool,
     pub created: DateTime<Utc>,
 }
 
@@ -85,6 +87,8 @@ impl ShareTeamConfigDTO {
                 .map(RequiredFieldDTO::from_domain)
                 .collect(),
             notify_admin_on_review: config.notify_admin_on_review,
+            notify_admin_on_cancel: config.notify_admin_on_cancel,
+            notify_admin_on_create: config.notify_admin_on_create,
             created: config.created,
         }
     }

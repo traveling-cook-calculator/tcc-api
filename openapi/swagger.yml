@@ -22,7 +22,7 @@ info:
   version: 0.2.0
   title: Traveling Cook Calculator API
   description: |
-    RESTful API for managing Cook and Run events — social cooking experiences
+    RESTful API for managing Project events — social cooking experiences
     where teams cook different courses at different locations and travel
     between them.
 
@@ -77,7 +77,7 @@ security:
   - bearerAuth: []
 
 tags:
-  - name: Cook and Run
+  - name: Project
     description: Event/project management (organizer only).
   - name: Locations
     description: Start and end point of an event.
@@ -114,9 +114,9 @@ paths:
 
   /project:
     get:
-      summary: List all cook and run projects for a user
+      summary: List all Project projects for a user
       description: |
-        Returns all cook and run projects owned by the given user.
+        Returns all Project projects owned by the given user.
         `page`/`limit`/`sort` are accepted but not currently applied to
         filtering or true pagination — `pagination.total` reflects the
         real result count, while `total_pages`/`has_next`/`has_prev` are
@@ -153,7 +153,7 @@ paths:
             enum: [created_asc, created_desc, name_asc, name_desc, edited_asc, edited_desc]
       responses:
         '200':
-          description: List of cook and run projects
+          description: List of Project projects
           content:
             application/json:
               schema:
@@ -175,11 +175,11 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
-        - Cook and Run
+        - Project
 
   /project/{cookAndRunId}:
     post:
-      summary: Create a new cook and run project
+      summary: Create a new Project project
       description: |
         Creates a new project with the given ID. `admin_notification_email`
         is mandatory as of v0.2.0 and seeds the address later used for
@@ -205,9 +205,9 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
-        - Cook and Run
+        - Project
     get:
-      summary: Get cook and run project details
+      summary: Get Project project details
       description: |
         Returns the full aggregate: teams, courses, start/end point, share
         configuration, plan (including staleness), and plan configuration.
@@ -230,9 +230,9 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
-        - Cook and Run
+        - Project
     delete:
-      summary: Delete a cook and run project
+      summary: Delete a Project project
       description: Permanently deletes the project and its start/end points. Cannot be undone.
       operationId: deleteCookAndRunProject
       parameters:
@@ -249,7 +249,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
-        - Cook and Run
+        - Project
 
   /project/{cookAndRunId}/metadata:
     get:
@@ -273,7 +273,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
-        - Cook and Run
+        - Project
     patch:
       summary: Update project metadata
       description: |
@@ -303,7 +303,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
       tags:
-        - Cook and Run
+        - Project
 
   /project/{cookAndRunId}/start_point:
     get:

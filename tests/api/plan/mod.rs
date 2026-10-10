@@ -49,7 +49,16 @@ pub fn plan_json_referencing_team(
 pub fn create_team_without_mail(project_id: &Uuid) -> Uuid {
     let (token, user_id) = get_user_1();
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(Some(&user_id), true, true, true, false, true, true, true);
+    let payload = get_team_create_json(
+        Some(&user_id),
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let (client, base_url) = get_client();
     let res = client
         .post(format!(
@@ -131,10 +140,7 @@ pub fn set_start_point(project_id: &Uuid) {
     });
     let (client, base_url) = get_client();
     let res = client
-        .patch(format!(
-            "{}/project/{}/start_point",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/start_point", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")

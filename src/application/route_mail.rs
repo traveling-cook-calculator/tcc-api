@@ -13,8 +13,8 @@ use crate::{
     domain::team::TeamStatus,
     error::AppError,
     infrastructure::db::{
-        email_outbox::EmailOutboxRepository, plan::PlanRepository, team::TeamRepository,
-        ProjectRepository,
+        ProjectRepository, email_outbox::EmailOutboxRepository, plan::PlanRepository,
+        team::TeamRepository,
     },
 };
 
@@ -34,28 +34,33 @@ pub async fn trigger_route_mails(
         .await?;
 
     if team_id_list.len() != team_list.len() {
-        return Err(AppError::InvalidTeamIdList(
+        return Err(AppError::invalid_team_id_list(
             InvalidTeamIdReason::TeamCountMismatch,
         ));
     }
 
-    let plan = PlanRepository.select_unsafe(&mut *tx, project_id).await?;
+    let plan_opt = PlanRepository.select_unsafe(&mut *tx, project_id).await?;
+
+    let plan = match plan_opt {
+        Some(p) => p,
+        None => return Ok(()),
+    };
 
     for team in team_list {
         if team.status == TeamStatus::Canceled {
-            return Err(AppError::InvalidTeamIdList(
+            return Err(AppError::invalid_team_id_list(
                 InvalidTeamIdReason::TeamCanceled,
             ));
         }
 
         let Some(mail) = team.mail else {
-            return Err(AppError::InvalidTeamIdList(
+            return Err(AppError::invalid_team_id_list(
                 InvalidTeamIdReason::TeamMissingEmail,
             ));
         };
 
         let Some(route) = plan.walking_path.get(&team.id) else {
-            return Err(AppError::InvalidTeamIdList(
+            return Err(AppError::invalid_team_id_list(
                 InvalidTeamIdReason::TeamNotInPlan,
             ));
         };
@@ -78,7 +83,7 @@ pub async fn trigger_route_mails(
             .insert(&mut *tx, &mail, EmailType::RouteUpdate, &context, &now)
             .await?;
     }
-
+    tx.commit().await?;
     Ok(())
 }
 

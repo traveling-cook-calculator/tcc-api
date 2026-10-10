@@ -63,7 +63,7 @@ pub(super) async fn cancel_team(
     let access_token = headers
         .get(ACCESS_TOKEN_HEADER)
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
+        .ok_or_else(|| AppError::missing_header(ACCESS_TOKEN_HEADER.to_string()))?;
 
     team::cancel_by_token(
         &mut state.db,
@@ -86,7 +86,7 @@ pub(super) async fn verify_team_email(
     let access_token = headers
         .get(ACCESS_TOKEN_HEADER)
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
+        .ok_or_else(|| AppError::missing_header(ACCESS_TOKEN_HEADER.to_string()))?;
 
     team::verify_email_by_token(&mut state.db, &project_id, &team_id, access_token).await
 }

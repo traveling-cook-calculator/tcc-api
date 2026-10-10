@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, State},
     Extension,
+    extract::{Path, State},
 };
 use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
@@ -8,13 +8,13 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+    AppState,
     api::{
-        auth::{is_user_authenticated, AuthUser, AuthenticatedUser, Claims},
+        auth::{AuthUser, AuthenticatedUser, Claims, is_user_authenticated},
         validated_json::ValidatedJson,
     },
     application::project::{self, ProjectMeta},
     error::AppError,
-    AppState,
 };
 
 use super::get::PointDTO;
@@ -60,7 +60,7 @@ impl ProjectCreateDTO {
         let now = chrono::Utc::now();
         ProjectMeta {
             id: *project_id,
-            user_id: String::new(),
+            user_id: self.user_id.clone(),
             name: self.name.clone(),
             created: now,
             edited: now,
@@ -84,7 +84,6 @@ pub(super) async fn create_project_project(
     ValidatedJson(payload): ValidatedJson<ProjectCreateDTO>,
 ) -> Result<(), AppError> {
     is_user_authenticated(&payload, Some(&claims.sub))?;
-    let time = chrono::Utc::now();
     project::create_project(&mut state.db, payload.to_domain(&project_id)).await
 }
 

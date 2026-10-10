@@ -30,6 +30,7 @@ pub struct TeamCreateDTO {
     pub name: String,
     #[serde(rename = "userId")]
     pub user_id: Option<String>,
+    pub access_token: Uuid,
     #[validate(nested)]
     pub address: AddressDTO,
     #[validate(email(message = "must be a valid email address"))]
@@ -60,7 +61,7 @@ impl TeamCreateDTO {
             status: TeamStatus::Active, // possibly overridden in team::create()
             canceled_at: None,
             cancel_reason: None,
-            access_token: String::new(), // set in team::create()
+            access_token: self.access_token.to_string(), // set in team::create()
             email_verified_at: None,
             verification_resend_count: 0,
             last_route_hash: None,
@@ -152,7 +153,7 @@ pub(super) async fn create_team(
     let user_id = get_user_id(&auth, &state.auth);
     is_user_authenticated(&payload, user_id.as_deref())?;
     let time = chrono::Utc::now();
-    let created_team = team::create(
+    team::create(
         &mut state.db,
         user_id.as_ref().map(|s| s.as_str()),
         &payload.to(&project_id, &team_id, &time),
@@ -185,7 +186,7 @@ pub(super) async fn update_team(
         let access_token = headers
             .get(ACCESS_TOKEN_HEADER)
             .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
+            .ok_or_else(|| AppError::missing_header(ACCESS_TOKEN_HEADER.to_string()))?;
 
         team::update_by_token(
             &mut state.db,

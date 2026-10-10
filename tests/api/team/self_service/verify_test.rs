@@ -90,6 +90,8 @@ fn test_verify_team_not_subject_to_edit_deadline() {
         &Some((chrono::Local::now() - chrono::Duration::days(1)).into()),
         &vec![],
         false,
+        false,
+        false,
     );
     let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 

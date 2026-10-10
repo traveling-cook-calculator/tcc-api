@@ -4,7 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, warn};
@@ -155,12 +155,12 @@ impl AuthState {
         reqwest::get(&jwks_url)
             .await
             .map_err(|e| {
-                AppError::AuthorizationError(format!("Error while requesting JWKS: {}", e))
+                AppError::authorization_error(format!("Error while requesting JWKS: {}", e))
             })?
             .json::<Jwks>()
             .await
             .map_err(|e| {
-                AppError::AuthorizationError(format!("Error while parsing JWKS response: {}", e))
+                AppError::authorization_error(format!("Error while parsing JWKS response: {}", e))
             })
     }
 
@@ -173,19 +173,19 @@ impl AuthState {
         debug!("Verifying Keycloak token.");
 
         let header = decode_header(token).map_err(|e| {
-            AppError::AuthorizationError(format!("Error while decoding header: {}", e))
+            AppError::authorization_error(format!("Error while decoding header: {}", e))
         })?;
 
         let kid = header
             .kid
-            .ok_or_else(|| AppError::AuthorizationError("Token has no key id".to_string()))?;
+            .ok_or_else(|| AppError::authorization_error("Token has no key id".to_string()))?;
 
         let key = self.get_key(&kid).ok_or_else(|| {
-            AppError::AuthorizationError(format!("Kid '{}' not found in JWKS", kid))
+            AppError::authorization_error(format!("Kid '{}' not found in JWKS", kid))
         })?;
 
         let decoding_key = DecodingKey::from_rsa_components(&key.n, &key.e).map_err(|e| {
-            AppError::AuthorizationError(format!("Error while building decoding key: {}", e))
+            AppError::authorization_error(format!("Error while building decoding key: {}", e))
         })?;
 
         let issuer = format!("{}/realms/{}", self.keycloak_domain, &self.keycloak_realm,);
@@ -200,7 +200,7 @@ impl AuthState {
         validation.set_issuer(&[&issuer]);
 
         let token_data = decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {
-            AppError::AuthorizationError(format!(
+            AppError::authorization_error(format!(
                 "Error while validating token and extracting claims: {}",
                 e
             ))
@@ -218,7 +218,7 @@ impl AuthState {
         let jwks = Self::fetch_jwks(&self.keycloak_domain, &self.keycloak_realm).await?;
 
         if jwks.keys.is_empty() {
-            return Err(AppError::AuthorizationError(
+            return Err(AppError::authorization_error(
                 "Keycloak returned no JWKS keys".to_string(),
             ));
         }
@@ -271,9 +271,9 @@ pub fn require_permission(
     State<crate::AppState>,
     Request,
     Next,
-) -> std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Response, StatusCode>> + Send>,
-> + Clone {
+)
+    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, StatusCode>> + Send>>
++ Clone {
     move |State(state): State<crate::AppState>, mut request: Request, next: Next| {
         debug!(
             required_permission = permission,

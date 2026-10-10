@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    project::post_test::{create_project, get_project_create_json},
     get_client,
+    project::post_test::{create_project, get_project_create_json},
 };
 
 static TEST_DATA: OnceLock<Mutex<TestData>> = OnceLock::new();
@@ -172,10 +172,7 @@ pub fn get_project_meta_list(user_id: &str, token: &str, expected_project_id: Ve
 pub fn execute_get_meta(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(format!(
-            "{}/project/{}/metadata",
-            base_url, project_id
-        ))
+        .get(format!("{}/project/{}/metadata", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
         .send()
@@ -195,15 +192,12 @@ fn assert_project_json(json: serde_json::Value, project_id: &Uuid) {
         .and_then(|v| v.as_str())
         .expect("Missing name");
 
-    assert_eq!(
-        id,
-        project_id.to_string(),
-        "Cook and Run ID does not match"
-    );
-    assert_eq!(name, "Test Cook & Run", "Cook and Run name does not match");
+    assert_eq!(id, project_id.to_string(), "Project ID does not match");
+    assert_eq!(name, "Test Cook & Run", "Project name does not match");
 }
 
 fn assert_project_meta_list_json(json: serde_json::Value, project_id_list: Vec<Uuid>) {
+    println!("{}", json.to_string());
     let data = json
         .get("data")
         .and_then(|v| v.as_array())
@@ -221,7 +215,7 @@ fn assert_project_meta_list_json(json: serde_json::Value, project_id_list: Vec<U
     for expected_id in project_id_list {
         assert!(
             json_ids.contains(&expected_id),
-            "Expected Cook and Run ID {} not found in JSON data",
+            "Expected Project ID {} not found in JSON data",
             expected_id
         );
     }
@@ -236,7 +230,7 @@ fn assert_project_meta_json(json: serde_json::Value, project_id: &Uuid) {
     assert_eq!(
         id,
         project_id.to_string(),
-        "Expected Cook and Run ID {} not found in JSON data",
+        "Expected Project ID {} not found in JSON data",
         project_id
     );
 

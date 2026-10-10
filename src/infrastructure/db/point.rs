@@ -27,7 +27,6 @@ impl PointEntity {
 #[derive(Debug, Clone, FromRow)]
 struct PointWithAddressEntity {
     id: Uuid,
-    address: Uuid,
     name: String,
     time: String,
     address_id: Uuid,
@@ -69,7 +68,7 @@ impl PointRepository {
             .bind(&point.time)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -86,14 +85,14 @@ impl PointRepository {
              JOIN address a ON a.id = p.address \
              WHERE p.id = $1",
         )
-            .bind(id_filter)
-            .fetch_one(executor)
-            .await
-            .map_err(|e| match e {
-                sqlx::Error::RowNotFound => AppError::PointNotFound(*id_filter),
-                other => AppError::DatabaseError(other),
-            })
-            .map(|point| point.to_domain())
+        .bind(id_filter)
+        .fetch_one(executor)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => AppError::point_not_found(*id_filter),
+            other => AppError::from(other),
+        })
+        .map(|point| point.to_domain())
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -109,11 +108,11 @@ impl PointRepository {
             .bind(to_delete_point_id)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?
+            .map_err(AppError::from)?
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::PointNotFound(*to_delete_point_id));
+            return Err(AppError::point_not_found(*to_delete_point_id));
         }
         Ok(())
     }

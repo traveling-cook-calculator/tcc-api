@@ -42,7 +42,9 @@ impl ProjectMeta {
 
 pub async fn create_project(db: &mut Database, data: ProjectMeta) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
-    ProjectRepository.insert(&mut *tx, &data).await
+    ProjectRepository.insert(&mut *tx, &data).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn update_project_meta(
@@ -54,7 +56,9 @@ pub async fn update_project_meta(
 
     ProjectRepository
         .update_meta(&mut *tx, &data.id, user_id, data)
-        .await
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn delete_project(
@@ -66,8 +70,8 @@ pub async fn delete_project(
 
     ProjectRepository
         .delete(&mut *tx, project_id, user_id)
-        .await;
-
+        .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -138,7 +142,7 @@ pub async fn get_project(
     //todo catch if no plan is set
     let plan = PlanRepository.select_unsafe(&mut *tx, project_id).await?;
 
-    project.plan = Some(plan);
+    project.plan = plan;
 
     Ok(project)
 }
@@ -202,7 +206,7 @@ pub async fn set_project_start_point(
     PlanRepository
         .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -235,7 +239,7 @@ pub async fn set_project_end_point(
     PlanRepository
         .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -249,7 +253,7 @@ pub async fn delete_project_start_point(
     let point_id = ProjectRepository
         .select_start_point_id(&mut *tx, project_id, user_id)
         .await?
-        .ok_or(AppError::StartPointNotFound(*project_id))?;
+        .ok_or(AppError::start_point_not_found(*project_id))?;
     let point = PointRepository.select(&mut *tx, &point_id).await?;
 
     ProjectRepository
@@ -263,7 +267,7 @@ pub async fn delete_project_start_point(
     PlanRepository
         .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -277,7 +281,7 @@ pub async fn delete_project_end_point(
     let point_id = ProjectRepository
         .select_end_point_id(&mut *tx, project_id, user_id)
         .await?
-        .ok_or(AppError::EndPointNotFound(*project_id))?;
+        .ok_or(AppError::end_point_not_found(*project_id))?;
     let point = PointRepository.select(&mut *tx, &point_id).await?;
 
     ProjectRepository
@@ -291,6 +295,6 @@ pub async fn delete_project_end_point(
     PlanRepository
         .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }

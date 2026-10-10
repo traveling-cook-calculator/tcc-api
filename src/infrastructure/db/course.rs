@@ -41,7 +41,7 @@ impl CourseRepository {
     {
         let course = CourseEntity::from_domain(data);
 
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO course (id, project_id, name, time)
              VALUES ($1, $2, $3, $4)",
         )
@@ -50,10 +50,15 @@ impl CourseRepository {
         .bind(&course.name)
         .bind(&course.time)
         .execute(executor)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        .await;
 
-        Ok(())
+        match result {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
+                Ok(())
+            }
+            Err(e) => Err(AppError::from(e)),
+        }
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -68,8 +73,8 @@ impl CourseRepository {
         .fetch_one(executor)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::CourseNotFound(*id_filter, String::new(), None),
-            other => AppError::DatabaseError(other),
+            sqlx::Error::RowNotFound => AppError::course_not_found(*id_filter, String::new(), None),
+            other => AppError::from(other),
         })
         .map(|course| course.to_domain())
     }
@@ -87,7 +92,7 @@ impl CourseRepository {
         .bind(project_id_filter)
         .fetch_optional(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .unwrap_or(0);
 
         Ok(count)
@@ -106,11 +111,11 @@ impl CourseRepository {
             .bind(to_delete_course_id)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?
+            .map_err(AppError::from)?
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::CourseNotFound(
+            return Err(AppError::course_not_found(
                 *to_delete_course_id,
                 String::new(),
                 None,
@@ -140,7 +145,7 @@ impl CourseRepository {
         .bind(user_id_filter)
         .fetch_all(executor)
         .await
-        .map_err(AppError::DatabaseError)
+        .map_err(AppError::from)
         .map(|rows| rows.iter().map(CourseEntity::to_domain).collect())
     }
 
@@ -167,11 +172,11 @@ impl CourseRepository {
         .bind(user_id_filter)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::CourseNotFound(
+            return Err(AppError::course_not_found(
                 *id_filter,
                 user_id_filter.to_string(),
                 Some(*project_id_filter),
@@ -195,9 +200,9 @@ impl CourseRepository {
         let affected = sqlx::query(
             "UPDATE course
              SET name = $1, time = $2
-             WHERE id = $4
+             WHERE id = $3
                AND project_id IN (
-                   SELECT id FROM project WHERE id = $5 AND user_id = $6
+                   SELECT id FROM project WHERE id = $4 AND user_id = $5
                )",
         )
         .bind(&course.name)
@@ -207,11 +212,11 @@ impl CourseRepository {
         .bind(user_id_filter)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::CourseNotFound(
+            return Err(AppError::course_not_found(
                 data.id,
                 user_id_filter.to_string(),
                 Some(data.project_id),

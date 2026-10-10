@@ -77,9 +77,7 @@ struct PlanEntity {
 }
 
 impl PlanEntity {
-    /// Rebuilds the full domain `Plan`, including every `Hosting` that is
-    /// stored inline in `data.hosting_list`.
-    fn to_domain(&self) -> Plan {
+    fn to_domain(self) -> Plan {
         Plan {
             id: self.id,
             hosting_list: self.data.to_domain(),
@@ -128,11 +126,11 @@ impl PlanRepository {
         .bind(user_id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+            return Err(AppError::from(sqlx::Error::RowNotFound));
         }
 
         Ok(())
@@ -163,7 +161,7 @@ impl PlanRepository {
         .bind(user_id)
         .fetch_one(executor)
         .await
-        .map_err(AppError::DatabaseError)
+        .map_err(AppError::from)
         .map(|row| row.to_domain())
     }
 
@@ -172,7 +170,7 @@ impl PlanRepository {
         &self,
         executor: E,
         id_filter: &Uuid,
-    ) -> Result<Plan, AppError>
+    ) -> Result<Option<Plan>, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {
@@ -184,10 +182,10 @@ impl PlanRepository {
         "#,
         )
         .bind(id_filter)
-        .fetch_one(executor)
+        .fetch_optional(executor)
         .await
-        .map_err(AppError::DatabaseError)
-        .map(|row| row.to_domain())
+        .map_err(AppError::from)
+        .map(|opt| opt.map(PlanEntity::to_domain))
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -211,11 +209,11 @@ impl PlanRepository {
         .bind(user_id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+            return Err(AppError::from(sqlx::Error::RowNotFound));
         }
         Ok(())
     }
@@ -247,11 +245,11 @@ impl PlanRepository {
         .bind(user_id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+            return Err(AppError::from(sqlx::Error::RowNotFound));
         }
 
         Ok(())
@@ -278,7 +276,7 @@ impl PlanRepository {
         .bind(id_filter)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -421,11 +419,11 @@ impl PlanConfigRepository {
         .bind(user_id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+            return Err(AppError::from(sqlx::Error::RowNotFound));
         }
 
         Ok(())
@@ -456,7 +454,7 @@ impl PlanConfigRepository {
         .bind(user_id)
         .fetch_one(executor)
         .await
-        .map_err(AppError::DatabaseError)
+        .map_err(AppError::from)
         .map(|row| row.to_domain())
     }
 
@@ -484,11 +482,11 @@ impl PlanConfigRepository {
         .bind(user_id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+            return Err(AppError::from(sqlx::Error::RowNotFound));
         }
 
         Ok(())

@@ -4,8 +4,8 @@ use crate::{
     domain::Course,
     error::AppError,
     infrastructure::{
-        db::{CourseRepository, ProjectRepository},
         Database,
+        db::{CourseRepository, ProjectRepository},
     },
 };
 
@@ -29,7 +29,9 @@ pub(crate) async fn delete(
     let mut tx = db.pool.begin().await?;
     CourseRepository
         .delete_for_project(&mut *tx, course_id, project_id, user_id)
-        .await
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub(crate) async fn update(
@@ -38,7 +40,9 @@ pub(crate) async fn update(
     data: &Course,
 ) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
-    CourseRepository.update(&mut *tx, data, user_id).await
+    CourseRepository.update(&mut *tx, data, user_id).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn create(db: &mut Database, user_id: &str, data: &Course) -> Result<(), AppError> {
@@ -49,8 +53,11 @@ pub async fn create(db: &mut Database, user_id: &str, data: &Course) -> Result<(
         .await?;
     let count = CourseRepository.count(&mut *tx, &data.project_id).await?;
     if count > 8 {
-        return Err(AppError::CourseLimitReached(data.project_id));
+        return Err(AppError::course_limit_reached(data.project_id));
     }
 
-    CourseRepository.insert(&mut *tx, data).await
+    CourseRepository.insert(&mut *tx, data).await?;
+    tx.commit().await?;
+
+    Ok(())
 }

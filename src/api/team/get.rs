@@ -28,8 +28,6 @@ use super::get_user_id;
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct ListTeamQuery {
-    #[serde(rename = "userId")]
-    pub user_id: String,
     #[validate(range(min = 1, message = "must be at least 1"))]
     pub page: Option<u8>,
     #[validate(range(min = 1, max = 128, message = "must be between 1 and 128"))]
@@ -181,24 +179,10 @@ impl IntoResponse for TeamMetaDTO {
     }
 }
 
-/// Response for the self-service GET endpoint (admin or participant).
-#[derive(Debug, Clone, Serialize)]
-pub struct TeamSelfServiceResponse {
-    #[serde(flatten)]
-    pub team: TeamDTO,
-    pub edit_deadline: Option<DateTime<Utc>>,
-}
-
-impl IntoResponse for TeamSelfServiceResponse {
-    fn into_response(self) -> Response {
-        (StatusCode::OK, Json(self)).into_response()
-    }
-}
-
 const DEFAULT_LIMIT: u8 = 20;
 const MAX_LIMIT: u8 = 100;
 
-/// List all teams for a cook and run project.
+/// List all teams for a Project project.
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn list_teams(
     Extension(claims): Extension<Claims>,
@@ -260,10 +244,9 @@ pub(super) async fn get_team(
         let access_token = headers
             .get(ACCESS_TOKEN_HEADER)
             .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()))?;
+            .ok_or_else(|| AppError::missing_header(ACCESS_TOKEN_HEADER.to_string()))?;
 
-        let team = team::get_by_token_with_deadline(&state.db, &project_id, &team_id, access_token)
-            .await?;
+        let team = team::get_by_token(&state.db, &project_id, &team_id, access_token).await?;
 
         Ok(TeamDTO::from_domain(team))
     }

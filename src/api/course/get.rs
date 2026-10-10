@@ -44,7 +44,7 @@ impl IntoResponse for CourseDTO {
     }
 }
 
-/// List all courses for a cook and run project
+/// List all courses for a Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn list_courses(
     Extension(claims): Extension<Claims>,

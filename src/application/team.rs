@@ -1,4 +1,5 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
+use sqlx::Error::RowNotFound;
 use uuid::Uuid;
 
 use crate::{
@@ -14,7 +15,7 @@ use crate::{
             TeamStatus::{self},
         },
     },
-    error::AppError,
+    error::AppError::{self, DatabaseError, TeamNotFound},
     infrastructure::{
         Database,
         db::{
@@ -53,6 +54,7 @@ pub async fn get_list(
     Ok((total, result))
 }
 
+#[tracing::instrument(skip(db))]
 pub async fn get(
     db: &Database,
     project_id: &Uuid,
@@ -65,6 +67,7 @@ pub async fn get(
         .await
 }
 
+#[tracing::instrument(skip(db))]
 pub async fn get_by_token(
     db: &Database,
     project_id: &Uuid,
@@ -75,19 +78,6 @@ pub async fn get_by_token(
     TeamRepository
         .select_by_token(&mut *tx, project_id, team_id, access_token)
         .await
-}
-
-pub async fn get_by_token_with_deadline(
-    db: &Database,
-    project_id: &Uuid,
-    team_id: &Uuid,
-    access_token: &str,
-) -> Result<Team, AppError> {
-    let mut tx = db.pool.begin().await?;
-    let team = TeamRepository
-        .select_by_token(&mut *tx, project_id, team_id, access_token)
-        .await?;
-    Ok(team)
 }
 
 pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result<(), AppError> {
@@ -118,7 +108,7 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
                 .await?;
 
             if count > max_teams {
-                return Err(AppError::TeamLimitReached(max_teams, data.project_id));
+                return Err(AppError::team_limit_reached(max_teams, data.project_id));
             }
         }
 
@@ -181,7 +171,14 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
         data.clone()
     };
 
-    team.access_token = Uuid::new_v4().simple().to_string();
+    match TeamRepository.select_by_id_unsafe(&mut *tx, &team.id).await {
+        Ok(_) => {
+            tx.rollback().await?;
+            return Ok(());
+        }
+        Err(TeamNotFound(_, _, _)) => {}
+        Err(e) => return Err(e),
+    }
 
     AddressRepository.insert(&mut *tx, &team.address).await?;
     TeamRepository.insert(&mut *tx, &team).await?;
@@ -207,6 +204,7 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
         .mark_stale_unsafe(&mut *tx, &data.project_id, &now)
         .await?;
 
+    tx.commit().await?;
     Ok(())
 }
 
@@ -219,7 +217,7 @@ fn check_share_config(
         share_config.registration_deadline
     } else {
         if team.email_verified_at.is_none() && share_config.require_email_verification {
-            return Err(AppError::TeamIsNotVerified);
+            return Err(AppError::team_is_not_verified());
         }
 
         share_config.edit_deadline
@@ -228,12 +226,12 @@ fn check_share_config(
     if let Some(deadline) = deadline_opt
         && deadline < Utc::now()
     {
-        return Err(AppError::DeadlineExceeded(deadline, team.project_id));
+        return Err(AppError::deadline_exceeded(deadline, team.project_id));
     }
 
     for required_field in &share_config.required_fields {
         if !team.has_field(required_field) {
-            return Err(AppError::MissingRequiredField(
+            return Err(AppError::missing_required_field(
                 required_field.clone(),
                 team.project_id,
             ));
@@ -250,10 +248,10 @@ pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(),
     let existing = TeamRepository
         .select_locked_for_admin_update(&mut *tx, &data.id, &data.project_id, user_id)
         .await?
-        .ok_or_else(|| AppError::TeamNotFound(data.id, user_id.to_string(), data.project_id))?;
+        .ok_or_else(|| AppError::team_not_found(data.id, user_id.to_string(), data.project_id))?;
 
     if existing.status == TeamStatus::Canceled {
-        return Err(AppError::TeamCanceled);
+        return Err(AppError::team_canceled());
     }
 
     let mut team = existing.clone();
@@ -290,7 +288,7 @@ pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(),
             &now,
         )
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -305,10 +303,10 @@ pub async fn update_by_token(
     let existing = TeamRepository
         .select_locked_by_token(&mut *tx, &data.id, &data.project_id, access_token)
         .await?
-        .ok_or(AppError::TeamNotFoundByToken)?;
+        .ok_or(AppError::team_not_found_by_token())?;
 
     if existing.status == TeamStatus::Canceled {
-        return Err(AppError::TeamCanceled);
+        return Err(AppError::team_canceled());
     }
 
     let share_config = ShareRepository.select(&mut *tx, &data.project_id).await?;
@@ -364,6 +362,7 @@ pub async fn update_by_token(
         .await?;
 
     if !needs_review || !share_config.notify_admin_on_review {
+        tx.commit().await?;
         return Ok(());
     }
 
@@ -393,6 +392,7 @@ pub async fn update_by_token(
             "project has no admin notification email"
         );
     }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -412,7 +412,7 @@ pub async fn delete(
     PlanRepository
         .mark_stale_unsafe(&mut *tx, project_id, &now)
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -429,7 +429,7 @@ pub async fn cancel_by_token(
     let existing = TeamRepository
         .select_locked_by_token(&mut *tx, team_id, project_id, access_token)
         .await?
-        .ok_or(AppError::TeamNotFoundByToken)?;
+        .ok_or(AppError::team_not_found_by_token())?;
 
     if existing.status == TeamStatus::Canceled {
         return Ok(());
@@ -464,6 +464,7 @@ pub async fn cancel_by_token(
         .await?;
 
     if !share_config.notify_admin_on_cancel {
+        tx.commit().await?;
         return Ok(());
     }
 
@@ -489,7 +490,7 @@ pub async fn cancel_by_token(
             "project has no admin notification email"
         );
     }
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -503,7 +504,9 @@ pub async fn verify_email_by_token(
     let now = Utc::now();
     TeamRepository
         .verify_email_by_token(&mut *tx, project_id, team_id, access_token, &now)
-        .await
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn request_verification_resend(
@@ -523,7 +526,11 @@ pub async fn request_verification_resend(
                 .select_locked_for_admin_update(&mut *tx, team_id, project_id, user_id)
                 .await?
                 .ok_or_else(|| {
-                    AppError::TeamNotFound(team_id.clone(), user_id.to_string(), project_id.clone())
+                    AppError::team_not_found(
+                        team_id.clone(),
+                        user_id.to_string(),
+                        project_id.clone(),
+                    )
                 })?,
         )
     } else if let Some(access_token) = access_token_opt {
@@ -533,21 +540,25 @@ pub async fn request_verification_resend(
                 .select_locked_by_token(&mut *tx, team_id, project_id, access_token)
                 .await?
                 .ok_or_else(|| {
-                    AppError::TeamNotFound(team_id.clone(), "NONE".to_string(), project_id.clone())
+                    AppError::team_not_found(
+                        team_id.clone(),
+                        "NONE".to_string(),
+                        project_id.clone(),
+                    )
                 })?,
         )
     } else {
-        return Err(AppError::MissingHeader(ACCESS_TOKEN_HEADER.to_string()));
+        return Err(AppError::missing_header(ACCESS_TOKEN_HEADER.to_string()));
     };
 
     if !is_admin && team.verification_resend_count >= 3 {
-        return Err(AppError::VerificationResendLimitReached(team.id));
+        return Err(AppError::verification_resend_limit_reached(team.id));
     }
 
     let team_mail = if let Some(mail) = team.mail {
         mail
     } else {
-        return Err(AppError::MissingField("mail".to_string(), team.id));
+        return Err(AppError::missing_field("mail".to_string(), team.id));
     };
 
     if !is_admin {
@@ -593,5 +604,7 @@ pub async fn request_verification_resend(
             &now,
         )
         .await?;
+
+    tx.commit().await?;
     Ok(())
 }

@@ -29,6 +29,8 @@ fn test_get_share_config() {
         &None,
         &vec![],
         false,
+        false,
+        false,
     );
 }
 
@@ -50,6 +52,8 @@ fn test_get_share_config_list() {
         &Some("2015-09-05T23:56:00Z"),
         &None,
         &vec![],
+        false,
+        false,
         false,
     );
 }
@@ -102,6 +106,8 @@ pub fn get_share_config(
     expected_edit_deadline: &Option<&str>,
     expected_review_trigger_fields: &Vec<String>,
     expected_notify_admin_on_review: bool,
+    expected_notify_admin_on_create: bool,
+    expected_notify_admin_on_cancel: bool,
 ) {
     let res = execute_get(project_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
@@ -115,6 +121,8 @@ pub fn get_share_config(
         expected_edit_deadline,
         expected_review_trigger_fields,
         expected_notify_admin_on_review,
+        expected_notify_admin_on_create,
+        expected_notify_admin_on_cancel,
     );
 }
 
@@ -129,6 +137,8 @@ pub fn get_share_config_project(
     expected_edit_deadline: &Option<&str>,
     expected_review_trigger_fields: &Vec<String>,
     expected_notify_admin_on_review: bool,
+    expected_notify_admin_on_create: bool,
+    expected_notify_admin_on_cancel: bool,
 ) {
     let res = get_project(project_id);
 
@@ -145,6 +155,8 @@ pub fn get_share_config_project(
         expected_edit_deadline,
         expected_review_trigger_fields,
         expected_notify_admin_on_review,
+        expected_notify_admin_on_create,
+        expected_notify_admin_on_cancel,
     );
 }
 
@@ -159,6 +171,8 @@ pub fn assert_share_config_json(
     expected_edit_deadline: &Option<&str>,
     expected_review_trigger_fields: &Vec<String>,
     expected_notify_admin_on_review: bool,
+    expected_notify_admin_on_create: bool,
+    expected_notify_admin_on_cancel: bool,
 ) {
     let invite_text = json
         .get("invite_text")
@@ -179,6 +193,16 @@ pub fn assert_share_config_json(
         .get("notify_admin_on_review")
         .and_then(|v| v.as_bool())
         .expect("Missing notify_admin_on_review");
+
+    let notify_admin_on_create = json
+        .get("notify_admin_on_create")
+        .and_then(|v| v.as_bool())
+        .expect("Missing notify_admin_on_create");
+
+    let notify_admin_on_cancel = json
+        .get("notify_admin_on_cancel")
+        .and_then(|v| v.as_bool())
+        .expect("Missing notify_admin_on_cancel");
 
     let created = json
         .get("created")
@@ -214,19 +238,20 @@ pub fn assert_share_config_json(
         })
         .collect();
 
-    assert_eq!(invite_text, "Join our amazing Cook & Run event! Register your share_config and get ready for a culinary adventure.", "share_config invite text does not match");
+    assert_eq!(
+        invite_text,
+        "Join our amazing Cook & Run event! Register your share_config and get ready for a culinary adventure.",
+        "share_config invite text does not match"
+    );
 
     let parsed_time = created.parse::<DateTime<Utc>>();
-    assert!(
-        parsed_time.is_ok(),
-        "Cook and Run created time does not match"
-    );
+    assert!(parsed_time.is_ok(), "Project created time does not match");
 
     if let Some(registration_deadline) = registration_deadline {
         let parsed_time = registration_deadline.parse::<DateTime<Utc>>();
         assert!(
             parsed_time.is_ok(),
-            "Cook and Run registration deadline time does not match"
+            "Project registration deadline time does not match"
         );
 
         assert_eq!(
@@ -269,6 +294,15 @@ pub fn assert_share_config_json(
     assert_eq!(
         notify_admin_on_review, expected_notify_admin_on_review,
         "share_config notify_admin_on_review does not match"
+    );
+    assert_eq!(
+        notify_admin_on_create, expected_notify_admin_on_create,
+        "share_config notify_admin_on_create does not match"
+    );
+
+    assert_eq!(
+        notify_admin_on_cancel, expected_notify_admin_on_cancel,
+        "share_config notify_admin_on_cancel does not match"
     );
 
     if let Some(max_teams) = max_teams {

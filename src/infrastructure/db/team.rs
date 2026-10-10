@@ -114,6 +114,10 @@ impl TeamMetaEntity {
 
 #[derive(Debug, Clone, FromRow)]
 struct TeamEntity {
+    // Im JOIN mit `address` gibt es zwei Spalten namens `id`. Die Team-ID
+    // wird deshalb in den Abfragen als `team_id` selektiert (siehe
+    // TEAM_COLUMS / TEAM_ADDRESS_COLUMNS).
+    #[sqlx(rename = "team_id")]
     id: Uuid,
     project_id: Uuid,
     created_by_user: Option<String>,
@@ -216,19 +220,18 @@ impl TeamWithAddressRow {
 }
 
 const TEAM_COLUMS: &str = "
-    t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
+    t.id AS team_id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
     t.address, t.mail, t.phone, t.members, t.diets,
     t.status, t.canceled_at, t.cancel_reason, t.access_token,
     t.email_verified_at, t.verification_resend_count, t.last_route_hash
 ";
 
 const TEAM_ADDRESS_COLUMNS: &str = "
-    t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
+    t.id AS team_id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
     t.address, t.mail, t.phone, t.members, t.diets,
     t.status, t.canceled_at, t.cancel_reason, t.access_token,
     t.email_verified_at, t.verification_resend_count, t.last_route_hash,
-    a.id AS a_id, a.address_text AS a_address_text,
-    a.latitude AS a_latitude, a.longitude AS a_longitude";
+    a.id, a.address_text, a.latitude, a.longitude";
 
 impl TeamRepository {
     /// Idempotent on a unique-constraint clash (23505), matching the other
@@ -275,7 +278,7 @@ impl TeamRepository {
             Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
                 Ok(())
             }
-            Err(e) => Err(AppError::DatabaseError(e)),
+            Err(e) => Err(AppError::from(e)),
         }
     }
 
@@ -298,7 +301,7 @@ impl TeamRepository {
         .bind(project_id_filter)
         .fetch_one(executor)
         .await
-        .map_err(AppError::DatabaseError)
+        .map_err(AppError::from)
         .and_then(|count| Ok(count as u8))
     }
 
@@ -322,27 +325,25 @@ impl TeamRepository {
         );
 
         let query = format!(
-            "SELECT 
-            t.id, t.project_id, t.created_by_user, t.name, t.created, t.edited,
-            t.mail, t.phone, t.members, t.diets,
-            t.status, t.canceled_at,  
-            t.email_verified_at, t.verification_resend_count
-            FROM team t
-            INNER JOIN project car ON car.id = t.project_id
-            WHERE car.id = $1 AND car.user_id = $2
-            ORDER BY {}
-            LIMIT $3 OFFSET $4",
+            "SELECT {}
+             FROM team t
+             INNER JOIN project car ON car.id = t.project_id
+             INNER JOIN address a ON a.id = t.address
+             WHERE car.id = $1 AND car.user_id = $2
+             ORDER BY {}
+             LIMIT $3 OFFSET $4",
+            TEAM_ADDRESS_COLUMNS,
             sort.order_by_clause()
         );
 
         let rows: Vec<TeamWithAddressRow> = sqlx::query_as(&query)
             .bind(project_id_filter)
             .bind(user_id_filter)
-            .bind(limit as i8)
-            .bind(offset as i8)
+            .bind(limit as i64)
+            .bind(offset as i64)
             .fetch_all(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
 
         Ok(rows.iter().map(TeamWithAddressRow::to_domain).collect())
     }
@@ -372,7 +373,7 @@ impl TeamRepository {
             .bind(user_id_filter)
             .fetch_all(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
 
         Ok(rows.iter().map(TeamWithAddressRow::to_domain).collect())
     }
@@ -405,12 +406,12 @@ impl TeamRepository {
             .fetch_one(executor)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => AppError::TeamNotFound(
+                sqlx::Error::RowNotFound => AppError::team_not_found(
                     *id_filter,
                     user_id_filter.to_string(),
                     *project_id_filter,
                 ),
-                other => AppError::DatabaseError(other),
+                other => AppError::from(other),
             })?;
 
         Ok(row.to_domain())
@@ -435,7 +436,7 @@ impl TeamRepository {
             "SELECT {}
              FROM team t
              INNER JOIN address a ON a.id = t.address
-             WHERE  t.id = $1 AND  t.project_id = $2 AND t.access_token = $1",
+             WHERE t.id = $1 AND t.project_id = $2 AND t.access_token = $3",
             TEAM_ADDRESS_COLUMNS
         );
 
@@ -446,15 +447,15 @@ impl TeamRepository {
             .fetch_one(executor)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => AppError::TeamNotFoundByToken,
-                other => AppError::DatabaseError(other),
+                sqlx::Error::RowNotFound => AppError::team_not_found_by_token(),
+                other => AppError::from(other),
             })?;
 
         Ok(row.to_domain())
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select_by_id_unchecked<'e, E>(
+    pub async fn select_by_id_unsafe<'e, E>(
         &self,
         executor: E,
         id: &Uuid,
@@ -476,9 +477,9 @@ impl TeamRepository {
             .await
             .map_err(|e| match e {
                 sqlx::Error::RowNotFound => {
-                    AppError::TeamNotFound(*id, "NONE".to_string(), Uuid::nil())
+                    AppError::team_not_found(*id, "NONE".to_string(), Uuid::nil())
                 }
-                other => AppError::DatabaseError(other),
+                other => AppError::from(other),
             })?;
 
         Ok(row.to_domain())
@@ -520,7 +521,7 @@ impl TeamRepository {
             .bind(user_id_filter)
             .fetch_optional(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
 
         Ok(row.map(|r| r.to_domain()))
     }
@@ -556,7 +557,7 @@ impl TeamRepository {
             .bind(project_id_filter)
             .fetch_optional(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
 
         Ok(row.map(|r| r.to_domain()))
     }
@@ -585,7 +586,7 @@ impl TeamRepository {
             .bind(team_ids)
             .fetch_all(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
 
         Ok(rows.iter().map(TeamEntity::to_domain).collect())
     }
@@ -613,11 +614,11 @@ impl TeamRepository {
         .bind(user_id_filter)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::TeamNotFound(
+            return Err(AppError::team_not_found(
                 *id_filter,
                 user_id_filter.to_string(),
                 *project_id_filter,
@@ -640,7 +641,7 @@ impl TeamRepository {
             "UPDATE team
              SET name = $1, edited = $2, address = $3, mail = $4,
                  phone = $5, members = $6, diets = $7, status = $8
-             WHERE id = $8",
+             WHERE id = $9",
         )
         .bind(&team.name)
         .bind(team.edited)
@@ -653,11 +654,11 @@ impl TeamRepository {
         .bind(team.id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::TeamNotFound(
+            return Err(AppError::team_not_found(
                 data.id,
                 data.created_by_user.clone().unwrap_or_default(),
                 data.project_id,
@@ -679,11 +680,11 @@ impl TeamRepository {
             .bind(id_filter)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?
+            .map_err(AppError::from)?
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::TeamNotFound(
+            return Err(AppError::team_not_found(
                 *id_filter,
                 String::new(),
                 Uuid::nil(),
@@ -712,11 +713,11 @@ impl TeamRepository {
         .bind(id_filter)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::TeamNotFoundByToken);
+            return Err(AppError::team_not_found_by_token());
         }
         Ok(())
     }
@@ -734,8 +735,8 @@ impl TeamRepository {
         E: sqlx::PgExecutor<'e>,
     {
         let affected = sqlx::query(
-            "UPDATE team SET email_verified_at = $1 
-            WHERE t.id = $2 AND t.project_id =$3 AND t.access_token = $4",
+            "UPDATE team SET email_verified_at = $1
+             WHERE id = $2 AND project_id = $3 AND access_token = $4",
         )
         .bind(time)
         .bind(team_id)
@@ -743,11 +744,11 @@ impl TeamRepository {
         .bind(access_token)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::TeamNotFoundByToken);
+            return Err(AppError::team_not_found_by_token());
         }
         Ok(())
     }
@@ -787,7 +788,7 @@ impl TeamRepository {
             .bind(team_id)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
         Ok(())
     }
 
@@ -820,10 +821,10 @@ impl TeamRepository {
         .bind(user_id_filter)
         .fetch_optional(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
 
         if team.is_none() {
-            return Err(AppError::TeamNotFound(
+            return Err(AppError::team_not_found(
                 *id_filter,
                 user_id_filter.to_string(),
                 *project_id_filter,

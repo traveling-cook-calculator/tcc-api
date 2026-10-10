@@ -52,7 +52,7 @@ impl CourseUpdateDTO {
     }
 }
 
-/// Create course for cook and run project
+/// Create course for Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn create_course(
     Extension(claims): Extension<Claims>,
@@ -68,7 +68,7 @@ pub(super) async fn create_course(
     .await
 }
 
-/// Update course for cook and run project
+/// Update course for Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn update_course(
     Extension(claims): Extension<Claims>,
@@ -84,7 +84,7 @@ pub(super) async fn update_course(
     .await
 }
 
-/// Delete course for cook and run project
+/// Delete course for Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn delete_course(
     Extension(claims): Extension<Claims>,

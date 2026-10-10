@@ -24,14 +24,16 @@ pub async fn create_or_update(
     PlanRepository
         .upsert(&mut *tx, &to_save_plan, user_id)
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }
 
 pub async fn delete(db: &mut Database, project_id: &Uuid, user_id: &str) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
 
-    PlanRepository.delete(&mut *tx, project_id, user_id).await
+    PlanRepository.delete(&mut *tx, project_id, user_id).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn confirm_plan(
@@ -45,7 +47,9 @@ pub async fn confirm_plan(
 
     PlanRepository
         .mark_stale(&mut *tx, project_id, user_id, &now)
-        .await
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn get_by_id(db: &Database, project_id: &Uuid, user_id: &str) -> Result<Plan, AppError> {
@@ -63,7 +67,7 @@ pub async fn create_or_update_config(
     PlanConfigRepository
         .upsert(&mut *tx, &data, user_id)
         .await?;
-
+    tx.commit().await?;
     Ok(())
 }
 
@@ -76,7 +80,9 @@ pub async fn delete_config(
 
     PlanConfigRepository
         .delete(&mut *tx, project_id, user_id)
-        .await
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn get_config_by_id(

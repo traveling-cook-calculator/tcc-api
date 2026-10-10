@@ -9,7 +9,7 @@ use crate::{
 pub struct ShareRepository;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "access", rename_all = "snake_case")]
+#[sqlx(type_name = "required_field", rename_all = "snake_case")]
 enum RequiredFieldEntity {
     Mail,
     Phone,
@@ -127,11 +127,6 @@ impl ShareTeamConfigEntity {
     }
 }
 
-const SHARE_COLUMNS: &str = "
-    id, created, invite_text, require_email_verification, default_needs_check,
-    required_fields, max_teams, registration_deadline, edit_deadline,
-    review_trigger_fields, notify_admin_on_review";
-
 impl ShareRepository {
     #[tracing::instrument(skip(self, executor, data))]
     pub async fn insert<'e, E>(
@@ -149,8 +144,8 @@ impl ShareRepository {
             "INSERT INTO share
                 (id, created, invite_text, require_email_verification, default_needs_check,
                  required_fields, max_teams, registration_deadline, edit_deadline,
-                 review_trigger_fields, notify_admin_on_review)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                 review_trigger_fields, notify_admin_on_review, notify_admin_on_create, notify_admin_on_cancel)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(project_id)
         .bind(share.created)
@@ -163,9 +158,11 @@ impl ShareRepository {
         .bind(share.edit_deadline)
         .bind(&share.review_trigger_fields)
         .bind(share.notify_admin_on_review)
+        .bind(share.notify_admin_on_create)
+        .bind(share.notify_admin_on_cancel)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -187,8 +184,8 @@ impl ShareRepository {
             "INSERT INTO share
                 (id, created, invite_text, require_email_verification, default_needs_check,
                  required_fields, max_teams, registration_deadline, edit_deadline,
-                 review_trigger_fields, notify_admin_on_review)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 review_trigger_fields, notify_admin_on_review, notify_admin_on_create, notify_admin_on_cancel)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              ON CONFLICT (id) DO UPDATE SET
                 created = EXCLUDED.created,
                 invite_text = EXCLUDED.invite_text,
@@ -199,7 +196,9 @@ impl ShareRepository {
                 registration_deadline = EXCLUDED.registration_deadline,
                 edit_deadline = EXCLUDED.edit_deadline,
                 review_trigger_fields = EXCLUDED.review_trigger_fields,
-                notify_admin_on_review = EXCLUDED.notify_admin_on_review",
+                notify_admin_on_review = EXCLUDED.notify_admin_on_review,
+                notify_admin_on_create = EXCLUDED.notify_admin_on_create.
+                notify_admin_on_cancel = EXCLUDED.notify_admin_on_cancel",
         )
         .bind(project_id)
         .bind(share.created)
@@ -212,9 +211,11 @@ impl ShareRepository {
         .bind(share.edit_deadline)
         .bind(&share.review_trigger_fields)
         .bind(share.notify_admin_on_review)
+        .bind(share.notify_admin_on_create)
+        .bind(share.notify_admin_on_cancel)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -231,14 +232,14 @@ impl ShareRepository {
         sqlx::query_as::<_, ShareTeamConfigEntity>(
             "SELECT id, created, invite_text, require_email_verification, default_needs_check,
     required_fields, max_teams, registration_deadline, edit_deadline,
-    review_trigger_fields, notify_admin_on_review FROM share WHERE id = $1",
+    review_trigger_fields, notify_admin_on_review, notify_admin_on_create, notify_admin_on_cancel FROM share WHERE id = $1",
         )
         .bind(id_filter)
         .fetch_one(executor)
         .await
         .map_err(|error| match error {
             sqlx::Error::RowNotFound => AppError::ShareNotFound(*id_filter),
-            other => AppError::DatabaseError(other),
+            other => AppError::from(other),
         })
         .map(|row| row.to_domain())
     }
@@ -252,11 +253,11 @@ impl ShareRepository {
             .bind(id_filter)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?
+            .map_err(AppError::from)?
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::DatabaseError(sqlx::Error::RowNotFound));
+            return Err(AppError::from(sqlx::Error::RowNotFound));
         }
         Ok(())
     }

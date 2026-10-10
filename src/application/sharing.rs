@@ -3,8 +3,8 @@ use uuid::Uuid;
 use crate::{
     error::AppError,
     infrastructure::{
-        db::{sharing::ShareRepository, ProjectRepository},
         Database,
+        db::{ProjectRepository, sharing::ShareRepository},
     },
 };
 
@@ -32,7 +32,9 @@ pub async fn create(
     let _ = ProjectRepository
         .select(&mut *tx, project_id, user_id)
         .await?;
-    ShareRepository.insert(&mut *tx, project_id, data).await
+    ShareRepository.insert(&mut *tx, project_id, data).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn update(
@@ -47,7 +49,9 @@ pub async fn update(
         .select(&mut *tx, project_id, user_id)
         .await?;
 
-    ShareRepository.upsert(&mut *tx, project_id, data).await
+    ShareRepository.upsert(&mut *tx, project_id, data).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn delete(db: &mut Database, project_id: &Uuid, user_id: &str) -> Result<(), AppError> {
@@ -56,5 +60,7 @@ pub async fn delete(db: &mut Database, project_id: &Uuid, user_id: &str) -> Resu
     let _ = ProjectRepository
         .select(&mut *tx, project_id, user_id)
         .await?;
-    ShareRepository.delete(&mut *tx, project_id).await
+    ShareRepository.delete(&mut *tx, project_id).await?;
+    tx.commit().await?;
+    Ok(())
 }

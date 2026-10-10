@@ -90,18 +90,6 @@ impl AuditLogEntity {
             created_at: self.created_at,
         }
     }
-
-    fn from_domain(audit_log: &AuditLog) -> Self {
-        Self {
-            id: audit_log.id,
-            team_id: audit_log.team_id,
-            actor_type: AuditActorTypeEntity::from_domain(&audit_log.actor_type),
-            actor_label: audit_log.actor_label.clone(),
-            action: AuditActionEntity::from_domain(&audit_log.action),
-            changes: audit_log.changes.clone(),
-            created_at: audit_log.created_at,
-        }
-    }
 }
 
 impl AuditLogRepository {
@@ -133,7 +121,7 @@ impl AuditLogRepository {
         .bind(time)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -154,14 +142,14 @@ impl AuditLogRepository {
              FROM team_audit_log
              WHERE team_id = $1
              ORDER BY created_at DESC
-             LIMIT $2 OFFSET $3",
+             LIMIT $2 OFFSET $3::bigint",
         )
         .bind(team_id_filter)
         .bind(limit)
         .bind(offset)
         .fetch_all(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
 
         Ok(rows.iter().map(AuditLogEntity::to_domain).collect())
     }
@@ -176,7 +164,7 @@ impl AuditLogRepository {
                 .bind(team_id)
                 .fetch_one(executor)
                 .await
-                .map_err(AppError::DatabaseError)?;
+                .map_err(AppError::from)?;
 
         Ok(count)
     }

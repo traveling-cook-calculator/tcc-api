@@ -50,7 +50,7 @@ fn test_create_team_all_required() {
         set_mail,
         set_phone,
         set_diets,
-        set_needs_check,
+        Uuid::new_v4().to_string(),
     );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
@@ -66,7 +66,7 @@ fn test_create_team_all_required() {
         set_mail,
         set_phone,
         set_diets,
-        set_needs_check,
+        false,
     );
 }
 
@@ -92,12 +92,30 @@ fn test_create_team_max_teams() {
     );
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -116,25 +134,35 @@ fn test_create_team_max_teams_owner_exempt() {
 
     let (token, user_id) = get_user_1();
 
-    create_share_config_default(
-        &project_id,
-        &token,
-        false,
-        true,
-        &vec![],
-        &Some(1),
-        &None,
-    );
+    create_share_config_default(&project_id, &token, false, true, &vec![], &Some(1), &None);
 
     // Fill the single slot as a non-owner.
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     // The owner can still create another team despite max_teams = 1.
     let owner_team_id = Uuid::new_v4();
-    let payload = get_team_create_json(Some(&user_id), true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        Some(&user_id),
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &owner_team_id, payload, Some(&token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
@@ -161,7 +189,16 @@ fn test_create_deadline_okay() {
     );
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let _ = team::get_team(&project_id, &team_id);
@@ -189,7 +226,16 @@ fn test_create_deadline_over() {
     );
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -219,7 +265,16 @@ fn test_create_deadline_over_owner_exempt() {
     );
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(Some(&user_id), true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        Some(&user_id),
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, Some(&token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let _ = team::get_team(&project_id, &team_id);
@@ -248,7 +303,16 @@ fn test_create_team_all_required_not_set() {
 
     //No name set
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, false, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -259,7 +323,16 @@ fn test_create_team_all_required_not_set() {
     assert_team_not_found(&project_id, &team_id);
 
     //No address set
-    let payload = get_team_create_json(None, true, false, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -270,7 +343,16 @@ fn test_create_team_all_required_not_set() {
     assert_team_not_found(&project_id, &team_id);
 
     //No members set
-    let payload = get_team_create_json(None, true, true, false, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -281,7 +363,16 @@ fn test_create_team_all_required_not_set() {
     assert_team_not_found(&project_id, &team_id);
 
     //No mail set
-    let payload = get_team_create_json(None, true, true, true, false, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -292,7 +383,16 @@ fn test_create_team_all_required_not_set() {
     assert_team_not_found(&project_id, &team_id);
 
     //No phone set
-    let payload = get_team_create_json(None, true, true, true, true, false, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -303,7 +403,16 @@ fn test_create_team_all_required_not_set() {
     assert_team_not_found(&project_id, &team_id);
 
     //No diets set
-    let payload = get_team_create_json(None, true, true, true, true, true, false, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert_eq!(
         res.status(),
@@ -324,15 +433,7 @@ fn test_create_team_none_required() {
 
     let (token, _) = get_user_1();
 
-    create_share_config_default(
-        &project_id,
-        &token,
-        false,
-        false,
-        &vec![],
-        &None,
-        &None,
-    );
+    create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
 
     let user_id = None;
     let set_name = true;
@@ -352,7 +453,7 @@ fn test_create_team_none_required() {
         set_mail,
         set_phone,
         set_diets,
-        set_needs_check,
+        Uuid::new_v4().to_string(),
     );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
@@ -378,15 +479,7 @@ fn test_create_team_none_required_all_set() {
 
     let (token, _) = get_user_1();
 
-    create_share_config_default(
-        &project_id,
-        &token,
-        false,
-        false,
-        &vec![],
-        &None,
-        &None,
-    );
+    create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
 
     let user_id = None;
     let set_name = true;
@@ -406,7 +499,7 @@ fn test_create_team_none_required_all_set() {
         set_mail,
         set_phone,
         set_diets,
-        set_needs_check,
+        Uuid::new_v4().to_string(),
     );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
@@ -435,18 +528,19 @@ fn test_create_team_none_required_all_set() {
 fn test_create_team_idempotent_retry_unauthenticated() {
     let project_id = create_project();
     let (token, _) = get_user_1();
-    create_share_config_default(
-        &project_id,
-        &token,
-        false,
-        false,
-        &vec![],
-        &None,
-        &None,
-    );
+    create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload.clone(), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
@@ -468,18 +562,19 @@ fn test_create_team_idempotent_retry_unauthenticated() {
 fn test_create_team_access_link_without_mail() {
     let project_id = create_project();
     let (token, _) = get_user_1();
-    create_share_config_default(
-        &project_id,
-        &token,
-        false,
-        false,
-        &vec![],
-        &None,
-        &None,
-    );
+    create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, false, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
@@ -508,18 +603,19 @@ fn test_create_team_access_link_without_mail() {
 fn test_create_team_no_access_link_with_mail() {
     let project_id = create_project();
     let (token, _) = get_user_1();
-    create_share_config_default(
-        &project_id,
-        &token,
-        false,
-        false,
-        &vec![],
-        &None,
-        &None,
-    );
+    create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
 
     let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(None, true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        None,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
@@ -566,7 +662,7 @@ fn test_create_team_authenticated_non_owner_is_treated_like_unauthenticated() {
         true,
         true,
         true,
-        true,
+        Uuid::new_v4().to_string(),
     );
     let res = execute_create(&project_id, &team_id, payload, Some(&other_token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
@@ -612,7 +708,7 @@ fn test_create_team_wrong_user_id_mismatch() {
         true,
         true,
         true,
-        true,
+        Uuid::new_v4().to_string(),
     );
     let res = execute_create(&project_id, &team_id, payload, Some(&other_token));
     assert_eq!(
@@ -664,12 +760,3 @@ fn execute_get_self_service(
         .send()
         .expect("Failed to send request")
 }
-
-// Note: the old `test_create_with_login_but_not_required`,
-// `test_create_with_required_login`, and
-// `test_create_with_required_login_but_not_loged_in` tests were removed.
-// They exercised the pre-v0.2.0 rule "anonymous team creation requires a
-// Keycloak login if share.needs_login = true", which the feature MD
-// explicitly lists as removed: self-service access is now handled
-// entirely via the deeplink token, and unauthenticated creation is always
-// permitted (subject to the ordinary share-config checks above).

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    course::{get_test::execute_get, setup},
+    course::{get_test::get_course, setup},
     get_client,
 };
 
@@ -59,9 +59,9 @@ pub fn patch_course(project_id: &Uuid, course_id: &Uuid, token: &str) {
     let res = execute_patch_course(project_id, course_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(project_id, course_id, token);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-    assert_course_json(&res.json().expect("Failed to parse JSON"), course_id);
+    let course = get_course(project_id, course_id, token);
+    assert_eq!(course.is_some(), true, "Course does not exists");
+    assert_course_json(&course.expect("Expect course"), course_id);
 }
 
 pub fn get_course_patch_json() -> serde_json::Value {
@@ -87,11 +87,6 @@ fn assert_course_json(json: &serde_json::Value, expected_course_id: &Uuid) {
         .and_then(|v| v.as_str())
         .expect("Missing time");
 
-    let has_multiple_hosts = json
-        .get("has_multiple_hosts")
-        .and_then(|v| v.as_bool())
-        .expect("Missing has_multiple_hosts");
-
     assert_eq!(
         id,
         expected_course_id.to_string(),
@@ -108,6 +103,4 @@ fn assert_course_json(json: &serde_json::Value, expected_course_id: &Uuid) {
         "Time is not a valid NaiveTime: {}",
         time
     );
-
-    assert!(has_multiple_hosts, "has_multiple_hosts is not true");
 }

@@ -83,6 +83,8 @@ fn test_create_share_config_wrong_user() {
         &None,
         &vec![],
         false,
+        false,
+        false,
     );
     let res = execute_create(&project_id, payload, &token);
 
@@ -112,6 +114,8 @@ fn test_create_share_config_with_review_settings() {
         &None,
         &Some(edit_deadline),
         &vec!["mail".to_string(), "phone".to_string()],
+        true,
+        true,
         true,
     );
 }
@@ -150,6 +154,8 @@ pub fn create_share_config(
     edit_deadline: &Option<DateTime<Utc>>,
     review_trigger_fields: &Vec<String>,
     notify_admin_on_review: bool,
+    notify_admin_on_create: bool,
+    notify_admin_on_cancel: bool,
 ) {
     let payload = get_share_create_json(
         require_email_verification,
@@ -160,6 +166,8 @@ pub fn create_share_config(
         edit_deadline,
         review_trigger_fields,
         notify_admin_on_review,
+        notify_admin_on_create,
+        notify_admin_on_cancel,
     );
     let res = execute_create(project_id, payload, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
@@ -193,6 +201,8 @@ pub fn create_share_config_default(
         &None,
         &vec![],
         false,
+        false,
+        false,
     );
 }
 
@@ -206,6 +216,8 @@ pub fn get_share_create_json(
     edit_deadline: &Option<DateTime<Utc>>,
     review_trigger_fields: &Vec<String>,
     notify_admin_on_review: bool,
+    notify_admin_on_create: bool,
+    notify_admin_on_cancel: bool,
 ) -> serde_json::Value {
     let mut json_map = serde_json::Map::new();
 
@@ -224,8 +236,16 @@ pub fn get_share_create_json(
         json!(review_trigger_fields),
     );
     json_map.insert(
+        "notify_admin_on_create".to_string(),
+        json!(notify_admin_on_create),
+    );
+    json_map.insert(
         "notify_admin_on_review".to_string(),
         json!(notify_admin_on_review),
+    );
+    json_map.insert(
+        "notify_admin_on_cancel".to_string(),
+        json!(notify_admin_on_cancel),
     );
 
     if let Some(teams) = max_teams {

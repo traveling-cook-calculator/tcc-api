@@ -34,7 +34,7 @@ impl UpdatePlanRequestDTO {
     }
 }
 
-/// Update plan for cook and run project
+/// Update plan for Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn update_plan(
     Extension(claims): Extension<Claims>,
@@ -45,7 +45,7 @@ pub(super) async fn update_plan(
     plan::create_or_update(&mut state.db, payload.to_domain(project_id), &claims.sub).await
 }
 
-/// Delete plan for cook and run project
+/// Delete plan for Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn delete_plan(
     Extension(claims): Extension<Claims>,
@@ -66,7 +66,7 @@ pub(super) async fn confirm_plan(
     plan::confirm_plan(&mut state.db, &project_id, &claims.sub).await
 }
 
-/// Update plan config for cook and run project
+/// Update plan config for Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn update_plan_config(
     Extension(claims): Extension<Claims>,
@@ -77,7 +77,7 @@ pub(super) async fn update_plan_config(
     plan::create_or_update_config(&mut state.db, payload.to_domain(project_id), &claims.sub).await
 }
 
-/// Delete plan config for cook and run project
+/// Delete plan config for Project project
 #[tracing::instrument(skip(claims, state))]
 pub(super) async fn delete_plan_config(
     Extension(claims): Extension<Claims>,

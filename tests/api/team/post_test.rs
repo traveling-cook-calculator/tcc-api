@@ -1,3 +1,4 @@
+use crate::team::get_test::execute_get;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
@@ -32,25 +33,30 @@ fn test_create_team_wrong_user() {
     let team_id = Uuid::new_v4();
     let (token, user_id) = get_user_2();
 
-    let payload = get_team_create_json(Some(&user_id), true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        Some(&user_id),
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(&project_id, &team_id, payload, &token);
 
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
-/// Organizer (admin, `Authorization: Bearer`) creation always starts
-/// `active` in v0.2.0 — `share.default_needs_check` only applies to
-/// non-owner, self-service creation, and the owner is exempt from every
-/// share-config check. This replaces the old `needs_check` client flag,
-/// which no longer has any effect on the created team's state.
 #[test]
 fn test_create_team_starts_active() {
     let project_id = create_project();
     let team_id = Uuid::new_v4();
     let (token, user_id) = get_user_1();
 
-    let payload = get_team_create_json(Some(&user_id), true, true, true, true, true, true, true);
-    let res = execute_create(&project_id, &team_id, payload, &token);
+    create_team(&project_id, &team_id, &user_id, &token);
+
+    let res = execute_get(&project_id, &team_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
@@ -84,7 +90,16 @@ fn execute_create(
 }
 
 pub fn create_team(project_id: &Uuid, team_id: &Uuid, user_id: &str, token: &str) {
-    let payload = get_team_create_json(Some(user_id), true, true, true, true, true, true, true);
+    let payload = get_team_create_json(
+        Some(user_id),
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
     let res = execute_create(project_id, team_id, payload, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
@@ -105,7 +120,7 @@ pub fn get_team_create_json(
     mail: bool,
     phone: bool,
     diets: bool,
-    _needs_check: bool,
+    access_token: String,
 ) -> serde_json::Value {
     let mut json = json!({});
     if let Some(uid) = user_id {
@@ -150,6 +165,12 @@ pub fn get_team_create_json(
         if let Some(obj) = json.as_object_mut() {
             obj.insert("diets".to_string(), json!("No special diets"));
         }
+    }
+    if let Some(obj) = json.as_object_mut() {
+        obj.insert("access_token".to_string(), json!(access_token));
+        obj.insert("notify_admin_on_review".to_string(), json!(true));
+        obj.insert("notify_admin_on_cancel".to_string(), json!(true));
+        obj.insert("notify_admin_on_create".to_string(), json!(true));
     }
     json
 }

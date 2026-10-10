@@ -3,7 +3,6 @@ use axum::{
     extract::rejection::JsonRejection,
     response::{IntoResponse, Response},
 };
-
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde_json::json;
@@ -110,16 +109,16 @@ pub enum AppError {
     InvalidTeamIdList(InvalidTeamIdReason),
 
     #[error(transparent)]
-    JsonRejection(#[from] JsonRejection),
+    JsonRejection(JsonRejection),
 
     #[error(transparent)]
-    ValidationError(#[from] ValidationErrors),
+    ValidationError(ValidationErrors),
 
     #[error(transparent)]
-    SerializationError(#[from] serde_json::Error),
+    SerializationError(serde_json::Error),
 
     #[error(transparent)]
-    DatabaseError(#[from] sqlx::Error),
+    DatabaseError(sqlx::Error),
 
     #[error("An unexpected internal error occurred: {0}")]
     InternalError(anyhow::Error),
@@ -134,170 +133,308 @@ pub enum AppError {
     VerificationResendLimitReached(Uuid),
 }
 
+/// Konstruktoren: Sie erzeugen den Fehler und loggen ihn dabei mit den
+/// passenden Feldern. Die Log-Nachricht ist kurz und unabhängig von `Display`.
 impl AppError {
-    pub(crate) fn log(&self) {
+    pub fn address_not_found(address_id: Uuid) -> Self {
+        tracing::warn!(address.id = %address_id, "Address not found");
+        Self::AddressNotFound(address_id)
+    }
+
+    pub fn project_not_found(project_id: Uuid) -> Self {
+        tracing::warn!(project.id = %project_id, "Project not found");
+        Self::ProjectNotFound(project_id)
+    }
+
+    pub fn course_not_found(
+        course_id: Uuid,
+        user_id: impl Into<String>,
+        project_id: Option<Uuid>,
+    ) -> Self {
+        let user_id = user_id.into();
+        tracing::warn!(
+            course.id = %course_id,
+            user.id = %user_id,
+            project.id = ?project_id,
+            "Course not found"
+        );
+        Self::CourseNotFound(course_id, user_id, project_id)
+    }
+
+    pub fn course_limit_reached(project_id: Uuid) -> Self {
+        tracing::warn!(project.id = %project_id, "Course limit reached");
+        Self::CourseLimitReached(project_id)
+    }
+
+    pub fn note_not_found(
+        note_id: Uuid,
+        user_id: impl Into<String>,
+        project_id: Uuid,
+        team_id: Uuid,
+    ) -> Self {
+        let user_id = user_id.into();
+        tracing::warn!(
+            note.id = %note_id,
+            user.id = %user_id,
+            project.id = %project_id,
+            team.id = %team_id,
+            "Note not found"
+        );
+        Self::NoteNotFound(note_id, user_id, project_id, team_id)
+    }
+
+    pub fn plan_not_found(user_id: impl Into<String>, project_id: Uuid) -> Self {
+        let user_id = user_id.into();
+        tracing::warn!(user.id = %user_id, project.id = %project_id, "Plan not found");
+        Self::PlanNotFound(user_id, project_id)
+    }
+
+    pub fn plan_config_not_found(user_id: impl Into<String>, project_id: Uuid) -> Self {
+        let user_id = user_id.into();
+        tracing::warn!(
+            user.id = %user_id,
+            project.id = %project_id,
+            "Plan configuration not found"
+        );
+        Self::PlanConfigNotFound(user_id, project_id)
+    }
+
+    pub fn point_not_found(point_id: Uuid) -> Self {
+        tracing::warn!(point.id = %point_id, "Point not found");
+        Self::PointNotFound(point_id)
+    }
+
+    pub fn start_point_not_found(project_id: Uuid) -> Self {
+        tracing::warn!(project.id = %project_id, "Starting point not found");
+        Self::StartPointNotFound(project_id)
+    }
+
+    pub fn end_point_not_found(project_id: Uuid) -> Self {
+        tracing::warn!(project.id = %project_id, "Ending point not found");
+        Self::EndPointNotFound(project_id)
+    }
+
+    pub fn sharing_config_not_found(user_id: impl Into<String>, project_id: Uuid) -> Self {
+        let user_id = user_id.into();
+        tracing::warn!(
+            user.id = %user_id,
+            project.id = %project_id,
+            "Sharing configuration not found"
+        );
+        Self::SharingConfigNotFound(user_id, project_id)
+    }
+
+    pub fn share_not_found(share_id: Uuid) -> Self {
+        tracing::warn!(share.id = %share_id, "Sharing configuration not found");
+        Self::ShareNotFound(share_id)
+    }
+
+    pub fn team_not_found(team_id: Uuid, user_id: impl Into<String>, project_id: Uuid) -> Self {
+        let user_id = user_id.into();
+        tracing::warn!(
+            team.id = %team_id,
+            user.id = %user_id,
+            project.id = %project_id,
+            "Team not found"
+        );
+        Self::TeamNotFound(team_id, user_id, project_id)
+    }
+
+    pub fn deadline_exceeded(deadline: DateTime<Utc>, project_id: Uuid) -> Self {
+        tracing::warn!(
+            project.id = %project_id,
+            deadline = ?deadline,
+            "Registration deadline exceeded"
+        );
+        Self::DeadlineExceeded(deadline, project_id)
+    }
+
+    pub fn team_limit_reached(max_teams: u8, project_id: Uuid) -> Self {
+        tracing::warn!(
+            project.id = %project_id,
+            max_teams = %max_teams,
+            "Maximum number of teams exceeded"
+        );
+        Self::TeamLimitReached(max_teams, project_id)
+    }
+
+    pub fn missing_field(field: impl Into<String>, project_id: Uuid) -> Self {
+        let field = field.into();
+        tracing::warn!(
+            project.id = %project_id,
+            field = %field,
+            "Missing required field for team creation"
+        );
+        Self::MissingField(field, project_id)
+    }
+
+    pub fn unauthorized(user_id: impl Into<String>, message: impl Into<String>) -> Self {
+        let user_id = user_id.into();
+        let message = message.into();
+        tracing::warn!(
+            user.id = %user_id,
+            message = %message,
+            "User is not authorized"
+        );
+        Self::Unauthorized(user_id, message)
+    }
+
+    pub fn authorization_error(message: impl Into<String>) -> Self {
+        let message = message.into();
+        tracing::warn!(error = %message, "Authorization error occurred");
+        Self::AuthorizationError(message)
+    }
+
+    pub fn team_not_found_by_token() -> Self {
+        tracing::warn!("Team not found for given access token");
+        Self::TeamNotFoundByToken
+    }
+
+    pub fn verification_resend_limit_exceeded(attempts: i32) -> Self {
+        tracing::warn!(attempts = %attempts, "Verification resend limit exceeded");
+        Self::VerificationResendLimitExceeded(attempts)
+    }
+
+    pub fn team_canceled() -> Self {
+        tracing::warn!("Attempted to edit a canceled team");
+        Self::TeamCanceled
+    }
+
+    pub fn missing_header(header: impl Into<String>) -> Self {
+        let header = header.into();
+        tracing::warn!(header = %header, "Missing required header");
+        Self::MissingHeader(header)
+    }
+
+    pub fn edit_deadline_exceeded(deadline: DateTime<Utc>) -> Self {
+        tracing::warn!(deadline = ?deadline, "Edit deadline exceeded");
+        Self::EditDeadlineExceeded(deadline)
+    }
+
+    pub fn plan_is_stale(project_id: Uuid) -> Self {
+        tracing::warn!(
+            project.id = %project_id,
+            "Attempted to send route mails with a stale plan"
+        );
+        Self::PlanIsStale(project_id)
+    }
+
+    pub fn invalid_team_id_list(reason: InvalidTeamIdReason) -> Self {
+        tracing::warn!(
+            reason = %reason,
+            "One or more team ids in the provided list are invalid for this project"
+        );
+        Self::InvalidTeamIdList(reason)
+    }
+
+    pub fn missing_required_field(required_field: RequiredField, project_id: Uuid) -> Self {
+        tracing::warn!(
+            project.id = %project_id,
+            required_field = %required_field,
+            "Required field is missing while updating or creating team"
+        );
+        Self::MissingRequiredField(required_field, project_id)
+    }
+
+    pub fn team_is_not_verified() -> Self {
+        tracing::warn!("Team is not verified");
+        Self::TeamIsNotVerified
+    }
+
+    pub fn verification_resend_limit_reached(team_id: Uuid) -> Self {
+        tracing::warn!(
+            team.id = %team_id,
+            "Verification resend limit reached for team"
+        );
+        Self::VerificationResendLimitReached(team_id)
+    }
+
+    pub fn internal_error(error: anyhow::Error) -> Self {
+        tracing::error!(error = %error, "An internal error occurred");
+        Self::InternalError(error)
+    }
+
+    fn status_code(&self) -> StatusCode {
         match self {
-            AppError::AddressNotFound(id) => {
-                tracing::warn!(address.id = %id, "Address not found");
-            }
-            AppError::DatabaseError(error) => {
-                tracing::error!(error = %error, "A database error occurred");
-            }
-            AppError::InternalError(error) => {
-                tracing::error!(error = %error, "An internal error occurred");
-            }
-            AppError::ProjectNotFound(uuid) => {
-                tracing::warn!(project.id = %uuid, "Project not found");
-            }
-            AppError::CourseNotFound(uuid, user_id, project_id) => {
-                tracing::warn!(course.id = %uuid, user.id = %user_id, project.id = ?project_id, "Course not found");
-            }
-            AppError::CourseLimitReached(project_id) => {
-                tracing::warn!(project.id = %project_id, "Course limit reached");
-            }
-            AppError::PlanNotFound(user_id, project_id) => {
-                tracing::warn!(user.id = %user_id, project.id = %project_id, "Plan not found");
-            }
-            AppError::PlanConfigNotFound(user_id, project_id) => {
-                tracing::warn!(user.id = %user_id, project.id = %project_id, "Plan configuration not found");
-            }
-            AppError::PointNotFound(uuid) => {
-                tracing::warn!(point.id = %uuid, "Point not found");
-            }
-            AppError::StartPointNotFound(project_id) => {
-                tracing::warn!(project.id = %project_id, "Starting point not found");
-            }
-            AppError::EndPointNotFound(project_id) => {
-                tracing::warn!(project.id = %project_id, "Ending point not found");
-            }
-            AppError::TeamNotFound(uuid, user_id, project_id) => {
-                tracing::warn!(team.id = %uuid, user.id = %user_id, project.id = %project_id, "Team not found");
-            }
-            AppError::NoteNotFound(note_id, user_id, project_id, team_id) => {
-                tracing::warn!(note.id = %note_id, user.id = %user_id, project.id = %project_id, team.id = %team_id, "Note not found");
-            }
-            AppError::SerializationError(error) => {
-                tracing::warn!(error = %error, "A serialization error occurred");
-            }
-            AppError::SharingConfigNotFound(user_id, project_id) => {
-                tracing::warn!(user.id = %user_id, project.id = %project_id, "Sharing configuration not found");
-            }
-            AppError::ShareNotFound(id) => {
-                tracing::warn!(share.id = %id, "Sharing configuration not found");
-            }
-            AppError::DeadlineExceeded(deadline, project_id) => {
-                tracing::warn!(project.id = %project_id, deadline = ?deadline, "Registration deadline exceeded");
-            }
-            AppError::TeamLimitReached(max_teams, project_id) => {
-                tracing::warn!(project.id = %project_id, max_teams = %max_teams, "Maximum number of teams exceeded");
-            }
-            AppError::MissingField(field, project_id) => {
-                tracing::warn!(project.id = %project_id, field = %field, "Missing required field for team creation");
-            }
-            AppError::Unauthorized(user_id, message) => {
-                tracing::warn!(user.id = %user_id, message = %message, "User is not authorized");
-            }
-            AppError::JsonRejection(json_rejection) => {
-                tracing::warn!(error = ?json_rejection, "Failed to parse JSON input");
-            }
-            AppError::ValidationError(validation_errors) => {
-                tracing::warn!(errors = ?validation_errors.field_errors(), "Validation errors for input");
-            }
-            AppError::AuthorizationError(auth_error) => {
-                tracing::warn!(error = %auth_error, "Authorization error occurred");
-            }
-            AppError::TeamNotFoundByToken => {
-                tracing::warn!("Team not found for given access token");
-            }
-            AppError::VerificationResendLimitExceeded(count) => {
-                tracing::warn!(attempts = %count, "Verification resend limit exceeded");
-            }
-            AppError::TeamCanceled => {
-                tracing::warn!("Attempted to edit a canceled team");
-            }
-            AppError::MissingHeader(header) => {
-                tracing::warn!(header = %header, "Missing required header");
-            }
-            AppError::EditDeadlineExceeded(deadline) => {
-                tracing::warn!(deadline = ?deadline, "Edit deadline exceeded");
-            }
-            AppError::PlanIsStale(project_id) => {
-                tracing::warn!(project.id = %project_id, "Attempted to send route mails with a stale plan");
-            }
-            AppError::InvalidTeamIdList(reason) => {
-                tracing::warn!(
-                    reason = %reason,
-                    "One or more team ids in the provided list are invalid for this project"
-                );
-            }
-            AppError::MissingRequiredField(required_field, project_id) => {
-                tracing::warn!(
-                    project.id = %project_id,
-                    required_field = %required_field,
-                    "Required field is missing while updating or creating team"
-                );
-            }
-            AppError::TeamIsNotVerified => {
-                tracing::warn!("Team is not verified");
-            }
-            AppError::VerificationResendLimitReached(team_id) => {
-                tracing::warn!(
-                    team.id = %team_id,
-                    "Verification resend limit reached for team");
-            }
+            Self::DeadlineExceeded(..)
+            | Self::TeamLimitReached(..)
+            | Self::MissingField(..)
+            | Self::CourseLimitReached(_)
+            | Self::ValidationError(_)
+            | Self::JsonRejection(_)
+            | Self::VerificationResendLimitExceeded(_)
+            | Self::EditDeadlineExceeded(_)
+            | Self::MissingHeader(_)
+            | Self::InvalidTeamIdList(_)
+            | Self::MissingRequiredField(..)
+            | Self::TeamIsNotVerified => StatusCode::BAD_REQUEST,
+
+            Self::AddressNotFound(_)
+            | Self::ProjectNotFound(_)
+            | Self::CourseNotFound(..)
+            | Self::PlanNotFound(..)
+            | Self::PlanConfigNotFound(..)
+            | Self::PointNotFound(_)
+            | Self::StartPointNotFound(_)
+            | Self::EndPointNotFound(_)
+            | Self::TeamNotFound(..)
+            | Self::NoteNotFound(..)
+            | Self::SharingConfigNotFound(..)
+            | Self::ShareNotFound(_)
+            | Self::TeamNotFoundByToken => StatusCode::NOT_FOUND,
+
+            Self::DatabaseError(_)
+            | Self::InternalError(_)
+            | Self::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+
+            Self::Unauthorized(..) | Self::AuthorizationError(_) => StatusCode::UNAUTHORIZED,
+
+            Self::TeamCanceled
+            | Self::PlanIsStale(_)
+            | Self::VerificationResendLimitReached(_) => StatusCode::CONFLICT,
         }
+    }
+}
+
+// `?`-Konvertierungen loggen ebenfalls beim Erzeugen des Fehlers.
+
+impl From<JsonRejection> for AppError {
+    fn from(rejection: JsonRejection) -> Self {
+        tracing::warn!(error = %rejection, "Failed to parse JSON input");
+        Self::JsonRejection(rejection)
+    }
+}
+
+impl From<ValidationErrors> for AppError {
+    fn from(errors: ValidationErrors) -> Self {
+        tracing::warn!(errors = ?errors.field_errors(), "Validation errors for input");
+        Self::ValidationError(errors)
+    }
+}
+
+impl From<serde_json::Error> for AppError {
+    fn from(error: serde_json::Error) -> Self {
+        tracing::error!(error = %error, "A serialization error occurred");
+        Self::SerializationError(error)
+    }
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(error: sqlx::Error) -> Self {
+        tracing::error!(error = %error, "A database error occurred");
+        Self::DatabaseError(error)
     }
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        self.log();
-        let status = match self {
-            AppError::DeadlineExceeded(_, _)
-            | AppError::TeamLimitReached(_, _)
-            | AppError::MissingField(_, _)
-            | AppError::CourseLimitReached(_)
-            | AppError::ValidationError(_)
-            | AppError::JsonRejection(_)
-            | AppError::VerificationResendLimitExceeded(_)
-            | AppError::EditDeadlineExceeded(_)
-            | AppError::MissingHeader(_)
-            | AppError::InvalidTeamIdList(_)
-            | AppError::MissingRequiredField(_, _)
-            | AppError::TeamIsNotVerified => StatusCode::BAD_REQUEST,
-            AppError::AddressNotFound(_)
-            | AppError::ProjectNotFound(_)
-            | AppError::CourseNotFound(_, _, _)
-            | AppError::PlanNotFound(_, _)
-            | AppError::PlanConfigNotFound(_, _)
-            | AppError::PointNotFound(_)
-            | AppError::StartPointNotFound(_)
-            | AppError::EndPointNotFound(_)
-            | AppError::TeamNotFound(_, _, _)
-            | AppError::NoteNotFound(_, _, _, _)
-            | AppError::SharingConfigNotFound(_, _)
-            | AppError::ShareNotFound(_)
-            | AppError::TeamNotFoundByToken => StatusCode::NOT_FOUND,
-            AppError::DatabaseError(_)
-            | AppError::InternalError(_)
-            | AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::Unauthorized(_, _) | AppError::AuthorizationError(_) => {
-                StatusCode::UNAUTHORIZED
-            }
-            AppError::TeamCanceled
-            | AppError::PlanIsStale(_)
-            | AppError::VerificationResendLimitReached(_) => StatusCode::CONFLICT,
+        let status = self.status_code();
+        let error_message = if status.is_server_error() {
+            "Internal Server Error".to_string()
+        } else {
+            self.to_string()
         };
 
-        let error_message = match status.is_server_error() {
-            true => "Internal Server Error".to_string(),
-            false => self.to_string(),
-        };
-
-        let body = Json(json!({
-            "error": error_message,
-        }));
-
-        (status, body).into_response()
+        (status, Json(json!({ "error": error_message }))).into_response()
     }
 }

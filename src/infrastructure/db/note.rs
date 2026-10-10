@@ -66,7 +66,7 @@ impl NoteRepository {
             Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
                 Ok(())
             }
-            Err(e) => Err(AppError::DatabaseError(e)),
+            Err(e) => Err(AppError::from(e)),
         }
     }
 
@@ -97,13 +97,13 @@ impl NoteRepository {
 
         result
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => AppError::NoteNotFound(
+                sqlx::Error::RowNotFound => AppError::note_not_found(
                     Uuid::nil(),
                     user_id_filter.to_string(),
                     *project_id_filter,
                     *team_id_filter,
                 ),
-                other => AppError::DatabaseError(other),
+                other => AppError::from(other),
             })
             .map(|rows| rows.iter().map(NoteEntity::to_domain).collect())
     }
@@ -135,11 +135,11 @@ impl NoteRepository {
         .bind(user_id_filter)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::NoteNotFound(
+            return Err(AppError::note_not_found(
                 *note_id_filter,
                 user_id_filter.to_string(),
                 *project_id_filter,

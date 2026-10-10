@@ -5,11 +5,11 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
+    get_client,
     project::{
         get_test::{execute_get, execute_get_meta, get_project},
         post_test::{create_project, get_project_create_json},
     },
-    get_client,
 };
 
 use super::DEFAULT_ADMIN_NOTIFICATION_EMAIL;
@@ -62,10 +62,7 @@ fn test_patch_meta_missing_admin_notification_email() {
     let (client, base_url) = get_client();
     let payload = json!({ "name": "New Name", "occur": Utc::now() });
     let res = client
-        .patch(format!(
-            "{}/project/{}/metadata",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/metadata", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -121,10 +118,7 @@ fn execute_patch_meta(
     });
     println!("Payload: {}", payload);
     client
-        .patch(format!(
-            "{}/project/{}/metadata",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/metadata", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -162,6 +156,7 @@ fn assert_project_json(
     expected_name: &str,
     expected_time: &DateTime<Utc>,
 ) {
+    println!("{}", json.to_string());
     let id = json.get("id").and_then(|v| v.as_str()).expect("Missing id");
     let name = json
         .get("name")
@@ -172,18 +167,14 @@ fn assert_project_json(
         .and_then(|v| v.as_str())
         .expect("Missing occur");
 
-    assert_eq!(
-        id,
-        project_id.to_string(),
-        "Cook and Run ID does not match"
-    );
-    assert_eq!(name, expected_name, "Cook and Run name does not match");
+    assert_eq!(id, project_id.to_string(), "Project ID does not match");
+    assert_eq!(name, expected_name, "Project name does not match");
     let parsed_time = occure
         .parse::<DateTime<Utc>>()
         .expect("Failed to parse occur time");
     assert_eq!(
         parsed_time.timestamp(),
         expected_time.timestamp(),
-        "Cook and Run occure time does not match"
+        "Project occure time does not match"
     );
 }

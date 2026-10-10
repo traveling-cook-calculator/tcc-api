@@ -50,7 +50,7 @@ impl AddressRepository {
         .bind(addr.longitude)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?;
+        .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -67,8 +67,8 @@ impl AddressRepository {
         .fetch_one(executor)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::AddressNotFound(*id_filter),
-            other => AppError::DatabaseError(other),
+            sqlx::Error::RowNotFound => AppError::address_not_found(*id_filter),
+            other => AppError::from(other),
         })
         .map(|addr| addr.to_domain())
     }
@@ -86,11 +86,11 @@ impl AddressRepository {
             .bind(to_delete_address_id)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?
+            .map_err(AppError::from)?
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::AddressNotFound(*to_delete_address_id));
+            return Err(AppError::address_not_found(*to_delete_address_id));
         }
         Ok(())
     }
@@ -111,11 +111,11 @@ impl AddressRepository {
         .bind(addr.id)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::AddressNotFound(addr.id));
+            return Err(AppError::address_not_found(addr.id));
         }
         Ok(())
     }

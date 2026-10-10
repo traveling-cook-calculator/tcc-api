@@ -285,7 +285,7 @@ pub(super) async fn get_start_point(
 ) -> Result<PointDTO, AppError> {
     match project::get_project_start_point(&mut state.db, &project_id, &claims.sub).await? {
         Some(p) => Ok(PointDTO::from_domain(p)),
-        None => Err(AppError::StartPointNotFound(project_id)),
+        None => Err(AppError::start_point_not_found(project_id)),
     }
 }
 
@@ -297,6 +297,6 @@ pub(super) async fn get_end_point(
 ) -> Result<PointDTO, AppError> {
     match project::get_project_end_point(&mut state.db, &project_id, &claims.sub).await? {
         Some(p) => Ok(PointDTO::from_domain(p)),
-        None => Err(AppError::EndPointNotFound(project_id)),
+        None => Err(AppError::end_point_not_found(project_id)),
     }
 }

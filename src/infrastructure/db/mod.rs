@@ -33,12 +33,12 @@ impl Database {
             .max_connections(10)
             .connect(database_url)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
 
         MIGRATOR
             .run(&pool)
             .await
-            .map_err(|e| AppError::InternalError(anyhow::anyhow!(e)))?;
+            .map_err(|e| AppError::internal_error(anyhow::anyhow!(e)))?;
 
         info!("Database migrations are up to date.");
 
@@ -49,7 +49,7 @@ impl Database {
         sqlx::query("SELECT 1")
             .execute(&self.pool)
             .await
-            .map_err(AppError::DatabaseError)?;
+            .map_err(AppError::from)?;
         Ok(())
     }
 }

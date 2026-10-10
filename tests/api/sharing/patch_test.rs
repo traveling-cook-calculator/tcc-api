@@ -30,6 +30,8 @@ fn test_patch_share_config() {
         &Some(EXPECTED_EDIT_DEADLINE),
         &EXPECTED_REVIEW_TRIGGER_FIELDS,
         EXPECTED_NOTIFY_ADMIN_ON_REVIEW,
+        EXPECTED_NOTIFY_ADMIN_ON_CREATE,
+        EXPECTED_NOTIFY_ADMIN_ON_CANCEL,
     );
 }
 
@@ -77,6 +79,8 @@ const EXPECTED_REGISTRATION_DEADLINE: &str = "2024-09-29T15:30:00Z";
 const EXPECTED_EDIT_DEADLINE: &str = "2024-10-06T15:30:00Z";
 const EXPECTED_REVIEW_TRIGGER_FIELDS: Vec<String> = vec![];
 const EXPECTED_NOTIFY_ADMIN_ON_REVIEW: bool = true;
+const EXPECTED_NOTIFY_ADMIN_ON_CANCEL: bool = true;
+const EXPECTED_NOTIFY_ADMIN_ON_CREATE: bool = true;
 
 fn get_share_patch_json() -> serde_json::Value {
     get_share_create_json(
@@ -96,5 +100,7 @@ fn get_share_patch_json() -> serde_json::Value {
         ),
         &EXPECTED_REVIEW_TRIGGER_FIELDS,
         EXPECTED_NOTIFY_ADMIN_ON_REVIEW,
+        EXPECTED_NOTIFY_ADMIN_ON_CREATE,
+        EXPECTED_NOTIFY_ADMIN_ON_CANCEL,
     )
 }

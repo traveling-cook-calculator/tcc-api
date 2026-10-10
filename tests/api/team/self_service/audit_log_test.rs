@@ -88,17 +88,13 @@ fn test_audit_log_contains_update_entry_with_diff() {
         &None,
         &vec!["mail".to_string()],
         false,
+        false,
+        false,
     );
     let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("audited-change@run.de");
-    let res = execute_patch_dual_auth(
-        &project_id,
-        &team_id,
-        &payload,
-        None,
-        Some(&access_token),
-    );
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, None, Some(&access_token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let res = execute_audit_log(&project_id, &team_id, Some(&admin_token), None, None);
@@ -174,29 +170,20 @@ fn test_audit_log_pagination() {
         &None,
         &vec!["mail".to_string()],
         false,
+        false,
+        false,
     );
     let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     // "created" + 3 "updated" entries = 4 total.
     for i in 0..3 {
         let payload = team_update_payload_with_mail(&format!("page-test-{i}@run.de"));
-        let res = execute_patch_dual_auth(
-            &project_id,
-            &team_id,
-            &payload,
-            None,
-            Some(&access_token),
-        );
+        let res =
+            execute_patch_dual_auth(&project_id, &team_id, &payload, None, Some(&access_token));
         assert!(res.status().is_success(), "Response: {:#?}", res);
     }
 
-    let res = execute_audit_log(
-        &project_id,
-        &team_id,
-        Some(&admin_token),
-        Some(1),
-        Some(1),
-    );
+    let res = execute_audit_log(&project_id, &team_id, Some(&admin_token), Some(1), Some(1));
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let json: serde_json::Value = res.json().expect("Failed to parse JSON");
 

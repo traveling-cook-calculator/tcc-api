@@ -1,5 +1,5 @@
 use axum::{
-    extract::{rejection::JsonRejection, FromRequest, Request},
+    extract::{FromRequest, Request, rejection::JsonRejection},
     response::Json,
 };
 use serde::de::DeserializeOwned;
@@ -36,9 +36,9 @@ where
         debug!("Validating JSON payload.");
         let Json(value) = Json::<T>::from_request(req, state)
             .await
-            .map_err(AppError::JsonRejection)?;
+            .map_err(AppError::from)?;
 
-        value.validate().map_err(AppError::ValidationError)?;
+        value.validate().map_err(AppError::from)?;
 
         Ok(ValidatedJson(value))
     }

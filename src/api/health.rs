@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
 use serde::Serialize;
 
 use crate::AppState;
@@ -84,18 +84,12 @@ async fn perform_readiness_checks(state: &mut AppState) -> Vec<HealthCheckResult
 
     match state.db.health_check().await {
         Ok(_) => checks.push(HealthCheckResult::up("database")),
-        Err(error) => {
-            error.log();
-            checks.push(HealthCheckResult::down("database"))
-        }
+        Err(_) => checks.push(HealthCheckResult::down("database")),
     }
 
     match state.auth.health_check().await {
         Ok(_) => checks.push(HealthCheckResult::up("auth_server")),
-        Err(error) => {
-            error.log();
-            checks.push(HealthCheckResult::down("auth_server"))
-        }
+        Err(_) => checks.push(HealthCheckResult::down("auth_server")),
     }
 
     checks

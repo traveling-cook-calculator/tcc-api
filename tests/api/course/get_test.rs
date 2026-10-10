@@ -1,7 +1,6 @@
 use std::sync::{Mutex, OnceLock};
 
 use chrono::NaiveTime;
-use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
@@ -24,7 +23,7 @@ pub fn setup() -> TestData {
 
         let (token, _) = get_user_1();
         let mut course_list = Vec::new();
-        for _ in 0..10 {
+        for _ in 0..8 {
             let course_id = Uuid::new_v4();
             create_course(&project_id, &course_id, &token);
             course_list.push(course_id);
@@ -37,16 +36,6 @@ pub fn setup() -> TestData {
     });
 
     data.lock().unwrap().clone()
-}
-
-#[test]
-fn test_get_course() {
-    let test_data = setup();
-    let (token, _) = get_user_1();
-
-    for course in test_data.course_list {
-        get_course(&test_data.project_id, &course, &token);
-    }
 }
 
 #[test]
@@ -66,26 +55,6 @@ fn test_get_course_list_in_project() {
 }
 
 #[test]
-fn test_get_course_not_found() {
-    let test_data = setup();
-    let (token, _) = get_user_1();
-
-    let res = execute_get(&test_data.project_id, &Uuid::new_v4(), &token);
-    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
-}
-
-#[test]
-fn test_get_course_wrong_user() {
-    let test_data = setup();
-    let (token, _) = get_user_2();
-
-    for course in test_data.course_list {
-        let res = execute_get(&test_data.project_id, &course, &token);
-        assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
-    }
-}
-
-#[test]
 fn test_get_course_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_user_2();
@@ -93,36 +62,10 @@ fn test_get_course_list_wrong_user() {
     get_course_list(&test_data.project_id, &[], &token);
 }
 
-pub fn execute_get(
-    project_id: &Uuid,
-    course_id: &Uuid,
-    token: &str,
-) -> reqwest::blocking::Response {
+pub fn execute_get_list(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(format!(
-            "{}/project/{}/course/{}",
-            base_url, project_id, course_id
-        ))
-        .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
-        .send()
-        .expect("Failed to send request")
-}
-
-pub fn get_course(project_id: &Uuid, course_id: &Uuid, token: &str) {
-    let res = execute_get(project_id, course_id, token);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-    assert_course_json(&res.json().expect("Failed to parse JSON"), course_id, false);
-}
-
-fn execute_get_list(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
-    let (client, base_url) = get_client();
-    client
-        .get(format!(
-            "{}/project/{}/courses",
-            base_url, project_id
-        ))
+        .get(format!("{}/project/{}/courses", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
         .send()
@@ -139,8 +82,34 @@ pub fn get_course_list(project_id: &Uuid, expected_course_id: &[Uuid], token: &s
         .and_then(|v| v.as_array())
         .expect("Missing course_list");
     for (index, course) in course_list.iter().enumerate() {
-        assert_course_json(course, &expected_course_id[index], false);
+        assert_course_json(course, &expected_course_id[index]);
     }
+}
+
+pub fn get_course(
+    project_id: &Uuid,
+    expected_course_id: &Uuid,
+    token: &str,
+) -> Option<serde_json::Value> {
+    let res = execute_get_list(project_id, token);
+    assert!(res.status().is_success(), "Response: {:#?}", res);
+
+    let json: serde_json::Value = res.json().expect("Expect json");
+    let course_list = json
+        .get("data")
+        .and_then(|v| v.as_array())
+        .expect("Missing course_list");
+    for (_, course) in course_list.iter().enumerate() {
+        let id = course
+            .get("id")
+            .and_then(|v| v.as_str())
+            .expect("Missing id");
+
+        if id == expected_course_id.to_string() {
+            return Some(course.clone());
+        }
+    }
+    None
 }
 
 fn assert_project_json(json: &serde_json::Value, expected_course_id: &[Uuid]) {
@@ -150,15 +119,11 @@ fn assert_project_json(json: &serde_json::Value, expected_course_id: &[Uuid]) {
         .expect("Missing course_list");
 
     for (index, course) in course_list.iter().enumerate() {
-        assert_course_json(course, &expected_course_id[index], false);
+        assert_course_json(course, &expected_course_id[index]);
     }
 }
 
-fn assert_course_json(
-    json: &serde_json::Value,
-    expected_course_id: &Uuid,
-    expected_has_multiple_hosts: bool,
-) {
+fn assert_course_json(json: &serde_json::Value, expected_course_id: &Uuid) {
     let id = json.get("id").and_then(|v| v.as_str()).expect("Missing id");
 
     let name = json
@@ -170,11 +135,6 @@ fn assert_course_json(
         .get("time")
         .and_then(|v| v.as_str())
         .expect("Missing time");
-
-    let has_multiple_hosts = json
-        .get("has_multiple_hosts")
-        .and_then(|v| v.as_bool())
-        .expect("Missing has_multiple_hosts");
 
     assert_eq!(
         id,
@@ -188,10 +148,5 @@ fn assert_course_json(
         NaiveTime::parse_from_str(time, "%H:%M").is_ok(),
         "Time is not a valid NaiveTime: {}",
         time
-    );
-
-    assert_eq!(
-        has_multiple_hosts, expected_has_multiple_hosts,
-        "has_multiple_hosts is not equals"
     );
 }

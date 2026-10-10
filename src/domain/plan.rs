@@ -57,6 +57,6 @@ pub enum PlanSortOption {
 
 impl Default for PlanSortOption {
     fn default() -> Self {
-        PlanSortOption::NameAsc
+        PlanSortOption::CreatedDesc
     }
 }

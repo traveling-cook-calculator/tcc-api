@@ -1,3 +1,4 @@
+use sqlx::encode::IsNull::No;
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
@@ -32,12 +33,12 @@ impl ProjectEntity {
             occur: self.occur,
             start_point: None,
             end_point: None,
-            share_team_config: None,
-            plan: None,
-            plan_config: None,
             admin_notification_email: self.admin_notification_email.clone(),
             team_list: Vec::new(),
             course_list: Vec::new(),
+            plan: None,
+            plan_config: None,
+            share_team_config: None,
         }
     }
 
@@ -83,7 +84,7 @@ impl ProjectRepository {
             Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
                 Ok(())
             }
-            Err(e) => Err(AppError::DatabaseError(e)),
+            Err(e) => Err(AppError::from(e)),
         }
     }
 
@@ -111,11 +112,11 @@ impl ProjectRepository {
         .bind(user_id_filter)
         .execute(executor)
         .await
-        .map_err(AppError::DatabaseError)?
+        .map_err(AppError::from)?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::ProjectNotFound(*id_filter));
+            return Err(AppError::project_not_found(*id_filter));
         }
         Ok(())
     }
@@ -141,23 +142,24 @@ impl ProjectRepository {
             PlanSortOption::EditedDesc => "edited DESC",
         };
 
-        sqlx::query_as::<_, ProjectEntity>(
+        let query = format!(
             "SELECT id, user_id, name, created, edited, occur,
-                start_point, end_point, share_team_config, plan, plan_config,
-                admin_notification_email
-         FROM project
-         WHERE user_id = $1
-         ORDER BY $4
-         LIMIT $2 OFFSET $3",
-        )
-        .bind(user_id_filter)
-        .bind(limit as i8)
-        .bind(offset as i8)
-        .bind(sort_option)
-        .fetch_all(executor)
-        .await
-        .map_err(AppError::DatabaseError)
-        .map(|rows| rows.iter().map(ProjectEntity::to_domain).collect())
+            start_point, end_point, 
+            admin_notification_email
+            FROM project
+            WHERE user_id = $1
+            ORDER BY {sort_option}
+            LIMIT $2 OFFSET $3"
+        );
+
+        sqlx::query_as::<_, ProjectEntity>(&query)
+            .bind(user_id_filter)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(executor)
+            .await
+            .map_err(AppError::from)
+            .map(|rows| rows.iter().map(ProjectEntity::to_domain).collect())
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -173,7 +175,7 @@ impl ProjectRepository {
             .bind(user_id_filter)
             .fetch_one(executor)
             .await
-            .map_err(AppError::DatabaseError)
+            .map_err(AppError::from)
             .map(|c| c as u8)
     }
 
@@ -189,7 +191,7 @@ impl ProjectRepository {
     {
         sqlx::query_as::<_, ProjectEntity>(
             "SELECT id, user_id, name, created, edited, occur,
-                    start_point, end_point, share_team_config, plan, plan_config,
+                    start_point, end_point,
                     admin_notification_email
              FROM project WHERE id = $1 AND user_id = $2",
         )
@@ -198,8 +200,8 @@ impl ProjectRepository {
         .fetch_one(executor)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::ProjectNotFound(*id_filter),
-            other => AppError::DatabaseError(other),
+            sqlx::Error::RowNotFound => AppError::project_not_found(*id_filter),
+            other => AppError::from(other),
         })
         .map(|p| p.to_domain())
     }
@@ -215,7 +217,7 @@ impl ProjectRepository {
     {
         sqlx::query_as::<_, ProjectEntity>(
             "SELECT id, user_id, name, created, edited, occur,
-                    start_point, end_point, share_team_config, plan, plan_config,
+                    start_point, end_point,
                     admin_notification_email
              FROM project WHERE id = $1",
         )
@@ -223,8 +225,8 @@ impl ProjectRepository {
         .fetch_one(executor)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::ProjectNotFound(*id_filter),
-            other => AppError::DatabaseError(other),
+            sqlx::Error::RowNotFound => AppError::project_not_found(*id_filter),
+            other => AppError::from(other),
         })
         .map(|p| p.to_domain())
     }
@@ -249,11 +251,11 @@ impl ProjectRepository {
             .bind(user_id_filter)
             .execute(executor)
             .await
-            .map_err(AppError::DatabaseError)?
+            .map_err(AppError::from)?
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::ProjectNotFound(*id_filter));
+            return Err(AppError::project_not_found(*id_filter));
         }
         Ok(())
     }
@@ -276,8 +278,8 @@ impl ProjectRepository {
             .fetch_one(executor)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => AppError::ProjectNotFound(*id_filter),
-                other => AppError::DatabaseError(other),
+                sqlx::Error::RowNotFound => AppError::project_not_found(*id_filter),
+                other => AppError::from(other),
             })
     }
 
@@ -299,11 +301,11 @@ impl ProjectRepository {
                 .bind(user_id_filter)
                 .execute(executor)
                 .await
-                .map_err(AppError::DatabaseError)?
+                .map_err(AppError::from)?
                 .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::ProjectNotFound(*id_filter));
+            return Err(AppError::project_not_found(*id_filter));
         }
         Ok(())
     }
@@ -324,11 +326,11 @@ impl ProjectRepository {
                 .bind(user_id_filter)
                 .execute(executor)
                 .await
-                .map_err(AppError::DatabaseError)?
+                .map_err(AppError::from)?
                 .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::ProjectNotFound(*id_filter));
+            return Err(AppError::project_not_found(*id_filter));
         }
         Ok(())
     }
@@ -351,8 +353,8 @@ impl ProjectRepository {
             .fetch_one(executor)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => AppError::ProjectNotFound(*id_filter),
-                other => AppError::DatabaseError(other),
+                sqlx::Error::RowNotFound => AppError::project_not_found(*id_filter),
+                other => AppError::from(other),
             })
     }
 
@@ -374,11 +376,11 @@ impl ProjectRepository {
                 .bind(user_id_filter)
                 .execute(executor)
                 .await
-                .map_err(AppError::DatabaseError)?
+                .map_err(AppError::from)?
                 .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::ProjectNotFound(*id_filter));
+            return Err(AppError::project_not_found(*id_filter));
         }
         Ok(())
     }
@@ -399,11 +401,11 @@ impl ProjectRepository {
                 .bind(user_id_filter)
                 .execute(executor)
                 .await
-                .map_err(AppError::DatabaseError)?
+                .map_err(AppError::from)?
                 .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::ProjectNotFound(*id_filter));
+            return Err(AppError::project_not_found(*id_filter));
         }
         Ok(())
     }

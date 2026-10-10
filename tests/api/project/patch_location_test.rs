@@ -169,7 +169,7 @@ pub fn assert_project_json(
     assert_eq!(
         id,
         project_id.to_string(),
-        "Cook and Run ID does not match. Response: {}",
+        "Project ID does not match. Response: {}",
         json
     );
 

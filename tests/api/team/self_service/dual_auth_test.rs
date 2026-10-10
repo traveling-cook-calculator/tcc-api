@@ -44,12 +44,7 @@ fn test_patch_team_missing_auth_header() {
 fn test_get_team_invalid_jwt_falls_through_to_missing_header() {
     let (project_id, team_id, _) = create_self_service_team(false);
 
-    let res = execute_get_dual_auth(
-        &project_id,
-        &team_id,
-        Some("this-is-not-a-valid-jwt"),
-        None,
-    );
+    let res = execute_get_dual_auth(&project_id, &team_id, Some("this-is-not-a-valid-jwt"), None);
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -73,12 +68,7 @@ fn test_get_team_wrong_token_for_path() {
     // `first_team_token` belongs to a team in a *different* project than
     // `other_team_id` lives in — using it against `other_team_id`'s path
     // must not leak whether that path otherwise exists.
-    let res = execute_get_dual_auth(
-        &project_id,
-        &other_team_id,
-        None,
-        Some(&first_team_token),
-    );
+    let res = execute_get_dual_auth(&project_id, &other_team_id, None, Some(&first_team_token));
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
@@ -96,6 +86,8 @@ fn test_get_team_admin_omits_edit_deadline() {
         &None,
         &Some((chrono::Local::now() + chrono::Duration::days(1)).into()),
         &vec![],
+        false,
+        false,
         false,
     );
     let (team_id, _) = create_self_service_team_in(&project_id, false);
@@ -124,6 +116,8 @@ fn test_get_team_participant_includes_edit_deadline() {
         &None,
         &Some((chrono::Local::now() + chrono::Duration::days(1)).into()),
         &vec![],
+        false,
+        false,
         false,
     );
     let (team_id, access_token) = create_self_service_team_in(&project_id, false);
@@ -161,17 +155,13 @@ fn test_patch_team_participant_edit_of_trigger_field_triggers_review() {
         &None,
         &vec!["mail".to_string()],
         false,
+        false,
+        false,
     );
     let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("changed@run.de");
-    let res = execute_patch_dual_auth(
-        &project_id,
-        &team_id,
-        &payload,
-        None,
-        Some(&access_token),
-    );
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, None, Some(&access_token));
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
@@ -203,17 +193,13 @@ fn test_patch_team_admin_edit_of_trigger_field_does_not_trigger_review() {
         &None,
         &vec!["mail".to_string()],
         false,
+        false,
+        false,
     );
     let (team_id, _) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("changed-by-admin@run.de");
-    let res = execute_patch_dual_auth(
-        &project_id,
-        &team_id,
-        &payload,
-        Some(&admin_token),
-        None,
-    );
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, Some(&admin_token), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let res = execute_get_dual_auth(&project_id, &team_id, Some(&admin_token), None);
@@ -242,17 +228,13 @@ fn test_patch_team_participant_edit_deadline_exceeded() {
         &Some((chrono::Local::now() - chrono::Duration::days(1)).into()),
         &vec![],
         false,
+        false,
+        false,
     );
     let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("too-late@run.de");
-    let res = execute_patch_dual_auth(
-        &project_id,
-        &team_id,
-        &payload,
-        None,
-        Some(&access_token),
-    );
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, None, Some(&access_token));
     assert_eq!(
         res.status(),
         StatusCode::BAD_REQUEST,
@@ -279,16 +261,12 @@ fn test_patch_team_admin_not_subject_to_edit_deadline() {
         &Some((chrono::Local::now() - chrono::Duration::days(1)).into()),
         &vec![],
         false,
+        false,
+        false,
     );
     let (team_id, _) = create_self_service_team_in(&project_id, false);
 
     let payload = team_update_payload_with_mail("admin-can-still-edit@run.de");
-    let res = execute_patch_dual_auth(
-        &project_id,
-        &team_id,
-        &payload,
-        Some(&admin_token),
-        None,
-    );
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, Some(&admin_token), None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }

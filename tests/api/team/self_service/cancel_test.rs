@@ -167,6 +167,8 @@ fn test_cancel_team_edit_deadline_exceeded() {
         &Some((chrono::Local::now() - chrono::Duration::days(1)).into()),
         &vec![],
         false,
+        false,
+        false,
     );
     let (team_id, access_token) = create_self_service_team_in(&project_id, false);
 
@@ -191,22 +193,10 @@ fn test_patch_canceled_team_conflict() {
 
     let payload = team_update_payload_with_mail("wont-work@run.de");
 
-    let res = execute_patch_dual_auth(
-        &project_id,
-        &team_id,
-        &payload,
-        None,
-        Some(&access_token),
-    );
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, None, Some(&access_token));
     assert_eq!(res.status(), StatusCode::CONFLICT, "Response: {:#?}", res);
 
-    let res = execute_patch_dual_auth(
-        &project_id,
-        &team_id,
-        &payload,
-        Some(&admin_token),
-        None,
-    );
+    let res = execute_patch_dual_auth(&project_id, &team_id, &payload, Some(&admin_token), None);
     assert_eq!(res.status(), StatusCode::CONFLICT, "Response: {:#?}", res);
 }
 

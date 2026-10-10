@@ -6,9 +6,7 @@ pub mod post_test;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::{
-    auth::get_user_1, create_project, sharing::post_test::create_share_config_default,
-};
+use crate::{auth::get_user_1, create_project, sharing::post_test::create_share_config_default};
 
 pub fn setup() -> Uuid {
     let project_id = create_project();
@@ -51,6 +49,8 @@ pub fn get_share_config(project_id: &Uuid, token: &str) {
         &Some("2015-09-05T23:56:00Z"),
         &None,
         &vec![],
+        false,
+        false,
         false,
     );
 }
