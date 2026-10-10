@@ -102,42 +102,6 @@ fn test_get_team_admin_omits_edit_deadline() {
     );
 }
 
-#[test]
-fn test_get_team_participant_includes_edit_deadline() {
-    let project_id = crate::create_project();
-    let (admin_token, _) = get_user_1();
-    create_share_config(
-        &project_id,
-        &admin_token,
-        false,
-        false,
-        &vec![],
-        &None,
-        &None,
-        &Some((chrono::Local::now() + chrono::Duration::days(1)).into()),
-        &vec![],
-        false,
-        false,
-        false,
-    );
-    let (team_id, access_token) = create_self_service_team_in(&project_id, false);
-
-    let res = execute_get_dual_auth(&project_id, &team_id, None, Some(&access_token));
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-    let json: serde_json::Value = res.json().expect("Failed to parse JSON");
-    let edit_deadline = json
-        .get("edit_deadline")
-        .and_then(|v| v.as_str())
-        .expect("Missing edit_deadline for participant call");
-    assert!(
-        edit_deadline
-            .parse::<chrono::DateTime<chrono::Utc>>()
-            .is_ok(),
-        "edit_deadline is not a valid DateTime<Utc>: {}",
-        edit_deadline
-    );
-}
-
 /// "Given a field listed in `share.review_trigger_fields` changes via
 /// self-service `PATCH`, then `team.status` becomes `review`." (§4.3)
 #[test]

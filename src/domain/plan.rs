@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::DefaultHasher};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
@@ -27,7 +27,6 @@ pub struct PlanConfig {
 
 #[derive(Debug, Clone)]
 pub struct Hosting {
-    pub id: Uuid,
     pub name: Uuid,            // Course ID
     pub host: Uuid,            // Team ID
     pub guest_list: Vec<Uuid>, // Team ID
@@ -37,11 +36,6 @@ pub struct Hosting {
 pub struct Plan {
     pub id: Uuid,
     pub hosting_list: Vec<Hosting>,
-    pub walking_path: HashMap<Uuid, Vec<Uuid>>,
-    /// Set once a change (new/removed team, changed address, changed
-    /// start/end point) has made this plan potentially inaccurate. `None`
-    /// means the plan is current. Populated separately in `get_by_id`
-    /// (see below) rather than stored on `db::models::Plan` itself.
     pub stale_at: Option<DateTime<Utc>>,
 }
 

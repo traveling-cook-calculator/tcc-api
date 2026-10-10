@@ -100,7 +100,7 @@ impl EmailOutboxRepository {
             "INSERT INTO email_outbox
                 (id,  recipient_email, email_type, context, status,
                  attempts, next_attempt_at, created_at)
-             VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $6)",
+             VALUES ($1, $2, $3, $4, 'pending', 0, $5, $5)",
         )
         .bind(Uuid::new_v4())
         .bind(recipient_email)

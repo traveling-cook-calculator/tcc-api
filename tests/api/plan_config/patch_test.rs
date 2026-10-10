@@ -75,10 +75,7 @@ fn execute_patch_plan_config(project_id: &Uuid, token: &str) -> reqwest::blockin
     let payload = get_plan_config_patch_json();
     let (client, base_url) = get_client();
     client
-        .patch(format!(
-            "{}/project/{}/plan_config",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/plan_config", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -96,7 +93,7 @@ pub fn patch_plan_config(project_id: &Uuid, token: &str) {
 
 pub fn get_plan_config_patch_json() -> serde_json::Value {
     let json = json!({
-      //  "access": ["link","account"],
+        "access": ["link","account"],
         "title": "Test Plan Config",
         "description": "This is a test plan config",
         "date": "2024-01-01",

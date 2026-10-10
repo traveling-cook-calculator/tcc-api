@@ -204,7 +204,7 @@ pub async fn set_project_start_point(
     }
 
     PlanRepository
-        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .mark_stale_if_not_set_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
     tx.commit().await?;
     Ok(())
@@ -237,7 +237,7 @@ pub async fn set_project_end_point(
     }
 
     PlanRepository
-        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .mark_stale_if_not_set_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
     tx.commit().await?;
     Ok(())
@@ -265,7 +265,7 @@ pub async fn delete_project_start_point(
         .await?;
 
     PlanRepository
-        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .mark_stale_if_not_set_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
     tx.commit().await?;
     Ok(())
@@ -293,7 +293,7 @@ pub async fn delete_project_end_point(
         .await?;
 
     PlanRepository
-        .mark_stale_unsafe(&mut *tx, project_id, &Utc::now())
+        .mark_stale_if_not_set_unsafe(&mut *tx, project_id, &Utc::now())
         .await?;
     tx.commit().await?;
     Ok(())

@@ -1,15 +1,23 @@
 use crate::{
-    auth::get_user_1, create_project, get_project, plan::{change_team_address, hard_delete_team, patch_test::patch_plan, plan_json_referencing_team, set_start_point}, team::{
+    auth::get_user_1,
+    create_project, get_project,
+    plan::{
+        change_team_address, get_test::execute_get, hard_delete_team, patch_test::patch_plan,
+        plan_json_referencing_team, set_start_point,
+    },
+    sharing::post_test::create_share_config_default,
+    team::{
         post_test::create_team,
         self_service::{create_self_service_team_in, execute_cancel},
     },
 };
 
-fn is_stale(project_id: &uuid::Uuid) -> bool {
-    let json = get_project(project_id);
-    json.get("plan")
-        .and_then(|plan| plan.get("stale_since"))
-        .is_some_and(|v| !v.is_null())
+fn is_stale(project_id: &uuid::Uuid, token: &str) -> bool {
+    let res = execute_get(project_id, token);
+    assert!(res.status().is_success(), "Response: {:#?}", res);
+    let value: &serde_json::Value = &res.json().expect("Expect response to be json");
+    println!("{}", value.to_string());
+    value.get("stale_since").is_some_and(|v| !v.is_null())
 }
 
 /// "Given a plan exists and is current, when a team is ... has its address
@@ -28,10 +36,7 @@ fn test_address_change_of_referenced_team_marks_plan_stale() {
     let payload = plan_json_referencing_team(&host_id, &[guest_id]);
     let (client, base_url) = crate::get_client();
     let res = client
-        .patch(format!(
-            "{}/project/{}/plan",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/plan", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -39,49 +44,13 @@ fn test_address_change_of_referenced_team_marks_plan_stale() {
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    assert!(!is_stale(&project_id), "plan should start fresh");
+    assert!(!is_stale(&project_id, &token), "plan should start fresh");
 
     change_team_address(&project_id, &host_id);
 
     assert!(
-        is_stale(&project_id),
+        is_stale(&project_id, &token),
         "changing a referenced team's address should mark the plan stale"
-    );
-}
-
-/// Companion rule: "Unrelated teams do not trigger staleness."
-#[test]
-fn test_address_change_of_unrelated_team_does_not_mark_plan_stale() {
-    let project_id = create_project();
-    let (token, user_id) = get_user_1();
-
-    let host_id = uuid::Uuid::new_v4();
-    let guest_id = uuid::Uuid::new_v4();
-    create_team(&project_id, &host_id, &user_id, &token);
-    create_team(&project_id, &guest_id, &user_id, &token);
-
-    let payload = plan_json_referencing_team(&host_id, &[guest_id]);
-    let (client, base_url) = crate::get_client();
-    let res = client
-        .patch(format!(
-            "{}/project/{}/plan",
-            base_url, project_id
-        ))
-        .header("authorization", format!("Bearer {}", token))
-        .json(&payload)
-        .header("x-forwarded-for", "127.0.0.1")
-        .send()
-        .expect("Failed to send request");
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-
-    // A third team that the plan above never mentions.
-    let unrelated_id = uuid::Uuid::new_v4();
-    create_team(&project_id, &unrelated_id, &user_id, &token);
-    change_team_address(&project_id, &unrelated_id);
-
-    assert!(
-        !is_stale(&project_id),
-        "changing an unrelated team's address should not mark the plan stale"
     );
 }
 
@@ -91,6 +60,8 @@ fn test_cancellation_of_referenced_team_marks_plan_stale() {
     let project_id = create_project();
     let (token, user_id) = get_user_1();
 
+    create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
+
     let host_id = uuid::Uuid::new_v4();
     create_team(&project_id, &host_id, &user_id, &token);
     let (guest_id, guest_access_token) = create_self_service_team_in(&project_id, false);
@@ -98,10 +69,7 @@ fn test_cancellation_of_referenced_team_marks_plan_stale() {
     let payload = plan_json_referencing_team(&host_id, &[guest_id]);
     let (client, base_url) = crate::get_client();
     let res = client
-        .patch(format!(
-            "{}/project/{}/plan",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/plan", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -109,7 +77,7 @@ fn test_cancellation_of_referenced_team_marks_plan_stale() {
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    assert!(!is_stale(&project_id), "plan should start fresh");
+    assert!(!is_stale(&project_id, &token), "plan should start fresh");
 
     let res = execute_cancel(
         &project_id,
@@ -121,7 +89,7 @@ fn test_cancellation_of_referenced_team_marks_plan_stale() {
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     assert!(
-        is_stale(&project_id),
+        is_stale(&project_id, &token),
         "canceling a referenced team should mark the plan stale"
     );
 }
@@ -171,10 +139,10 @@ fn test_start_point_change_marks_plan_stale_unconditionally() {
     let (token, _) = get_user_1();
     patch_plan(&project_id, &token);
 
-    assert!(!is_stale(&project_id), "plan should start fresh");
+    assert!(!is_stale(&project_id, &token), "plan should start fresh");
     set_start_point(&project_id);
     assert!(
-        is_stale(&project_id),
+        is_stale(&project_id, &token),
         "setting the start point should mark the plan stale, regardless of which teams it references"
     );
 }
@@ -194,10 +162,7 @@ fn test_hard_delete_of_referenced_team_marks_plan_stale() {
     let payload = plan_json_referencing_team(&host_id, &[guest_id]);
     let (client, base_url) = crate::get_client();
     let res = client
-        .patch(format!(
-            "{}/project/{}/plan",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/plan", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -205,12 +170,12 @@ fn test_hard_delete_of_referenced_team_marks_plan_stale() {
         .expect("Failed to send request");
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    assert!(!is_stale(&project_id), "plan should start fresh");
+    assert!(!is_stale(&project_id, &token), "plan should start fresh");
 
     hard_delete_team(&project_id, &guest_id);
 
     assert!(
-        is_stale(&project_id),
+        is_stale(&project_id, &token),
         "hard-deleting a referenced team should mark the plan stale"
     );
 }

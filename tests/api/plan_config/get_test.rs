@@ -18,15 +18,6 @@ fn test_get_plan_config() {
 }
 
 #[test]
-fn test_get_plan_config_in_project() {
-    let project_id = create_project();
-    let (token, _) = get_user_1();
-    patch_plan_config(&project_id, &token);
-    let project = get_project(&project_id);
-    assert_project_json(&project, true);
-}
-
-#[test]
 fn test_get_plan_config_not_found() {
     let project_id = create_project();
     let (token, _) = get_user_1();

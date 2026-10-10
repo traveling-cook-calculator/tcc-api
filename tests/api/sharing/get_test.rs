@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_project, get_client, get_project,
+    create_project, get_client,
     sharing::setup,
 };
 
@@ -16,30 +16,6 @@ fn test_get_share_config() {
     get_share_config(
         &project_id,
         &token,
-        true,
-        true,
-        &vec![
-            "mail".to_string(),
-            "phone".to_string(),
-            "members".to_string(),
-            "diets".to_string(),
-        ],
-        &Some(5),
-        &Some("2015-09-05T23:56:00Z"),
-        &None,
-        &vec![],
-        false,
-        false,
-        false,
-    );
-}
-
-#[test]
-fn test_get_share_config_list() {
-    let project_id = setup();
-
-    get_share_config_project(
-        &project_id,
         true,
         true,
         &vec![
@@ -113,40 +89,6 @@ pub fn get_share_config(
     assert!(res.status().is_success(), "Response: {:#?}", res);
     assert_share_config_json(
         &res.json().expect("Failed to parse JSON"),
-        expected_require_email_verification,
-        expected_default_needs_check,
-        expected_required_fields,
-        expected_max_teams,
-        expected_registration_deadline,
-        expected_edit_deadline,
-        expected_review_trigger_fields,
-        expected_notify_admin_on_review,
-        expected_notify_admin_on_create,
-        expected_notify_admin_on_cancel,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn get_share_config_project(
-    project_id: &Uuid,
-    expected_require_email_verification: bool,
-    expected_default_needs_check: bool,
-    expected_required_fields: &Vec<String>,
-    expected_max_teams: &Option<u32>,
-    expected_registration_deadline: &Option<&str>,
-    expected_edit_deadline: &Option<&str>,
-    expected_review_trigger_fields: &Vec<String>,
-    expected_notify_admin_on_review: bool,
-    expected_notify_admin_on_create: bool,
-    expected_notify_admin_on_cancel: bool,
-) {
-    let res = get_project(project_id);
-
-    let share_config_list = res
-        .get("share_team_config")
-        .expect("Missing share_config_list");
-    assert_share_config_json(
-        share_config_list,
         expected_require_email_verification,
         expected_default_needs_check,
         expected_required_fields,

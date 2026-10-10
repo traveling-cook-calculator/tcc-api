@@ -96,7 +96,7 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
         None => false,
     };
 
-    let mut team = if !is_owner {
+    let team = if !is_owner {
         //Check Share Config
         let share_config = ShareRepository.select(&mut *tx, &data.project_id).await?;
 
@@ -107,7 +107,7 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
                 .count_for_project(&mut *tx, &data.project_id)
                 .await?;
 
-            if count > max_teams {
+            if count >= max_teams {
                 return Err(AppError::team_limit_reached(max_teams, data.project_id));
             }
         }
@@ -201,7 +201,7 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
         .await?;
 
     PlanRepository
-        .mark_stale_unsafe(&mut *tx, &data.project_id, &now)
+        .mark_stale_if_not_set_unsafe(&mut *tx, &data.project_id, &now)
         .await?;
 
     tx.commit().await?;
@@ -269,7 +269,7 @@ pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(),
         team.address.longitude = data.address.longitude.clone();
         AddressRepository.update(&mut *tx, &team.address).await?;
         PlanRepository
-            .mark_stale_unsafe(&mut *tx, &data.id, &now)
+            .mark_stale_if_not_set_unsafe(&mut *tx, &data.project_id, &now)
             .await?;
     }
 
@@ -341,7 +341,7 @@ pub async fn update_by_token(
         team.address.longitude = data.address.longitude.clone();
         AddressRepository.update(&mut *tx, &team.address).await?;
         PlanRepository
-            .mark_stale_unsafe(&mut *tx, &data.id, &now)
+            .mark_stale_if_not_set_unsafe(&mut *tx, &data.project_id, &now)
             .await?;
     }
 
@@ -410,7 +410,7 @@ pub async fn delete(
         .await?;
 
     PlanRepository
-        .mark_stale_unsafe(&mut *tx, project_id, &now)
+        .mark_stale_if_not_set_unsafe(&mut *tx, project_id, &now)
         .await?;
     tx.commit().await?;
     Ok(())
@@ -435,6 +435,16 @@ pub async fn cancel_by_token(
         return Ok(());
     }
 
+    let share_config = ShareRepository
+        .select(&mut *tx, &existing.project_id)
+        .await?;
+
+    if let Some(deadline) = share_config.edit_deadline
+        && deadline < Utc::now()
+    {
+        return Err(AppError::deadline_exceeded(deadline, *project_id));
+    }
+
     TeamRepository
         .update_cancel(&mut *tx, &existing.id, &now, reason)
         .await?;
@@ -452,15 +462,11 @@ pub async fn cancel_by_token(
         .await?;
 
     PlanRepository
-        .mark_stale_unsafe(&mut *tx, project_id, &now)
+        .mark_stale_if_not_set_unsafe(&mut *tx, project_id, &now)
         .await?;
 
     let project = ProjectRepository
         .select_unsafe(&mut *tx, &existing.project_id)
-        .await?;
-
-    let share_config = ShareRepository
-        .select(&mut *tx, &existing.project_id)
         .await?;
 
     if !share_config.notify_admin_on_cancel {

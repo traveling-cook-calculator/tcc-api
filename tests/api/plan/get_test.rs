@@ -2,7 +2,9 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_user_1, get_user_2}, create_project, get_client, get_project, plan::patch_test::patch_plan,
+    auth::{get_user_1, get_user_2},
+    create_project, get_client, get_project,
+    plan::patch_test::patch_plan,
 };
 
 #[test]
@@ -63,10 +65,7 @@ fn test_get_plan_wrong_user() {
 pub fn execute_get(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .get(format!(
-            "{}/project/{}/plan",
-            base_url, project_id
-        ))
+        .get(format!("{}/project/{}/plan", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
         .send()
@@ -94,27 +93,23 @@ fn assert_project_json(json: &serde_json::Value, expect_plan: bool) {
 }
 
 fn assert_plan_json(json: &serde_json::Value) {
+    println!("{}", json.to_string());
     let hosting_list = json
         .get("hosting_list")
         .and_then(|v| v.as_array())
         .expect("Missing or invalid hosting_list");
 
-    let walking_path = json
-        .get("walking_path")
-        .and_then(|v| v.as_object())
-        .expect("Missing or invalid walking_path");
-
     assert_eq!(hosting_list.len(), 2, "hosting_list should have 2 entries");
-    assert_eq!(walking_path.len(), 2, "walking_path should have 2 entries");
 
-    for (_, value) in walking_path.iter() {
-        let path_list = value
-            .as_array()
-            .expect("walking_path value should be an array");
+    for value in hosting_list.iter() {
+        let guest_list = value
+            .get("guest_list")
+            .expect("guest_list value should exists")
+            .as_array().expect("expect guest_list to be an array");
         assert_eq!(
-            path_list.len(),
+            guest_list.len(),
             2,
-            "Each walking_path entry should contain 2 items"
+            "Each guest_list entry should contain 2 items"
         );
     }
 

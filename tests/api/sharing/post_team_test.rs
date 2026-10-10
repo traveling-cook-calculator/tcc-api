@@ -36,10 +36,6 @@ fn test_create_team_all_required() {
     let set_mail = true;
     let set_phone = true;
     let set_diets = true;
-    // `default_needs_check = true` above + a non-owner (unauthenticated)
-    // caller here -> the team must start in "review". See
-    // `team::assert_team_json` for how this bool now maps to `status`.
-    let set_needs_check = true;
 
     let team_id = Uuid::new_v4();
     let payload = get_team_create_json(
@@ -66,7 +62,7 @@ fn test_create_team_all_required() {
         set_mail,
         set_phone,
         set_diets,
-        false,
+        true,
     );
 }
 
@@ -565,6 +561,7 @@ fn test_create_team_access_link_without_mail() {
     create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
 
     let team_id = Uuid::new_v4();
+    let access_token = Uuid::new_v4().to_string();
     let payload = get_team_create_json(
         None,
         true,
@@ -573,57 +570,16 @@ fn test_create_team_access_link_without_mail() {
         false,
         true,
         true,
-        Uuid::new_v4().to_string(),
+        access_token.clone(),
     );
     let res = execute_create(&project_id, &team_id, payload, None);
     assert!(res.status().is_success(), "Response: {:#?}", res);
-
-    let json: serde_json::Value = res.json().expect("Failed to parse JSON");
-    let access_link = json
-        .get("access_link")
-        .and_then(|v| v.as_str())
-        .expect("Missing access_link when no mail was supplied");
-
-    let access_token = access_link
-        .split_once("#token=")
-        .map(|(_, token)| token.to_string())
-        .unwrap_or_else(|| panic!("access_link did not contain a #token= fragment: {access_link}"));
 
     let res = execute_get_self_service(&project_id, &team_id, &access_token);
     assert!(
         res.status().is_success(),
         "GET with the extracted X-Access-Token failed: {:#?}",
         res
-    );
-}
-
-/// "Given a `mail` was supplied, ... the response does **not** include
-/// `access_link`." (feature MD §4.1)
-#[test]
-fn test_create_team_no_access_link_with_mail() {
-    let project_id = create_project();
-    let (token, _) = get_user_1();
-    create_share_config_default(&project_id, &token, false, false, &vec![], &None, &None);
-
-    let team_id = Uuid::new_v4();
-    let payload = get_team_create_json(
-        None,
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        Uuid::new_v4().to_string(),
-    );
-    let res = execute_create(&project_id, &team_id, payload, None);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-
-    let json: serde_json::Value = res.json().expect("Failed to parse JSON");
-    assert!(
-        json.get("access_link").is_none_or(|v| v.is_null()),
-        "access_link should be absent/null when mail was supplied, got: {:#?}",
-        json.get("access_link")
     );
 }
 

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use axum::{
     Extension,
     extract::{Path, State},
@@ -10,7 +8,7 @@ use validator::Validate;
 
 use crate::{
     AppState,
-    api::{auth::Claims, validated_json::ValidatedJson},
+    api::{auth::Claims, plan::get::HostingDTO, validated_json::ValidatedJson},
     application::plan,
     domain::plan::Plan,
     error::AppError,
@@ -20,15 +18,18 @@ use super::get::PlanConfigDTO;
 
 #[derive(Debug, Clone, Deserialize, Validate)]
 pub struct UpdatePlanRequestDTO {
-    pub walking_path: HashMap<Uuid, Vec<Uuid>>,
+    pub hosting_list: Vec<HostingDTO>,
 }
 
 impl UpdatePlanRequestDTO {
     pub fn to_domain(&self, project_id: Uuid) -> Plan {
         Plan {
             id: project_id,
-            hosting_list: vec![],
-            walking_path: self.walking_path.clone(),
+            hosting_list: self
+                .hosting_list
+                .iter()
+                .map(HostingDTO::to_domain)
+                .collect(),
             stale_at: None,
         }
     }

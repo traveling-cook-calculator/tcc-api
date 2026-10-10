@@ -11,6 +11,8 @@ BEGIN;
     CREATE TYPE audit_actor_type AS ENUM ('admin', 'participant');
     CREATE TYPE audit_action AS ENUM ('created', 'updated', 'canceled', 'plan_invalidated', 'resend_verification_mail');
     CREATE TYPE team_status AS ENUM ('active', 'review','canceled');
+    CREATE TYPE email_type AS ENUM ('invitation', 'route_update', 'admin_notification');
+    CREATE TYPE email_status AS ENUM ('pending', 'sent', 'failed');
     -- ---------------------------------------------------------------------
     -- address
     -- ---------------------------------------------------------------------
@@ -229,6 +231,40 @@ BEGIN;
         (
             team_id,
             created_at DESC
+        )
+    ;
+    -- ---------------------------------------------------------------------
+    -- email outbox
+    -- ---------------------------------------------------------------------
+    CREATE TABLE email_outbox
+        (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid()      ,
+            team_id         UUID                                            , -- wird im RETURNING von claim_pending referenziert
+            recipient_email TEXT NOT NULL                                   ,
+            email_type email_type NOT NULL                                  ,
+            context JSONB NOT NULL DEFAULT '{}'::jsonb                      ,
+            status email_status NOT NULL DEFAULT 'pending'                  ,
+            attempts        INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+            last_error      TEXT                                            ,
+            next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now()              ,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now()              ,
+            sent_at         TIMESTAMPTZ                                     ,
+            CONSTRAINT email_outbox_sent_at_chk CHECK (status <> 'sent' OR sent_at IS NOT NULL)
+        )
+    ;
+    -- Partial Index für claim_pending: deckt
+    -- WHERE status = 'pending' AND next_attempt_at <= now() ORDER BY next_attempt_at
+    CREATE INDEX email_outbox_due_idx
+    ON email_outbox
+        (
+            next_attempt_at
+        )
+    WHERE status = 'pending';
+    -- Optional, falls nach Team gefiltert wird
+    CREATE INDEX email_outbox_team_id_idx
+    ON email_outbox
+        (
+            team_id
         )
     ;
     COMMIT;

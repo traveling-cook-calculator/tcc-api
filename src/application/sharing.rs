@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::{
-    error::AppError,
+    error::AppError::{self, ShareNotFound},
     infrastructure::{
         Database,
         db::{ProjectRepository, sharing::ShareRepository},
@@ -32,7 +32,7 @@ pub async fn create(
     let _ = ProjectRepository
         .select(&mut *tx, project_id, user_id)
         .await?;
-    ShareRepository.insert(&mut *tx, project_id, data).await?;
+    ShareRepository.upsert(&mut *tx, project_id, data).await?;
     tx.commit().await?;
     Ok(())
 }

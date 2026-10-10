@@ -477,7 +477,7 @@ impl TeamRepository {
             .await
             .map_err(|e| match e {
                 sqlx::Error::RowNotFound => {
-                    AppError::team_not_found(*id, "NONE".to_string(), Uuid::nil())
+                    AppError::TeamNotFound(*id, "NONE".to_string(), Uuid::nil())
                 }
                 other => AppError::from(other),
             })?;

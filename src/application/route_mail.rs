@@ -59,13 +59,15 @@ pub async fn trigger_route_mails(
             ));
         };
 
-        let Some(route) = plan.walking_path.get(&team.id) else {
-            return Err(AppError::invalid_team_id_list(
-                InvalidTeamIdReason::TeamNotInPlan,
-            ));
-        };
+        let mut walking_path = Vec::new();
 
-        let new_hash = hash_route(route);
+        for hosting in &plan.hosting_list {
+            if hosting.host == team.id || hosting.guest_list.contains(&team.id) {
+                walking_path.push(hosting.host);
+            }
+        }
+
+        let new_hash = hash_route(walking_path.as_slice());
 
         TeamRepository
             .update_last_route_hash(&mut *tx, &team.id, &new_hash)

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
@@ -17,7 +15,6 @@ pub struct PlanRepository;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HostingEntity {
-    id: Uuid,
     name: Uuid,
     host: Uuid,
     guest_list: Vec<Uuid>,
@@ -26,7 +23,6 @@ struct HostingEntity {
 impl HostingEntity {
     fn to_domain(&self) -> Hosting {
         Hosting {
-            id: self.id,
             name: self.name,
             host: self.host,
             guest_list: self.guest_list.clone(),
@@ -35,7 +31,6 @@ impl HostingEntity {
 
     fn from_domain(hosting: &Hosting) -> Self {
         HostingEntity {
-            id: hosting.id,
             name: hosting.name,
             host: hosting.host,
             guest_list: hosting.guest_list.clone(),
@@ -46,7 +41,6 @@ impl HostingEntity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PlanDataEntity {
     hosting_list: Vec<HostingEntity>,
-    walking_path: HashMap<Uuid, Vec<Uuid>>,
 }
 
 impl PlanDataEntity {
@@ -64,7 +58,6 @@ impl PlanDataEntity {
                 .iter()
                 .map(HostingEntity::from_domain)
                 .collect(),
-            walking_path: plan.walking_path.clone(),
         }
     }
 }
@@ -81,7 +74,6 @@ impl PlanEntity {
         Plan {
             id: self.id,
             hosting_list: self.data.to_domain(),
-            walking_path: self.data.walking_path.clone(),
             stale_at: self.stale_at,
         }
     }
@@ -130,7 +122,7 @@ impl PlanRepository {
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::from(sqlx::Error::RowNotFound));
+            return Err(AppError::project_not_found(plan_entity.id));
         }
 
         Ok(())
@@ -161,7 +153,10 @@ impl PlanRepository {
         .bind(user_id)
         .fetch_one(executor)
         .await
-        .map_err(AppError::from)
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => AppError::plan_not_found(user_id, *id_filter),
+            other => AppError::from(other),
+        })
         .map(|row| row.to_domain())
     }
 
@@ -213,18 +208,17 @@ impl PlanRepository {
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::from(sqlx::Error::RowNotFound));
+            return Err(AppError::plan_not_found(user_id, *id_filter));
         }
         Ok(())
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn mark_stale<'e, E>(
+    pub async fn mark_not_stale<'e, E>(
         &self,
         executor: E,
         id_filter: &Uuid,
         user_id: &str,
-        time: &DateTime<Utc>,
     ) -> Result<(), AppError>
     where
         E: sqlx::PgExecutor<'e>,
@@ -232,15 +226,14 @@ impl PlanRepository {
         let affected = sqlx::query(
             r#"
         UPDATE plan
-        SET stale_at = $1
-        WHERE id = $2
+        SET stale_at = NULL
+        WHERE id = $1
           AND EXISTS (
               SELECT 1 FROM project
-              WHERE id = $2 AND user_id = $3
+              WHERE id = $1 AND user_id = $2
           )
         "#,
         )
-        .bind(time)
         .bind(id_filter)
         .bind(user_id)
         .execute(executor)
@@ -249,14 +242,14 @@ impl PlanRepository {
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::from(sqlx::Error::RowNotFound));
+            return Err(AppError::plan_not_found(user_id, *id_filter));
         }
 
         Ok(())
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn mark_stale_unsafe<'e, E>(
+    pub async fn mark_stale_if_not_set_unsafe<'e, E>(
         &self,
         executor: E,
         id_filter: &Uuid,
@@ -265,20 +258,26 @@ impl PlanRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
-        sqlx::query(
+        let res = sqlx::query(
             r#"
         UPDATE plan
         SET stale_at = $1
-        WHERE id = $2
+        WHERE id = $2 AND stale_at IS NULL
         "#,
         )
         .bind(time)
         .bind(id_filter)
         .execute(executor)
-        .await
-        .map_err(AppError::from)?;
+        .await;
 
-        Ok(())
+        match res {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::RowNotFound) => {
+                tracing::info!(project.id=%id_filter,"Plan is already stale");
+                Ok(())
+            }
+            Err(e) => Err(AppError::from(e)),
+        }
     }
 }
 
@@ -326,7 +325,7 @@ impl AccessEntity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "access", rename_all = "snake_case")]
+#[sqlx(type_name = "language", rename_all = "snake_case")]
 pub enum LanguageEntity {
     Deutsch,
     English,
@@ -361,7 +360,7 @@ struct PlanConfigEntity {
 impl PlanConfigEntity {
     fn from_domain(config: &PlanConfig) -> Self {
         PlanConfigEntity {
-            id: Uuid::new_v4(),
+            id: config.id,
             access: AccessEntity::from_domain_list(&config.access),
             title: config.title.clone(),
             description: config.description.clone(),
@@ -423,7 +422,7 @@ impl PlanConfigRepository {
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::from(sqlx::Error::RowNotFound));
+            return Err(AppError::project_not_found(config.id));
         }
 
         Ok(())
@@ -454,7 +453,10 @@ impl PlanConfigRepository {
         .bind(user_id)
         .fetch_one(executor)
         .await
-        .map_err(AppError::from)
+        .map_err(|error| match error {
+            sqlx::Error::RowNotFound => AppError::plan_config_not_found(user_id, *id_filter),
+            other => AppError::from(other),
+        })
         .map(|row| row.to_domain())
     }
 
@@ -486,7 +488,7 @@ impl PlanConfigRepository {
         .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::from(sqlx::Error::RowNotFound));
+            return Err(AppError::plan_config_not_found(user_id, *id_filter));
         }
 
         Ok(())

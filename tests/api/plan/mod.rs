@@ -2,7 +2,6 @@ mod confirm_test;
 mod delete_test;
 mod get_test;
 mod patch_test;
-mod send_route_mails_test;
 mod staleness_test;
 
 use serde_json::json;

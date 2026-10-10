@@ -128,45 +128,6 @@ impl ShareTeamConfigEntity {
 }
 
 impl ShareRepository {
-    #[tracing::instrument(skip(self, executor, data))]
-    pub async fn insert<'e, E>(
-        &self,
-        executor: E,
-        project_id: &Uuid,
-        data: &ShareTeamConfig,
-    ) -> Result<(), AppError>
-    where
-        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
-    {
-        let share = ShareTeamConfigEntity::from_domain(data);
-
-        sqlx::query(
-            "INSERT INTO share
-                (id, created, invite_text, require_email_verification, default_needs_check,
-                 required_fields, max_teams, registration_deadline, edit_deadline,
-                 review_trigger_fields, notify_admin_on_review, notify_admin_on_create, notify_admin_on_cancel)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
-        )
-        .bind(project_id)
-        .bind(share.created)
-        .bind(&share.invite_text)
-        .bind(share.require_email_verification)
-        .bind(share.default_needs_check)
-        .bind(&share.required_fields)
-        .bind(share.max_teams)
-        .bind(share.registration_deadline)
-        .bind(share.edit_deadline)
-        .bind(&share.review_trigger_fields)
-        .bind(share.notify_admin_on_review)
-        .bind(share.notify_admin_on_create)
-        .bind(share.notify_admin_on_cancel)
-        .execute(executor)
-        .await
-        .map_err(AppError::from)?;
-
-        Ok(())
-    }
-
     /// Insert-or-update by id.
     #[tracing::instrument(skip(self, executor, data))]
     pub async fn upsert<'e, E>(
@@ -180,7 +141,7 @@ impl ShareRepository {
     {
         let share = ShareTeamConfigEntity::from_domain(data);
 
-        sqlx::query(
+        sqlx::query( 
             "INSERT INTO share
                 (id, created, invite_text, require_email_verification, default_needs_check,
                  required_fields, max_teams, registration_deadline, edit_deadline,
@@ -197,7 +158,7 @@ impl ShareRepository {
                 edit_deadline = EXCLUDED.edit_deadline,
                 review_trigger_fields = EXCLUDED.review_trigger_fields,
                 notify_admin_on_review = EXCLUDED.notify_admin_on_review,
-                notify_admin_on_create = EXCLUDED.notify_admin_on_create.
+                notify_admin_on_create = EXCLUDED.notify_admin_on_create,
                 notify_admin_on_cancel = EXCLUDED.notify_admin_on_cancel",
         )
         .bind(project_id)
@@ -231,14 +192,15 @@ impl ShareRepository {
     {
         sqlx::query_as::<_, ShareTeamConfigEntity>(
             "SELECT id, created, invite_text, require_email_verification, default_needs_check,
-    required_fields, max_teams, registration_deadline, edit_deadline,
-    review_trigger_fields, notify_admin_on_review, notify_admin_on_create, notify_admin_on_cancel FROM share WHERE id = $1",
+            required_fields, max_teams, registration_deadline, edit_deadline,
+            review_trigger_fields, notify_admin_on_review, notify_admin_on_create, notify_admin_on_cancel 
+            FROM share WHERE id = $1",
         )
         .bind(id_filter)
         .fetch_one(executor)
         .await
         .map_err(|error| match error {
-            sqlx::Error::RowNotFound => AppError::ShareNotFound(*id_filter),
+            sqlx::Error::RowNotFound => AppError::share_not_found(*id_filter),
             other => AppError::from(other),
         })
         .map(|row| row.to_domain())
@@ -257,7 +219,7 @@ impl ShareRepository {
             .rows_affected();
 
         if affected == 0 {
-            return Err(AppError::from(sqlx::Error::RowNotFound));
+            return Err(AppError::ShareNotFound(*id_filter));
         }
         Ok(())
     }

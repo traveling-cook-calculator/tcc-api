@@ -122,7 +122,6 @@ impl IntoResponse for PlanConfigDTO {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct HostingDTO {
-    pub id: Uuid,
     pub name: Uuid,
     pub host: Uuid,
     #[validate(length(min = 1, max = 5, message = "must be between 1 and 5 characters"))]
@@ -132,7 +131,6 @@ pub struct HostingDTO {
 impl HostingDTO {
     pub fn from_domain(hosting: plan::Hosting) -> Self {
         HostingDTO {
-            id: hosting.id,
             name: hosting.name,
             host: hosting.host,
             guest_list: hosting.guest_list,
@@ -141,7 +139,6 @@ impl HostingDTO {
 
     pub fn to_domain(&self) -> plan::Hosting {
         plan::Hosting {
-            id: self.id,
             name: self.name,
             host: self.host,
             guest_list: self.guest_list.clone(),
@@ -159,8 +156,6 @@ impl IntoResponse for HostingDTO {
 pub struct PlanDTO {
     #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 Hostings"))]
     pub hosting_list: Vec<HostingDTO>,
-    #[validate(length(min = 1, max = 200, message = "must be between 1 and 200 characters"))]
-    pub walking_path: HashMap<Uuid, Vec<Uuid>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stale_since: Option<DateTime<Utc>>,
 }
@@ -173,7 +168,6 @@ impl PlanDTO {
                 .into_iter()
                 .map(HostingDTO::from_domain)
                 .collect(),
-            walking_path: plan.walking_path.clone(),
             stale_since: plan.stale_at,
         }
     }
@@ -186,7 +180,6 @@ impl PlanDTO {
                 .iter()
                 .map(HostingDTO::to_domain)
                 .collect(),
-            walking_path: self.walking_path.clone(),
             stale_at: None,
         }
     }

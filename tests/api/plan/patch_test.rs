@@ -82,10 +82,7 @@ fn execute_patch_plan(project_id: &Uuid, token: &str) -> reqwest::blocking::Resp
     let payload = get_plan_patch_json();
     let (client, base_url) = get_client();
     client
-        .patch(format!(
-            "{}/project/{}/plan",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/plan", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -117,10 +114,6 @@ pub fn get_plan_patch_json() -> serde_json::Value {
                 "guest_list":[Uuid::new_v4().to_string(), Uuid::new_v4().to_string()]
             }
         ],
-        "walking_path": {
-            Uuid::new_v4().to_string(): [Uuid::new_v4().to_string(), Uuid::new_v4().to_string()],
-             Uuid::new_v4().to_string(): [Uuid::new_v4().to_string(), Uuid::new_v4().to_string()]
-        }
     });
     json
 }

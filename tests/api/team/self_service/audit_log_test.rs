@@ -72,7 +72,7 @@ fn test_audit_log_contains_creation_entry() {
         created_at
     );
 }
-
+ 
 #[test]
 fn test_audit_log_contains_update_entry_with_diff() {
     let project_id = crate::create_project();
@@ -118,10 +118,31 @@ fn test_audit_log_contains_update_entry_with_diff() {
     let changes = updated_entry
         .get("changes")
         .expect("Missing changes on updated entry");
+    let changed_fields = changes
+        .get("changed_fields")
+        .and_then(|v| v.as_array())
+        .expect("changes should carry a changed_fields array");
+
+    let mail_change = changed_fields
+        .iter()
+        .filter_map(|c| c.as_array())
+        .find(|c| c.first().and_then(|v| v.as_str()) == Some("mail"))
+        .unwrap_or_else(|| {
+            panic!("No 'mail' entry in changed_fields: {:#?}", changed_fields)
+        });
+
+    assert_eq!(
+        mail_change.len(),
+        3,
+        "each changed field should be [field, value, value], got: {:#?}",
+        mail_change
+    );
     assert!(
-        changes.get("before").is_some() && changes.get("after").is_some(),
-        "changes should carry a before/after diff, got: {:#?}",
-        changes
+        mail_change
+            .iter()
+            .any(|v| v.as_str() == Some("audited-change@run.de")),
+        "mail change should contain the new address, got: {:#?}",
+        mail_change
     );
 }
 

@@ -41,12 +41,10 @@ pub async fn confirm_plan(
     project_id: &Uuid,
     user_id: &str,
 ) -> Result<(), AppError> {
-    let now = Utc::now();
-
     let mut tx = db.pool.begin().await?;
 
     PlanRepository
-        .mark_stale(&mut *tx, project_id, user_id, &now)
+        .mark_not_stale(&mut *tx, project_id, user_id)
         .await?;
     tx.commit().await?;
     Ok(())
@@ -57,6 +55,7 @@ pub async fn get_by_id(db: &Database, project_id: &Uuid, user_id: &str) -> Resul
     PlanRepository.select(&mut *tx, project_id, user_id).await
 }
 
+#[tracing::instrument(skip(db))]
 pub async fn create_or_update_config(
     db: &mut Database,
     data: PlanConfig,
@@ -67,6 +66,7 @@ pub async fn create_or_update_config(
     PlanConfigRepository
         .upsert(&mut *tx, &data, user_id)
         .await?;
+
     tx.commit().await?;
     Ok(())
 }

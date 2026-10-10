@@ -26,7 +26,8 @@ fn test_delete_deleted_plan_config() {
     let (token, _) = get_user_1();
     patch_plan_config(&project_id, &token);
     delete_plan_config(&project_id, &token);
-    delete_plan_config(&project_id, &token);
+    let res = execute_delete(&project_id, &token);
+    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
     let res = execute_get(&project_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
@@ -50,10 +51,7 @@ fn test_delete_plan_config_wrong_user() {
 fn execute_delete(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .delete(format!(
-            "{}/project/{}/plan_config",
-            base_url, project_id
-        ))
+        .delete(format!("{}/project/{}/plan_config", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .header("x-forwarded-for", "127.0.0.1")
         .send()
