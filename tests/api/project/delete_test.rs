@@ -2,12 +2,9 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_user_1, get_user_2},
-    project::{
-        get_test::{execute_get, get_project},
-        post_test::{create_project, get_project_create_json},
+    auth::{get_user_1, get_user_2}, get_client, project::{
+        get_test::{execute_get_meta, get_project_meta}, post_test::{create_project, get_project_create_json},
     },
-    get_client,
 };
 
 #[test]
@@ -16,7 +13,7 @@ fn test_delete_project() {
     let (project_id, payload) = get_project_create_json(&user_id);
     create_project(&project_id, payload, &token);
     delete_project(&project_id, &token);
-    let res = execute_get(&project_id, &token);
+    let res = execute_get_meta(&project_id, &token);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
@@ -38,7 +35,7 @@ fn test_delete_project_wrong_user() {
     create_project(&project_id, payload, &token_1);
     let res = execute_delete(&project_id, &token_2);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
-    get_project(&project_id, &token_1);
+    get_project_meta(&project_id, &token_1);
 }
 
 fn execute_delete(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {

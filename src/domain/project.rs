@@ -1,12 +1,7 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::domain::{
-    address::Address,
-    course::Course,
-    plan::{Plan, PlanConfig},
-    team::{ShareTeamConfig, Team},
-};
+use crate::domain::address::Address;
 
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -17,13 +12,8 @@ pub struct Project {
     pub edited: DateTime<Utc>,
     pub occur: DateTime<Utc>,
     pub admin_notification_email: Option<String>,
-    pub team_list: Vec<Team>,
-    pub course_list: Vec<Course>,
     pub start_point: Option<Point>,
     pub end_point: Option<Point>,
-    pub share_team_config: Option<ShareTeamConfig>,
-    pub plan: Option<Plan>,
-    pub plan_config: Option<PlanConfig>,
 }
 
 #[derive(Debug, Clone)]

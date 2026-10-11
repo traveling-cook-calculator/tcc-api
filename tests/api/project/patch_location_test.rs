@@ -4,12 +4,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_user_1, get_user_2},
-    project::{
-        get_test::{execute_get, get_project},
-        post_test::{create_project, get_project_create_json},
+    auth::{get_user_1, get_user_2}, get_client, project::{
+        get_location_test::{execute_get_end_point, execute_get_start_point}, get_test::{execute_get_meta, get_project_meta}, post_test::{create_project, get_project_create_json},
     },
-    get_client,
 };
 
 #[test]
@@ -29,38 +26,6 @@ fn test_patch_end_point() {
 }
 
 #[test]
-fn test_patch_combinded_point() {
-    let (token, user_id) = get_user_1();
-    let (project_id, payload) = get_project_create_json(&user_id);
-    create_project(&project_id, payload, &token);
-
-    let (addr_start, payload_start) = get_point_create_json();
-    let (addr_end, payload_end) = get_point_create_json();
-
-    let res = execute_patch_start_point(&project_id, &token, &payload_start);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-
-    let res = execute_get(&project_id, &token);
-    assert_project_json(
-        res.json().expect("Failed to parse JSON"),
-        &project_id,
-        Some(&addr_start),
-        None,
-    );
-
-    let res = execute_patch_end_point(&project_id, &token, &payload_end);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-
-    let res = execute_get(&project_id, &token);
-    assert_project_json(
-        res.json().expect("Failed to parse JSON"),
-        &project_id,
-        Some(&addr_start),
-        Some(&addr_end),
-    );
-}
-
-#[test]
 fn test_patch_start_point_wrong_user() {
     let (token_1, user_id_1) = get_user_1();
     let (token_2, _) = get_user_2();
@@ -72,7 +37,7 @@ fn test_patch_start_point_wrong_user() {
     let res = execute_patch_start_point(&project_id, &token_2, &payload);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    get_project(&project_id, &token_1);
+    get_project_meta(&project_id, &token_1);
 }
 
 #[test]
@@ -87,7 +52,7 @@ fn test_patch_end_point_wrong_user() {
     let res = execute_patch_end_point(&project_id, &token_2, &payload);
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    get_project(&project_id, &token_1);
+    get_project_meta(&project_id, &token_1);
 }
 
 fn execute_patch_start_point(
@@ -97,10 +62,7 @@ fn execute_patch_start_point(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .patch(format!(
-            "{}/project/{}/start_point",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/start_point", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -115,10 +77,7 @@ fn execute_patch_end_point(
 ) -> reqwest::blocking::Response {
     let (client, base_url) = get_client();
     client
-        .patch(format!(
-            "{}/project/{}/end_point",
-            base_url, project_id
-        ))
+        .patch(format!("{}/project/{}/end_point", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
         .header("x-forwarded-for", "127.0.0.1")
@@ -131,13 +90,8 @@ pub fn patch_start_point_project(project_id: &Uuid, token: &str) -> String {
     let res = execute_patch_start_point(project_id, token, &payload);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(project_id, token);
-    assert_project_json(
-        res.json().expect("Failed to parse JSON"),
-        project_id,
-        Some(&addr),
-        None,
-    );
+    let res = execute_get_start_point(project_id, token);
+    assert_point_json(&res.json().expect("Failed to parse JSON"), &addr);
     addr
 }
 
@@ -146,56 +100,9 @@ pub fn patch_end_point_project(project_id: &Uuid, token: &str) -> String {
     let res = execute_patch_end_point(project_id, token, &payload);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(project_id, token);
-    assert_project_json(
-        res.json().expect("Failed to parse JSON"),
-        project_id,
-        None,
-        Some(&addr),
-    );
+    let res = execute_get_end_point(project_id, token);
+    assert_point_json(&res.json().expect("Failed to parse JSON"), &addr);
     addr
-}
-
-pub fn assert_project_json(
-    json: serde_json::Value,
-    project_id: &Uuid,
-    expected_start_point: Option<&str>,
-    expected_end_point: Option<&str>,
-) {
-    let id = json.get("id").and_then(|v| v.as_str()).expect("Missing id");
-    let start_point = json.get("start_point");
-    let end_point = json.get("end_point");
-
-    assert_eq!(
-        id,
-        project_id.to_string(),
-        "Project ID does not match. Response: {}",
-        json
-    );
-
-    assert_eq!(
-        start_point.is_none() || start_point.expect("Excpect start point").is_null(),
-        expected_start_point.is_none(),
-        "Start point does not match. Response: {}",
-        json
-    );
-
-    assert_eq!(
-        end_point.is_none() || end_point.expect("Excpect end point").is_null(),
-        expected_end_point.is_none(),
-        "End point does not match. Response: {}",
-        json
-    );
-
-    if let Some(expected_start_point) = expected_start_point {
-        let start_point = start_point.expect("Expect start point");
-        assert_point_json(start_point, expected_start_point);
-    }
-
-    if let Some(expected_end_point) = expected_end_point {
-        let end_point = end_point.expect("Expect start point");
-        assert_point_json(end_point, expected_end_point);
-    }
 }
 
 pub fn assert_point_json(json: &serde_json::Value, expected_address: &str) {

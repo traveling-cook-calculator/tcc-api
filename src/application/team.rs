@@ -1,5 +1,4 @@
 use chrono::Utc;
-use sqlx::Error::RowNotFound;
 use uuid::Uuid;
 
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
             TeamStatus::{self},
         },
     },
-    error::AppError::{self, DatabaseError, TeamNotFound},
+    error::AppError::{self, TeamNotFound},
     infrastructure::{
         Database,
         db::{

@@ -9,9 +9,6 @@ use crate::infrastructure::db::address::AddressEntity;
 
 pub struct TeamRepository;
 
-/// DB-layer mirror of `domain::team::TeamStatus`. Kept separate so the
-/// domain type stays free of sqlx; this is the only enum sqlx needs to
-/// know how to encode/decode against the Postgres `team_status` type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "team_status", rename_all = "snake_case")]
 enum TeamStatusEntity {
@@ -56,9 +53,6 @@ impl TeamSortOptionEntity {
         }
     }
 
-    /// SQL `ORDER BY` fragment for this sort option. The set of variants is
-    /// a closed enum, so interpolating the value into the query is
-    /// injection-safe.
     fn order_by_clause(&self) -> &'static str {
         match self {
             TeamSortOptionEntity::NameAsc => "t.name ASC",
@@ -70,53 +64,7 @@ impl TeamSortOptionEntity {
 }
 
 #[derive(Debug, Clone, FromRow)]
-struct TeamMetaEntity {
-    id: Uuid,
-    project_id: Uuid,
-    created_by_user: Option<String>,
-    name: String,
-    created: DateTime<Utc>,
-    edited: DateTime<Utc>,
-    mail: Option<String>,
-    phone: Option<String>,
-    members: Option<i32>,
-    diets: Option<String>,
-    status: TeamStatusEntity,
-    canceled_at: Option<DateTime<Utc>>,
-    email_verified_at: Option<DateTime<Utc>>,
-    verification_resend_count: i32,
-}
-
-impl TeamMetaEntity {
-    fn to_domain(&self) -> Team {
-        Team {
-            id: self.id,
-            project_id: self.project_id,
-            created_by_user: self.created_by_user.clone(),
-            name: self.name.clone(),
-            created: self.created,
-            edited: self.edited,
-            address: Address::default(),
-            mail: self.mail.clone(),
-            phone: self.phone.clone(),
-            members: self.members.map(|m| m as u32),
-            diets: self.diets.clone(),
-            status: self.status.to_domain(),
-            canceled_at: self.canceled_at,
-            cancel_reason: None,
-            access_token: "".to_string(),
-            email_verified_at: self.email_verified_at,
-            verification_resend_count: self.verification_resend_count as u32,
-            last_route_hash: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, FromRow)]
 struct TeamEntity {
-    // Im JOIN mit `address` gibt es zwei Spalten namens `id`. Die Team-ID
-    // wird deshalb in den Abfragen als `team_id` selektiert (siehe
-    // TEAM_COLUMS / TEAM_ADDRESS_COLUMNS).
     #[sqlx(rename = "team_id")]
     id: Uuid,
     project_id: Uuid,
@@ -378,6 +326,35 @@ impl TeamRepository {
         Ok(rows.iter().map(TeamWithAddressRow::to_domain).collect())
     }
 
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn select_list_unsafe<'e, E>(
+        &self,
+        executor: E,
+        project_id_filter: &Uuid,
+        team_id_list: Vec<Uuid>,
+    ) -> Result<Vec<Team>, AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        let query = format!(
+            "SELECT {}
+             FROM team t
+             INNER JOIN address a ON a.id = t.address
+             WHERE t.project_id = $1 AND t.id = ANY($2)
+             ORDER BY t.created ASC",
+            TEAM_ADDRESS_COLUMNS
+        );
+
+        let rows: Vec<TeamWithAddressRow> = sqlx::query_as(&query)
+            .bind(project_id_filter)
+            .bind(team_id_list)
+            .fetch_all(executor)
+            .await
+            .map_err(AppError::from)?;
+
+        Ok(rows.iter().map(TeamWithAddressRow::to_domain).collect())
+    }
+
     /// Backs `team::get` (admin single-team lookup in `get.rs`).
     #[tracing::instrument(skip(self, executor))]
     pub async fn select<'e, E>(
@@ -455,11 +432,7 @@ impl TeamRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
-    pub async fn select_by_id_unsafe<'e, E>(
-        &self,
-        executor: E,
-        id: &Uuid,
-    ) -> Result<Team, AppError>
+    pub async fn select_by_id_unsafe<'e, E>(&self, executor: E, id: &Uuid) -> Result<Team, AppError>
     where
         E: sqlx::PgExecutor<'e>,
     {

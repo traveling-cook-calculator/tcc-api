@@ -1,22 +1,20 @@
 use axum::{
+    Router,
     middleware::from_fn_with_state,
     routing::{delete, get, patch, post},
-    Router,
 };
 use axum_extra::TypedHeader;
-use headers::{authorization::Bearer, Authorization};
+use headers::{Authorization, authorization::Bearer};
 
 use crate::{
-    api::auth::{require_permission, AuthState, USER_ROLE},
     AppState,
+    api::auth::{AuthState, USER_ROLE, require_permission},
 };
 
 mod audit_log;
 mod get;
 mod self_service;
 mod team;
-
-pub use get::TeamDTO;
 
 pub fn routes(app_state: AppState) -> Router<AppState> {
     Router::new()
@@ -27,12 +25,15 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
                 require_permission(USER_ROLE),
             )),
         )
-        .route("/project/{project_id}/team/{team_id}", post(team::create_team))
-        // GET/PATCH: dual-auth (admin JWT or participant token), checked
-        // inside the handler itself — deliberately without the
-        // require_permission layer.
+        .route(
+            "/project/{project_id}/team/{team_id}",
+            post(team::create_team),
+        )
         .route("/project/{project_id}/team/{team_id}", get(get::get_team))
-        .route("/project/{project_id}/team/{team_id}", patch(team::update_team))
+        .route(
+            "/project/{project_id}/team/{team_id}",
+            patch(team::update_team),
+        )
         .route(
             "/project/{project_id}/team/{team_id}",
             delete(team::delete_team).layer(from_fn_with_state(

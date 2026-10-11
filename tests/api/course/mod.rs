@@ -4,7 +4,7 @@ use crate::{auth::get_user_1, course::post_test::create_course, create_project};
 
 mod delete_test;
 mod get_test;
-mod post_test;
+pub(crate) mod post_test;
 
 mod patch_test;
 

@@ -150,6 +150,28 @@ impl CourseRepository {
     }
 
     #[tracing::instrument(skip(self, executor))]
+    pub async fn select_all_for_project_unsafe<'e, E>(
+        &self,
+        executor: E,
+        project_id_filter: &Uuid,
+    ) -> Result<Vec<Course>, AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        sqlx::query_as::<_, CourseEntity>(
+            "SELECT c.id, c.project_id, c.name, c.time
+             FROM course c
+             WHERE  c.project_id = $1 
+             ORDER BY c.time ASC",
+        )
+        .bind(project_id_filter)
+        .fetch_all(executor)
+        .await
+        .map_err(AppError::from)
+        .map(|rows| rows.iter().map(CourseEntity::to_domain).collect())
+    }
+
+    #[tracing::instrument(skip(self, executor))]
     pub async fn delete_for_project<'e, E>(
         &self,
         executor: E,

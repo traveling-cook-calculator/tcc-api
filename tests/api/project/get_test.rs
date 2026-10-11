@@ -53,23 +53,6 @@ pub fn setup() -> TestData {
 }
 
 #[test]
-fn test_get_project() {
-    let test_data = setup();
-    let (token, _) = (test_data.creater_user)();
-    for project_id in test_data.project_id_list {
-        get_project(&project_id, &token);
-    }
-}
-
-#[test]
-fn test_get_project_not_found() {
-    let (token, _) = get_user_1();
-    let project_id = Uuid::new_v4();
-    let res = execute_get(&project_id, &token);
-    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
-}
-
-#[test]
 fn test_get_project_meta() {
     let test_data = setup();
     let (token, _) = (test_data.creater_user)();
@@ -91,17 +74,6 @@ fn test_get_project_meta_list() {
     let test_data = setup();
     let (token, user_id) = (test_data.creater_user)();
     get_project_meta_list(&user_id, &token, test_data.project_id_list.clone());
-}
-
-#[test]
-fn test_get_project_wrong_user() {
-    let test_data = setup();
-    let (token, _) = (test_data.second_user)();
-
-    for project_id in &test_data.project_id_list {
-        let res = execute_get(project_id, &token);
-        assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
-    }
 }
 
 #[test]
@@ -128,22 +100,6 @@ fn test_get_project_meta_list_wrong_user() {
         "Response: {:#?}",
         res
     );
-}
-
-pub fn execute_get(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {
-    let (client, base_url) = get_client();
-    client
-        .get(format!("{}/project/{}", base_url, project_id))
-        .header("authorization", format!("Bearer {}", token))
-        .header("x-forwarded-for", "127.0.0.1")
-        .send()
-        .expect("Failed to send request")
-}
-
-pub fn get_project(project_id: &Uuid, token: &str) {
-    let res = execute_get(project_id, token);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-    assert_project_json(res.json().expect("Failed to parse JSON"), project_id);
 }
 
 fn execute_get_meta_list(user_id: &str, token: &str) -> reqwest::blocking::Response {
@@ -197,7 +153,6 @@ fn assert_project_json(json: serde_json::Value, project_id: &Uuid) {
 }
 
 fn assert_project_meta_list_json(json: serde_json::Value, project_id_list: Vec<Uuid>) {
-    println!("{}", json.to_string());
     let data = json
         .get("data")
         .and_then(|v| v.as_array())

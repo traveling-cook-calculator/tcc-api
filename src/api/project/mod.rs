@@ -1,8 +1,8 @@
-use axum::{middleware::from_fn_with_state, routing::get, Router};
+use axum::{Router, middleware::from_fn_with_state, routing::{get, post}};
 
 use crate::{
-    api::auth::{require_permission, USER_ROLE},
     AppState,
+    api::auth::{USER_ROLE, require_permission},
 };
 
 mod get;
@@ -19,12 +19,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         )
         .route(
             "/project/{project_id}",
-            get(get::get_project)
-                .layer(from_fn_with_state(
-                    app_state.clone(),
-                    require_permission(USER_ROLE),
-                ))
-                .post(project::create_project_project)
+            post(project::create_project_project)
                 .layer(from_fn_with_state(
                     app_state.clone(),
                     require_permission(USER_ROLE),

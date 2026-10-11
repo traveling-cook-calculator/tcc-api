@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::{auth::get_user_1, create_project, team::post_test::create_team};
 
 mod delete_test;
-mod get_test;
+pub(crate) mod get_test;
 mod patch_test;
 pub mod post_test;
 

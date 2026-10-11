@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     auth::{get_user_1, get_user_2},
     course::post_test::create_course,
-    create_project, get_client, get_project,
+    create_project, get_client,
 };
 
 static TEST_DATA: OnceLock<Mutex<TestData>> = OnceLock::new();
@@ -44,14 +44,6 @@ fn test_get_course_list() {
     let (token, _) = get_user_1();
 
     get_course_list(&test_data.project_id, &test_data.course_list, &token);
-}
-
-#[test]
-fn test_get_course_list_in_project() {
-    let test_data = setup();
-
-    let project = get_project(&test_data.project_id);
-    assert_project_json(&project, &test_data.course_list);
 }
 
 #[test]
@@ -110,17 +102,6 @@ pub fn get_course(
         }
     }
     None
-}
-
-fn assert_project_json(json: &serde_json::Value, expected_course_id: &[Uuid]) {
-    let course_list = json
-        .get("course_list")
-        .and_then(|v| v.as_array())
-        .expect("Missing course_list");
-
-    for (index, course) in course_list.iter().enumerate() {
-        assert_course_json(course, &expected_course_id[index]);
-    }
 }
 
 fn assert_course_json(json: &serde_json::Value, expected_course_id: &Uuid) {

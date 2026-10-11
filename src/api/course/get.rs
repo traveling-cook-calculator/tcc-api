@@ -21,7 +21,7 @@ impl IntoResponse for CourseListDTO {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct CourseDTO {
     pub id: Uuid,
     pub name: String,

@@ -13,8 +13,6 @@ mod get;
 mod plan;
 mod route_mail;
 
-pub use get::{PlanConfigDTO, PlanDTO};
-
 pub fn routes(app_state: AppState) -> Router<AppState> {
     Router::new()
         .route(
@@ -66,5 +64,9 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
                     app_state.clone(),
                     require_permission(USER_ROLE),
                 )),
+        )
+        .route(
+            "/project/{project_id}/team/{team_id}/plan",
+            get(get::get_team_plan),
         )
 }

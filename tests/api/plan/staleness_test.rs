@@ -1,6 +1,8 @@
+use chrono::{DateTime, Utc};
+
 use crate::{
     auth::get_user_1,
-    create_project, get_project,
+    create_project,
     plan::{
         change_team_address, get_test::execute_get, hard_delete_team, patch_test::patch_plan,
         plan_json_referencing_team, set_start_point,
@@ -16,7 +18,6 @@ fn is_stale(project_id: &uuid::Uuid, token: &str) -> bool {
     let res = execute_get(project_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     let value: &serde_json::Value = &res.json().expect("Expect response to be json");
-    println!("{}", value.to_string());
     value.get("stale_since").is_some_and(|v| !v.is_null())
 }
 
@@ -104,27 +105,40 @@ fn test_first_staleness_occurrence_wins() {
     patch_plan(&project_id, &token);
 
     set_start_point(&project_id);
-    let first = get_project(&project_id);
-    let first_stale_since = first
-        .get("plan")
-        .and_then(|p| p.get("stale_since"))
-        .and_then(|v| v.as_str())
-        .expect("plan should be stale after the first trigger")
-        .to_string();
+
+    assert!(
+        is_stale(&project_id, &token),
+        "plan should be stale after the first trigger"
+    );
+
+    let stale_older_then = Utc::now();
 
     // A second, independent staleness trigger (a full plan re-PATCH isn't
     // one — see `patch::test_patch_plan` — so reuse start_point, which is
     // itself idempotent-safe to call twice).
     set_start_point(&project_id);
-    let second = get_project(&project_id);
-    let second_stale_since = second
-        .get("plan")
-        .and_then(|p| p.get("stale_since"))
-        .and_then(|v| v.as_str())
-        .expect("plan should still be stale");
 
-    assert_eq!(
-        first_stale_since, second_stale_since,
+    assert!(is_stale(&project_id, &token), "plan should still be stale");
+
+    let current_stale = execute_get(&project_id, &token);
+    assert!(
+        current_stale.status().is_success(),
+        "Response: {:#?}",
+        current_stale
+    );
+
+    let value: &serde_json::Value = &current_stale.json().expect("Expect response!");
+
+    let new_stale: DateTime<Utc> = value
+        .get("stale_since")
+        .expect("Expect stale_since")
+        .as_str()
+        .expect("Expect stale_sine as string")
+        .parse()
+        .unwrap();
+
+    assert!(
+        new_stale < stale_older_then,
         "stale_since should not be overwritten by a second trigger"
     );
 }

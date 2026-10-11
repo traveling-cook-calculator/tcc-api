@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::{
-    error::AppError::{self, ShareNotFound},
+    error::AppError::{self},
     infrastructure::{
         Database,
         db::{ProjectRepository, sharing::ShareRepository},

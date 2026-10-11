@@ -52,17 +52,9 @@ fn test_get_team() {
 #[test]
 fn test_get_team_list() {
     let test_data = setup();
-    let (token, user_id) = get_user_1();
+    let (token, _) = get_user_1();
 
     get_team_list(&test_data.project_id, &test_data.team_list, &token);
-}
-
-#[test]
-fn test_get_team_list_in_project() {
-    let test_data = setup();
-
-    let project = get_project(&test_data.project_id);
-    assert_project_json(&project, &test_data.team_list);
 }
 
 #[test]
@@ -244,39 +236,6 @@ fn assert_team_meta_json(
         .unwrap_or_else(|_| panic!("edited is not a valid DateTime<Utc>: {edited}"));
 }
 
-fn assert_project_json(json: &serde_json::Value, expected_teams: &[(Uuid, String)]) {
-    let team_list = json
-        .get("team_list")
-        .and_then(|v| v.as_array())
-        .expect("Missing team_list");
-
-    assert_eq!(
-        team_list.len(),
-        expected_teams.len(),
-        "team count in project does not match"
-    );
-
-    for team in team_list {
-        let id = team.get("id").and_then(|v| v.as_str()).expect("Missing id");
-        let (expected_id, expected_user) = expected_teams
-            .iter()
-            .find(|(team_id, _)| team_id.to_string() == id)
-            .unwrap_or_else(|| panic!("unexpected team in project: {id}"));
-        assert_team_json(
-            team,
-            expected_id,
-            Some(expected_user.as_str()),
-            true,
-            true,
-            true,
-            true,
-            true,
-            true,
-            "active",
-        );
-    }
-}
-
 /// Detailstruktur (`TeamDTO`), wie sie `GET /project/{p}/team/{t}` liefert.
 /// Der Status ist ein String (`active` / `review` / `canceled`).
 #[allow(clippy::too_many_arguments)]
@@ -292,7 +251,6 @@ pub fn assert_team_json(
     expected_diets: bool,
     expected_status: &str,
 ) {
-    println!("{}", json.to_string());
     // ID
     let id = json.get("id").and_then(|v| v.as_str()).expect("Missing id");
     assert_eq!(id, expected_team_id.to_string(), "team id does not match");

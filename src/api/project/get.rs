@@ -15,13 +15,9 @@ use crate::{
         PaginationInfo, TIME_REGEX,
         auth::{AuthUser, AuthenticatedUser, Claims, is_user_authenticated},
         common::AddressDTO,
-        course::CourseDTO,
-        plan::{PlanConfigDTO, PlanDTO},
-        sharing::ShareTeamConfigDTO,
-        team::TeamDTO,
     },
     application::project::{self, ProjectMeta},
-    domain::{Project, plan::PlanSortOption, project::Point},
+    domain::{plan::PlanSortOption, project::Point},
     error::AppError,
 };
 
@@ -33,7 +29,6 @@ pub struct ListProjectQuery {
     pub page: Option<u8>,
     #[validate(range(min = 1, max = 128, message = "must be between 1 and 128"))]
     pub limit: Option<u8>,
-    #[allow(dead_code)]
     pub sort: Option<SortOptionDTO>,
 }
 
@@ -45,7 +40,7 @@ impl AuthenticatedUser for ListProjectQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum SortOptionDTO {
+pub enum SortOptionDTO {
     CreatedAsc,
     CreatedDesc,
     NameAsc,
@@ -113,65 +108,6 @@ impl ProjectMetaDTO {
 impl IntoResponse for ProjectMetaDTO {
     fn into_response(self) -> Response {
         (StatusCode::OK, Json(self)).into_response()
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ProjectDTO {
-    pub id: Uuid,
-    pub user_id: String,
-    pub name: String,
-    pub created: DateTime<Utc>,
-    pub edited: DateTime<Utc>,
-    pub occur: DateTime<Utc>,
-    pub team_list: Vec<TeamDTO>,
-    pub course_list: Vec<CourseDTO>,
-    pub start_point: Option<PointDTO>,
-    pub end_point: Option<PointDTO>,
-    pub share_team_config: Option<ShareTeamConfigDTO>,
-    pub plan: Option<PlanDTO>,
-    pub plan_config: Option<PlanConfigDTO>,
-}
-
-impl ProjectDTO {
-    pub fn from_domain(project: Project) -> Self {
-        ProjectDTO {
-            id: project.id,
-            user_id: project.user_id,
-            name: project.name,
-            created: project.created,
-            edited: project.edited,
-            occur: project.occur,
-            team_list: project
-                .team_list
-                .into_iter()
-                .map(TeamDTO::from_domain)
-                .collect(),
-            course_list: project
-                .course_list
-                .into_iter()
-                .map(CourseDTO::from_domain)
-                .collect(),
-            start_point: project.start_point.map(PointDTO::from_domain),
-            end_point: project.end_point.map(PointDTO::from_domain),
-            share_team_config: project
-                .share_team_config
-                .map(ShareTeamConfigDTO::from_domain),
-            plan: project.plan.map(PlanDTO::from_domain),
-            plan_config: project.plan_config.map(PlanConfigDTO::from_domain),
-        }
-    }
-}
-
-impl IntoResponse for ProjectDTO {
-    fn into_response(self) -> Response {
-        (StatusCode::OK, Json(self)).into_response()
-    }
-}
-
-impl AuthenticatedUser for ProjectDTO {
-    fn user_id(&self) -> AuthUser {
-        AuthUser::Id(self.user_id.clone())
     }
 }
 
@@ -252,17 +188,6 @@ pub(super) async fn list_projects(
             has_prev: page > 1,
         },
     })
-}
-
-#[tracing::instrument(skip(claims, state))]
-pub(super) async fn get_project(
-    Extension(claims): Extension<Claims>,
-    State(mut state): State<AppState>,
-    Path(project_id): Path<Uuid>,
-) -> Result<ProjectDTO, AppError> {
-    Ok(ProjectDTO::from_domain(
-        project::get_project(&mut state.db, &project_id, &claims.sub).await?,
-    ))
 }
 
 /// Get only the project's metadata (cheaper than the full project).

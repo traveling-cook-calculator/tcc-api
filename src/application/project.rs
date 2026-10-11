@@ -7,8 +7,8 @@ use crate::{
     infrastructure::{
         Database,
         db::{
-            CourseRepository, ProjectRepository, address::AddressRepository, plan::PlanRepository,
-            point::PointRepository, team::TeamRepository,
+            ProjectRepository, address::AddressRepository, plan::PlanRepository,
+            point::PointRepository,
         },
     },
 };
@@ -106,45 +106,6 @@ pub async fn get_project_meta(
         .select(&mut *tx, project_id, user_id)
         .await?;
     Ok(ProjectMeta::from_project(project))
-}
-
-pub async fn get_project(
-    db: &Database,
-    project_id: &Uuid,
-    user_id: &str,
-) -> Result<Project, AppError> {
-    let mut tx = db.pool.begin().await?;
-
-    let mut project = ProjectRepository
-        .select(&mut *tx, project_id, user_id)
-        .await?;
-
-    project.team_list = TeamRepository
-        .select_all_for_project(&mut *tx, project_id, user_id)
-        .await?;
-    project.course_list = CourseRepository
-        .select_all_for_project(&mut *tx, project_id, user_id)
-        .await?;
-
-    if let Some(id) = ProjectRepository
-        .select_start_point_id(&mut *tx, project_id, user_id)
-        .await?
-    {
-        project.start_point = Some(PointRepository.select(&mut *tx, &id).await?);
-    }
-    if let Some(id) = ProjectRepository
-        .select_end_point_id(&mut *tx, project_id, user_id)
-        .await?
-    {
-        project.end_point = Some(PointRepository.select(&mut *tx, &id).await?);
-    }
-
-    //todo catch if no plan is set
-    let plan = PlanRepository.select_unsafe(&mut *tx, project_id).await?;
-
-    project.plan = plan;
-
-    Ok(project)
 }
 
 pub async fn get_project_start_point(

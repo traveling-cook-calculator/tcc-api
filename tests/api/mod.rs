@@ -27,7 +27,7 @@ pub fn create_project() -> Uuid {
 
 pub fn get_project(project_id: &Uuid) -> serde_json::Value {
     let (token, _) = get_user_1();
-    let res = project::get_test::execute_get(project_id, &token);
+    let res = project::get_test::execute_get_meta(project_id, &token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
     res.json().expect("Failed to parse JSON")
 }

@@ -1,4 +1,3 @@
-use sqlx::encode::IsNull::No;
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
@@ -17,8 +16,6 @@ struct ProjectEntity {
     created: chrono::DateTime<chrono::Utc>,
     edited: chrono::DateTime<chrono::Utc>,
     occur: chrono::DateTime<chrono::Utc>,
-    start_point: Option<Uuid>,
-    end_point: Option<Uuid>,
     admin_notification_email: Option<String>,
 }
 
@@ -34,11 +31,6 @@ impl ProjectEntity {
             start_point: None,
             end_point: None,
             admin_notification_email: self.admin_notification_email.clone(),
-            team_list: Vec::new(),
-            course_list: Vec::new(),
-            plan: None,
-            plan_config: None,
-            share_team_config: None,
         }
     }
 
@@ -50,8 +42,6 @@ impl ProjectEntity {
             created: data.created,
             edited: data.edited,
             occur: data.occur,
-            start_point: None,
-            end_point: None,
             admin_notification_email: data.admin_notification_email.clone(),
         }
     }

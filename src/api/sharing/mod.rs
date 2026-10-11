@@ -8,7 +8,6 @@ use crate::{
 mod get;
 mod sharing;
 
-pub use get::ShareTeamConfigDTO;
 
 pub fn routes(app_state: AppState) -> Router<AppState> {
     Router::new().route(

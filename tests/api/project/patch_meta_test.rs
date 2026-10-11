@@ -4,11 +4,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{get_user_1, get_user_2},
-    get_client,
-    project::{
-        get_test::{execute_get, execute_get_meta, get_project},
-        post_test::{create_project, get_project_create_json},
+    auth::{get_user_1, get_user_2}, get_client, project::{
+        get_test::{execute_get_meta, get_project_meta}, post_test::{create_project, get_project_create_json},
     },
 };
 
@@ -47,7 +44,7 @@ fn test_patch_project_wrong_user() {
     );
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 
-    get_project(&project_id, &token_1);
+    get_project_meta(&project_id, &token_1);
 }
 
 /// `admin_notification_email` became mandatory on `UpdateMetaRequest` in
@@ -116,7 +113,6 @@ fn execute_patch_meta(
         "occur": new_time,
         "admin_notification_email": admin_notification_email,
     });
-    println!("Payload: {}", payload);
     client
         .patch(format!("{}/project/{}/metadata", base_url, project_id))
         .header("authorization", format!("Bearer {}", token))
@@ -141,7 +137,7 @@ pub fn patch_meta_project(
     );
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(project_id, token);
+    let res = execute_get_meta(project_id, token);
     assert_project_json(
         res.json().expect("Failed to parse JSON"),
         project_id,
@@ -156,7 +152,6 @@ fn assert_project_json(
     expected_name: &str,
     expected_time: &DateTime<Utc>,
 ) {
-    println!("{}", json.to_string());
     let id = json.get("id").and_then(|v| v.as_str()).expect("Missing id");
     let name = json
         .get("name")

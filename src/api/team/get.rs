@@ -105,6 +105,7 @@ pub struct TeamDTO {
     pub cancel_reason: Option<String>,
     pub email_verified_at: Option<DateTime<Utc>>,
     pub last_route_hash: Option<String>,
+    pub access_token: String,
 }
 
 impl TeamDTO {
@@ -126,6 +127,7 @@ impl TeamDTO {
             cancel_reason: team.cancel_reason,
             email_verified_at: team.email_verified_at,
             last_route_hash: team.last_route_hash,
+            access_token: team.access_token,
         }
     }
 }
