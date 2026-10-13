@@ -15,6 +15,13 @@ pub(crate) async fn get_list(
     user_id: &str,
 ) -> Result<Vec<Course>, AppError> {
     let mut tx = db.pool.begin().await?;
+
+    // Fail with 404 if the project does not exist or belongs to another user,
+    // instead of silently returning an empty list.
+    ProjectRepository
+        .select(&mut *tx, project_id, user_id)
+        .await?;
+
     CourseRepository
         .select_all_for_project(&mut *tx, project_id, user_id)
         .await
@@ -48,8 +55,11 @@ pub(crate) async fn update(
 pub async fn create(db: &mut Database, user_id: &str, data: &Course) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
 
-    let _ = ProjectRepository
-        .select(&mut *tx, &data.project_id, user_id)
+    // Locks the project row (and checks ownership) before counting, so that
+    // concurrent course creations for the same project are serialized and the
+    // limit cannot be exceeded by a race.
+    ProjectRepository
+        .lock_for_owner(&mut *tx, &data.project_id, user_id)
         .await?;
     let count = CourseRepository.count(&mut *tx, &data.project_id).await?;
     if count > 8 {

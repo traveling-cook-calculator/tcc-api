@@ -40,8 +40,35 @@ impl ProjectMeta {
     }
 }
 
+/// Maximum number of projects a single user may own. Keeping this at `u8::MAX`
+/// guarantees that the `u8` counters used for pagination can never overflow.
+pub const MAX_PROJECTS_PER_USER: u8 = u8::MAX;
+
+/// Creates a project.
+///
+/// Fails with `ProjectLimitReached` (400) if the user already owns
+/// `MAX_PROJECTS_PER_USER` projects and with `ProjectAlreadyExists` (409) if a
+/// project with the same id already exists.
 pub async fn create_project(db: &mut Database, data: ProjectMeta) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
+
+    // Serialize concurrent creations of the same user. Without this lock two
+    // transactions could both count 254 projects and both insert one more.
+    // The lock is held until the transaction ends, so the count below always
+    // includes every previously committed project.
+    ProjectRepository
+        .lock_user_quota(&mut *tx, &data.user_id)
+        .await?;
+
+    // `count_by_user` saturates at `u8::MAX`, so this check also holds for
+    // legacy data that already exceeds the limit.
+    let project_count = ProjectRepository
+        .count_by_user(&mut *tx, &data.user_id)
+        .await?;
+    if project_count >= MAX_PROJECTS_PER_USER {
+        return Err(AppError::project_limit_reached(MAX_PROJECTS_PER_USER));
+    }
+
     ProjectRepository.insert(&mut *tx, &data).await?;
     tx.commit().await?;
     Ok(())

@@ -1,6 +1,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use chrono::NaiveTime;
+use reqwest::StatusCode;
 use uuid::Uuid;
 
 use crate::{
@@ -51,7 +52,8 @@ fn test_get_course_list_wrong_user() {
     let test_data = setup();
     let (token, _) = get_user_2();
 
-    get_course_list(&test_data.project_id, &[], &token);
+    let res = execute_get_list(&test_data.project_id, &token);
+    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
 pub fn execute_get_list(project_id: &Uuid, token: &str) -> reqwest::blocking::Response {

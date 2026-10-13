@@ -90,6 +90,7 @@ pub fn change_team_address(project_id: &Uuid, team_id: &Uuid) {
         "phone": "+49 12345",
         "members": 2,
         "diets": "No special diets",
+        "status": "active",
     });
     let (client, base_url) = get_client();
     let res = client

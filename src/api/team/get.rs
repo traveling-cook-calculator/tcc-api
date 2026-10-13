@@ -85,6 +85,14 @@ impl TeamStatusDTO {
             TeamStatus::Canceled => TeamStatusDTO::Canceled,
         }
     }
+
+    pub(crate) fn to_domain(&self) -> TeamStatus {
+        match self {
+            TeamStatusDTO::Active => TeamStatus::Active,
+            TeamStatusDTO::Review => TeamStatus::Review,
+            TeamStatusDTO::Canceled => TeamStatus::Canceled,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -239,7 +247,7 @@ pub(super) async fn get_team(
     auth: Option<TypedHeader<Authorization<Bearer>>>,
     headers: HeaderMap,
 ) -> Result<TeamDTO, AppError> {
-    if let Some(user_id) = get_user_id(&auth, &state.auth) {
+    if let Some(user_id) = get_user_id(&auth, &state.auth)? {
         let team = team::get(&state.db, &project_id, &user_id, &team_id).await?;
         Ok(TeamDTO::from_domain(team))
     } else {

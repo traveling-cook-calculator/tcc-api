@@ -98,6 +98,7 @@ pub fn get_team_patch_json() -> serde_json::Value {
         "mail":"run@cook.de",
         "phone":"+49 54321",
         "diets": "special diets",
+        "status": "active",
     });
     json
 }

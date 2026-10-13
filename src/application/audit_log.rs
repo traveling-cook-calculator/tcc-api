@@ -38,6 +38,9 @@ pub async fn get_for_team(
     tx.commit().await?;
     Ok(AuditLogPage {
         entries,
-        total: count as u8,
+        // Saturate instead of wrapping around. The number of entries per team is
+        // capped by `team::MAX_AUDIT_LOG_ENTRIES_PER_TEAM`, so this only matters
+        // for legacy data.
+        total: u8::try_from(count).unwrap_or(u8::MAX),
     })
 }

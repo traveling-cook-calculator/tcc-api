@@ -71,8 +71,9 @@ impl ProjectRepository {
 
         match result {
             Ok(_) => Ok(()),
+            // Unique violation (23505): the id already exists.
             Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
-                Ok(())
+                Err(AppError::project_already_exists(data.id))
             }
             Err(e) => Err(AppError::from(e)),
         }
@@ -166,7 +167,8 @@ impl ProjectRepository {
             .fetch_one(executor)
             .await
             .map_err(AppError::from)
-            .map(|c| c as u8)
+            // Saturate instead of wrapping around, so the value can never overflow.
+            .map(|c| u8::try_from(c).unwrap_or(u8::MAX))
     }
 
     #[tracing::instrument(skip(self, executor))]
@@ -194,6 +196,81 @@ impl ProjectRepository {
             other => AppError::from(other),
         })
         .map(|p| p.to_domain())
+    }
+
+    /// Locks the project row of an owned project until the end of the current
+    /// transaction (`FOR NO KEY UPDATE`).
+    ///
+    /// Used to serialize operations that must enforce a per-project limit
+    /// (e.g. courses): every transaction first takes this lock and only then
+    /// counts, so two concurrent transactions can never both see "limit not
+    /// reached". `NO KEY UPDATE` does not conflict with the `KEY SHARE` locks
+    /// that foreign keys take on the project row, so ordinary inserts of
+    /// child rows are not blocked by it.
+    ///
+    /// Returns `ProjectNotFound` if the project does not exist or is owned by
+    /// another user.
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn lock_for_owner<'e, E>(
+        &self,
+        executor: E,
+        id_filter: &Uuid,
+        user_id_filter: &str,
+    ) -> Result<(), AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM project WHERE id = $1 AND user_id = $2 FOR NO KEY UPDATE",
+        )
+        .bind(id_filter)
+        .bind(user_id_filter)
+        .fetch_optional(executor)
+        .await
+        .map_err(AppError::from)?
+        .map(|_| ())
+        .ok_or_else(|| AppError::project_not_found(*id_filter))
+    }
+
+    /// Same as `lock_for_owner`, but without an owner filter. Used where the
+    /// caller may legitimately be someone other than the owner (public team
+    /// registration).
+    ///
+    /// Returns `ProjectNotFound` if the project does not exist.
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn lock_unsafe<'e, E>(&self, executor: E, id_filter: &Uuid) -> Result<(), AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM project WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(id_filter)
+            .fetch_optional(executor)
+            .await
+            .map_err(AppError::from)?
+            .map(|_| ())
+            .ok_or_else(|| AppError::project_not_found(*id_filter))
+    }
+
+    /// Takes a transaction-scoped advisory lock for the project quota of a
+    /// user. There is no parent row to lock for "projects per user" (users live
+    /// in Keycloak), so concurrent project creations of the same user are
+    /// serialized through this lock instead. It is released automatically on
+    /// commit or rollback.
+    #[tracing::instrument(skip(self, executor))]
+    pub async fn lock_user_quota<'e, E>(
+        &self,
+        executor: E,
+        user_id_filter: &str,
+    ) -> Result<(), AppError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("project_quota:{user_id_filter}"))
+            .execute(executor)
+            .await
+            .map_err(AppError::from)?;
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, executor))]

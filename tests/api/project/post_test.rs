@@ -21,7 +21,8 @@ fn test_create_created_project() {
     let (token, user_id) = get_user_1();
     let (project_id, payload) = get_project_create_json(&user_id);
     create_project(&project_id, payload.clone(), &token);
-    create_project(&project_id, payload, &token);
+    let res = execute_create(&project_id, payload, &token);
+    assert_eq!(res.status(), StatusCode::CONFLICT, "Response: {:#?}", res);
 }
 
 #[test]

@@ -72,6 +72,7 @@ pub fn team_update_payload_with_mail(mail: &str) -> serde_json::Value {
             "longitude": 8.682874268586934,
         },
         "mail": mail,
+        "status": "active"
     })
 }
 

@@ -354,7 +354,7 @@ pub(super) async fn get_team_plan(
     auth: Option<TypedHeader<Authorization<Bearer>>>,
     headers: HeaderMap,
 ) -> Result<TeamPlanDTO, AppError> {
-    let user_id = get_user_id(&auth, &state.auth);
+    let user_id = get_user_id(&auth, &state.auth)?;
     let access_token = headers
         .get(ACCESS_TOKEN_HEADER)
         .and_then(|v| v.to_str().ok());

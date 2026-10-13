@@ -24,7 +24,19 @@ fn test_create_created_team() {
 
     let (token, user_id) = get_user_1();
     create_team(&project_id, &team_id, &user_id, &token);
-    create_team(&project_id, &team_id, &user_id, &token);
+
+    let payload = get_team_create_json(
+        Some(&user_id),
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        Uuid::new_v4().to_string(),
+    );
+    let res = execute_create(&project_id, &team_id, payload, &token);
+    assert_eq!(res.status(), StatusCode::CONFLICT, "Response: {:#?}", res);
 }
 
 #[test]
@@ -172,5 +184,10 @@ pub fn get_team_create_json(
         obj.insert("notify_admin_on_cancel".to_string(), json!(true));
         obj.insert("notify_admin_on_create".to_string(), json!(true));
     }
+
+    if let Some(obj) = json.as_object_mut() {
+        obj.insert("status".to_string(), json!("active"));
+    }
+
     json
 }

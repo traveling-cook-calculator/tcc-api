@@ -541,7 +541,7 @@ fn test_create_team_idempotent_retry_unauthenticated() {
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
     let res = execute_create(&project_id, &team_id, payload, None);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
+    assert_eq!(res.status(), StatusCode::CONFLICT, "Response: {:#?}", res);
 }
 
 /// "Given a share config with no `required_fields` entries, when a team is

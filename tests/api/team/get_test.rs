@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_project, get_client, get_project,
+    create_project, get_client,
     team::post_test::create_team,
 };
 
@@ -80,9 +80,10 @@ fn test_get_team_wrong_user() {
 #[test]
 fn test_get_team_list_wrong_user() {
     let test_data = setup();
-    let (token, user_id) = get_user_2();
+    let (token, _) = get_user_2();
 
-    get_team_list(&test_data.project_id, &[], &token);
+    let res = execute_get_list(&test_data.project_id, &token);
+    assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
 pub fn execute_get(project_id: &Uuid, team_id: &Uuid, token: &str) -> reqwest::blocking::Response {

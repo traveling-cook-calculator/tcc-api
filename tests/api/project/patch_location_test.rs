@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2}, get_client, project::{
-        get_location_test::{execute_get_end_point, execute_get_start_point}, get_test::{execute_get_meta, get_project_meta}, post_test::{create_project, get_project_create_json},
+        get_location_test::{execute_get_end_point, execute_get_start_point}, get_test::{ get_project_meta}, post_test::{create_project, get_project_create_json},
     },
 };
 

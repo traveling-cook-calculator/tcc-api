@@ -25,6 +25,50 @@ use crate::{
     },
 };
 
+/// Maximum number of teams a single project may contain (canceled teams
+/// included). Keeping this at `u8::MAX` guarantees that the `u8` counters used
+/// for pagination can never overflow.
+pub const MAX_TEAMS_PER_PROJECT: u8 = u8::MAX;
+
+/// Maximum number of audit log entries per team. Once a team has this many
+/// entries it can no longer be modified (update, cancel, resend verification),
+/// because every modification writes a new entry. Keeping this at `u8::MAX`
+/// guarantees that the audit log pagination counters can never overflow.
+pub const MAX_AUDIT_LOG_ENTRIES_PER_TEAM: u8 = u8::MAX;
+
+/// Fails with `AuditLogLimitReached` (409) if the audit log of the team is full.
+///
+/// Must be called inside the transaction that holds the team row lock
+/// (`select_locked_*`). That lock serializes all modifications of the team, so
+/// the count cannot be raced by another writer.
+async fn ensure_audit_log_capacity(
+    conn: &mut sqlx::PgConnection,
+    team_id: &Uuid,
+) -> Result<(), AppError> {
+    let entries = AuditLogRepository
+        .count_by_team(&mut *conn, team_id)
+        .await?;
+    if entries >= i64::from(MAX_AUDIT_LOG_ENTRIES_PER_TEAM) {
+        return Err(AppError::audit_log_limit_reached(
+            *team_id,
+            MAX_AUDIT_LOG_ENTRIES_PER_TEAM,
+        ));
+    }
+    Ok(())
+}
+
+/// Fails with `TeamLimitReached` (400) if the project already holds
+/// `MAX_TEAMS_PER_PROJECT` teams.
+fn ensure_below_team_limit(team_count: u8, project_id: &Uuid) -> Result<(), AppError> {
+    if team_count >= MAX_TEAMS_PER_PROJECT {
+        return Err(AppError::team_limit_reached(
+            MAX_TEAMS_PER_PROJECT,
+            *project_id,
+        ));
+    }
+    Ok(())
+}
+
 pub async fn get_list(
     db: &Database,
     project_id: &Uuid,
@@ -34,6 +78,12 @@ pub async fn get_list(
     team_sort_option: Option<TeamSortOption>,
 ) -> Result<(u8, Vec<Team>), AppError> {
     let mut tx = db.pool.begin().await?;
+
+    // Fail with 404 if the project does not exist or belongs to another user,
+    // so that neither data nor a total count is exposed.
+    ProjectRepository
+        .select(&mut *tx, project_id, user_id)
+        .await?;
 
     let total = TeamRepository
         .count_for_project(&mut *tx, project_id)
@@ -83,6 +133,14 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
+    // Lock the project row before counting teams. This serializes concurrent
+    // team creations for the same project, so the team limits cannot be
+    // exceeded by a race. Fails with `ProjectNotFound` if the project does not
+    // exist.
+    ProjectRepository
+        .lock_unsafe(&mut *tx, &data.project_id)
+        .await?;
+
     let is_owner = match user_id {
         Some(uid) => match ProjectRepository
             .select(&mut *tx, &data.project_id, uid)
@@ -95,18 +153,24 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
         None => false,
     };
 
-    let team = if !is_owner {
-        //Check Share Config
+    // `count_for_project` saturates at `u8::MAX`, so the limit checks below also
+    // hold for legacy data that already exceeds the limit.
+    let team_count = TeamRepository
+        .count_for_project(&mut *tx, &data.project_id)
+        .await?;
+
+    // Participants (everyone except the project owner) must pass the share
+    // configuration checks. Owners skip them.
+    let participant_context = if is_owner {
+        None
+    } else {
+        // Check the share configuration.
         let share_config = ShareRepository.select(&mut *tx, &data.project_id).await?;
 
-        check_share_config(&data, &share_config, true)?;
+        check_share_config(data, &share_config, true)?;
 
         if let Some(max_teams) = share_config.max_teams {
-            let count = TeamRepository
-                .count_for_project(&mut *tx, &data.project_id)
-                .await?;
-
-            if count >= max_teams {
+            if team_count >= max_teams {
                 return Err(AppError::team_limit_reached(max_teams, data.project_id));
             }
         }
@@ -115,6 +179,21 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
             .select_unsafe(&mut *tx, &data.project_id)
             .await?;
 
+        Some((share_config, project))
+    };
+
+    // Hard upper bound that applies to owners and participants alike.
+    ensure_below_team_limit(team_count, &data.project_id)?;
+
+    // A team with this id already exists (in any project): report a conflict.
+    // Nothing has been written yet, so dropping the transaction is enough.
+    match TeamRepository.select_by_id_unsafe(&mut *tx, &data.id).await {
+        Ok(_) => return Err(AppError::team_already_exists(data.id)),
+        Err(TeamNotFound(_, _, _)) => {}
+        Err(e) => return Err(e),
+    }
+
+    let team = if let Some((share_config, project)) = participant_context {
         let mut team = data.clone();
 
         team.status = if share_config.default_needs_check {
@@ -169,15 +248,6 @@ pub async fn create(db: &Database, user_id: Option<&str>, data: &Team) -> Result
     } else {
         data.clone()
     };
-
-    match TeamRepository.select_by_id_unsafe(&mut *tx, &team.id).await {
-        Ok(_) => {
-            tx.rollback().await?;
-            return Ok(());
-        }
-        Err(TeamNotFound(_, _, _)) => {}
-        Err(e) => return Err(e),
-    }
 
     AddressRepository.insert(&mut *tx, &team.address).await?;
     TeamRepository.insert(&mut *tx, &team).await?;
@@ -240,7 +310,15 @@ fn check_share_config(
     Ok(())
 }
 
-pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(), AppError> {
+/// Admin update of a team's master data.
+///
+/// `new_status` is the status submitted by the admin. If it is `None`, the
+/// existing status is kept unchanged (a status is never reset implicitly).
+pub async fn update(
+    db: &mut Database,
+    user_id: &str,
+    data: &Team,
+) -> Result<(), AppError> {
     let mut tx = db.pool.begin().await?;
     let now = Utc::now();
 
@@ -252,6 +330,8 @@ pub async fn update(db: &mut Database, user_id: &str, data: &Team) -> Result<(),
     if existing.status == TeamStatus::Canceled {
         return Err(AppError::team_canceled());
     }
+
+    ensure_audit_log_capacity(&mut *tx, &existing.id).await?;
 
     let mut team = existing.clone();
     team.name = data.name.clone();
@@ -307,6 +387,9 @@ pub async fn update_by_token(
     if existing.status == TeamStatus::Canceled {
         return Err(AppError::team_canceled());
     }
+
+    // Every update writes an audit log entry, so a full audit log blocks it.
+    ensure_audit_log_capacity(&mut *tx, &existing.id).await?;
 
     let share_config = ShareRepository.select(&mut *tx, &data.project_id).await?;
 
@@ -434,6 +517,8 @@ pub async fn cancel_by_token(
         return Ok(());
     }
 
+    ensure_audit_log_capacity(&mut *tx, &existing.id).await?;
+
     let share_config = ShareRepository
         .select(&mut *tx, &existing.project_id)
         .await?;
@@ -559,6 +644,8 @@ pub async fn request_verification_resend(
     if !is_admin && team.verification_resend_count >= 3 {
         return Err(AppError::verification_resend_limit_reached(team.id));
     }
+
+    ensure_audit_log_capacity(&mut *tx, &team.id).await?;
 
     let team_mail = if let Some(mail) = team.mail {
         mail

@@ -11,15 +11,9 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-    AppState,
-    api::{
-        auth::{ACCESS_TOKEN_HEADER, AuthUser, AuthenticatedUser, Claims, is_user_authenticated},
-        common::AddressDTO,
-        validated_json::ValidatedJson,
-    },
-    application::team,
-    domain::team::{Team, TeamStatus},
-    error::AppError,
+    AppState, api::{
+        auth::{ACCESS_TOKEN_HEADER, AuthUser, AuthenticatedUser, Claims, is_user_authenticated}, common::AddressDTO, team::get::TeamStatusDTO, validated_json::ValidatedJson,
+    }, application::team, domain::team::{Team, TeamStatus}, error::AppError,
 };
 
 use super::get_user_id;
@@ -106,6 +100,7 @@ pub struct TeamUpdateDTO {
     pub members: Option<u32>,
     #[validate(length(max = 500, message = "must be at most 500 characters"))]
     pub diets: Option<String>,
+    pub status: TeamStatusDTO,
 }
 
 impl TeamUpdateDTO {
@@ -129,7 +124,7 @@ impl TeamUpdateDTO {
             phone: self.phone.clone(),
             members: self.members,
             diets: self.diets.clone(),
-            status: TeamStatus::Active,
+            status: self.status.to_domain(),
             canceled_at: None,
             cancel_reason: None,
             access_token: String::new(),
@@ -150,7 +145,7 @@ pub(super) async fn create_team(
     auth: Option<TypedHeader<Authorization<Bearer>>>,
     ValidatedJson(payload): ValidatedJson<TeamCreateDTO>,
 ) -> Result<(), AppError> {
-    let user_id = get_user_id(&auth, &state.auth);
+    let user_id = get_user_id(&auth, &state.auth)?;
     is_user_authenticated(&payload, user_id.as_deref())?;
     let time = chrono::Utc::now();
     team::create(
@@ -175,7 +170,7 @@ pub(super) async fn update_team(
     ValidatedJson(payload): ValidatedJson<TeamUpdateDTO>,
 ) -> Result<(), AppError> {
     let time = chrono::Utc::now();
-    if let Some(user_id) = get_user_id(&auth, &state.auth) {
+    if let Some(user_id) = get_user_id(&auth, &state.auth)? {
         team::update(
             &mut state.db,
             &user_id,

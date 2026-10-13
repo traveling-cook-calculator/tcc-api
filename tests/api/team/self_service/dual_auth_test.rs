@@ -47,7 +47,7 @@ fn test_get_team_invalid_jwt_falls_through_to_missing_header() {
     let res = execute_get_dual_auth(&project_id, &team_id, Some("this-is-not-a-valid-jwt"), None);
     assert_eq!(
         res.status(),
-        StatusCode::BAD_REQUEST,
+        StatusCode::UNAUTHORIZED,
         "Response: {:#?}",
         res
     );

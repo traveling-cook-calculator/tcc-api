@@ -35,7 +35,7 @@ pub(super) async fn resend_verification(
     auth: Option<TypedHeader<Authorization<Bearer>>>,
     headers: HeaderMap,
 ) -> Result<(), AppError> {
-    let user_id_opt = get_user_id(&auth, &state.auth);
+    let user_id_opt = get_user_id(&auth, &state.auth)?;
 
     let access_token_opt = headers
         .get(ACCESS_TOKEN_HEADER)

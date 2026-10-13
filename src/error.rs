@@ -37,6 +37,27 @@ pub enum AppError {
     #[error("Project with id {0} not found")]
     ProjectNotFound(Uuid),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
+    #[error("Audit log of team {0} is full ({1} entries); the team can no longer be modified")]
+    AuditLogLimitReached(Uuid, u8),
+
+    #[error("Project limit of {0} reached for this user")]
+    ProjectLimitReached(u8),
+
+    #[error("Project with id {0} already exists")]
+    ProjectAlreadyExists(Uuid),
+
+    #[error("Course with id {0} already exists")]
+    CourseAlreadyExists(Uuid),
+
+    #[error("Note with id {0} already exists")]
+    NoteAlreadyExists(Uuid),
+
+    #[error("Team with id {0} already exists")]
+    TeamAlreadyExists(Uuid),
+
     #[error("Course with id {0} with user id {1} in project {2:?} not found")]
     CourseNotFound(Uuid, String, Option<Uuid>),
 
@@ -133,8 +154,8 @@ pub enum AppError {
     VerificationResendLimitReached(Uuid),
 }
 
-/// Konstruktoren: Sie erzeugen den Fehler und loggen ihn dabei mit den
-/// passenden Feldern. Die Log-Nachricht ist kurz und unabhängig von `Display`.
+/// Constructors: they create the error and log it with the relevant fields.
+/// The log message is short and independent of `Display`.
 impl AppError {
     pub fn address_not_found(address_id: Uuid) -> Self {
         tracing::warn!(address.id = %address_id, "Address not found");
@@ -159,6 +180,46 @@ impl AppError {
             "Course not found"
         );
         Self::CourseNotFound(course_id, user_id, project_id)
+    }
+
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        let message = message.into();
+        tracing::warn!(error = %message, "Forbidden");
+        Self::Forbidden(message)
+    }
+
+    pub fn audit_log_limit_reached(team_id: Uuid, max_entries: u8) -> Self {
+        tracing::warn!(
+            team.id = %team_id,
+            max_entries = %max_entries,
+            "Audit log limit reached"
+        );
+        Self::AuditLogLimitReached(team_id, max_entries)
+    }
+
+    pub fn project_limit_reached(max_projects: u8) -> Self {
+        tracing::warn!(max_projects = %max_projects, "Project limit reached");
+        Self::ProjectLimitReached(max_projects)
+    }
+
+    pub fn project_already_exists(project_id: Uuid) -> Self {
+        tracing::warn!(project.id = %project_id, "Project already exists");
+        Self::ProjectAlreadyExists(project_id)
+    }
+
+    pub fn course_already_exists(course_id: Uuid) -> Self {
+        tracing::warn!(course.id = %course_id, "Course already exists");
+        Self::CourseAlreadyExists(course_id)
+    }
+
+    pub fn note_already_exists(note_id: Uuid) -> Self {
+        tracing::warn!(note.id = %note_id, "Note already exists");
+        Self::NoteAlreadyExists(note_id)
+    }
+
+    pub fn team_already_exists(team_id: Uuid) -> Self {
+        tracing::warn!(team.id = %team_id, "Team already exists");
+        Self::TeamAlreadyExists(team_id)
     }
 
     pub fn course_limit_reached(project_id: Uuid) -> Self {
@@ -360,6 +421,7 @@ impl AppError {
             | Self::TeamLimitReached(..)
             | Self::MissingField(..)
             | Self::CourseLimitReached(_)
+            | Self::ProjectLimitReached(_)
             | Self::ValidationError(_)
             | Self::JsonRejection(_)
             | Self::VerificationResendLimitExceeded(_)
@@ -383,20 +445,27 @@ impl AppError {
             | Self::ShareNotFound(_)
             | Self::TeamNotFoundByToken => StatusCode::NOT_FOUND,
 
-            Self::DatabaseError(_)
-            | Self::InternalError(_)
-            | Self::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::DatabaseError(_) | Self::InternalError(_) | Self::SerializationError(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
 
             Self::Unauthorized(..) | Self::AuthorizationError(_) => StatusCode::UNAUTHORIZED,
 
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
+
             Self::TeamCanceled
             | Self::PlanIsStale(_)
+            | Self::AuditLogLimitReached(..)
+            | Self::ProjectAlreadyExists(_)
+            | Self::CourseAlreadyExists(_)
+            | Self::NoteAlreadyExists(_)
+            | Self::TeamAlreadyExists(_)
             | Self::VerificationResendLimitReached(_) => StatusCode::CONFLICT,
         }
     }
 }
 
-// `?`-Konvertierungen loggen ebenfalls beim Erzeugen des Fehlers.
+// `?` conversions also log when the error is created.
 
 impl From<JsonRejection> for AppError {
     fn from(rejection: JsonRejection) -> Self {
