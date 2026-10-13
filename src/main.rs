@@ -1,37 +1,36 @@
-mod address;
-mod cook_and_run;
-mod course;
-mod db;
+mod api;
+mod application;
+pub mod domain;
 pub mod error;
-mod note;
-mod plan;
-mod point;
-mod rest;
-mod sharing;
-mod team;
+pub mod infrastructure;
 
 use std::time::Duration;
 
 use axum::http::{HeaderName, HeaderValue};
-use opentelemetry::{global, KeyValue};
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{AsyncSmtpTransport, Tokio1Executor};
+use opentelemetry::{KeyValue, global};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+use opentelemetry_sdk::logs::SdkLoggerProvider;
+use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
 use reqwest::{
-    header::{AUTHORIZATION, CONTENT_TYPE},
     Method, StatusCode,
+    header::{AUTHORIZATION, CONTENT_TYPE},
 };
 use tower::ServiceBuilder;
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
 use tower_http::{
     classify::ServerErrorsFailureClass, cors::CorsLayer, limit::RequestBodyLimitLayer,
     set_header::SetResponseHeaderLayer, timeout::TimeoutLayer, trace::TraceLayer,
 };
-use tracing::{debug, error, info, warn, Span};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing::{Span, debug, error, info, warn};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::{db::Database, rest::auth::AuthState};
+use crate::api::auth::{ACCESS_TOKEN_HEADER, AuthState};
+use crate::infrastructure::Database;
 
 const DEFAULT_DATABASE_URL: &str = "postgresql://postgres:password123@localhost:5432/tcc_db";
 const DEFAULT_ADDR: &str = "0.0.0.0:3000";
@@ -56,6 +55,12 @@ const RATE_LIMIT_PER_SECOND: u64 = 5;
 /// tokens and then spend them all at once before being throttled.
 const RATE_LIMIT_BURST: u32 = 20;
 
+const DEFAULT_SMTP_PORT: u16 = 587;
+const DEFAULT_EMAIL_WORKER_POLL_INTERVAL_SECS: u64 = 10;
+const DEFAULT_EMAIL_WORKER_BATCH_SIZE: i64 = 10;
+const DEFAULT_EMAIL_WORKER_LEASE_SECONDS: i64 = 120;
+const DEFAULT_EMAIL_WORKER_MAX_ATTEMPTS: i32 = 5;
+
 #[derive(Clone)]
 struct AppState {
     auth: AuthState,
@@ -64,47 +69,49 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // 1. OTLP Exporter konfigurieren (Zielt auf deinen OTel-Collector)
-    let exporter = opentelemetry_otlp::SpanExporter::builder()
+    let span_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
-        .with_endpoint("http://localhost:4317") // Passe Host/Port an dein Docker Setup an
+        .with_endpoint("http://localhost:4317")
         .build()
-        .expect("test");
+        .expect("Span-Export could be created");
 
-    // 1. Resource über den Builder erstellen
     let resource = Resource::builder()
-        // Hier kannst du deinen Vektor mit Attributen übergeben
-        .with_attributes(vec![
-            KeyValue::new("service.name", "my-rust-service"),
-            KeyValue::new("environment", "development"), // Optional: Weitere nützliche Metadaten
-        ])
+        .with_attributes(vec![KeyValue::new("service.name", "tcc-api")])
         .build();
 
-    // 2. Tracer Provider mit der neuen Resource zusammenbauen
     let tracer_provider = SdkTracerProvider::builder()
-        .with_batch_exporter(exporter)
+        .with_batch_exporter(span_exporter)
+        .with_resource(resource.clone())
+        .build();
+
+    global::set_tracer_provider(tracer_provider.clone());
+    let tracer = global::tracer("tcc-api-service");
+
+    let log_exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://localhost:4317")
+        .build()
+        .expect("Log-Export could be created");
+
+    let logger_provider = SdkLoggerProvider::builder()
+        .with_batch_exporter(log_exporter)
         .with_resource(resource)
         .build();
 
-    // 3. Provider global registrieren
-    global::set_tracer_provider(tracer_provider.clone());
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"))
+        .add_directive("hyper=off".parse().unwrap())
+        .add_directive("tonic=off".parse().unwrap())
+        .add_directive("h2=off".parse().unwrap())
+        .add_directive("opentelemetry=off".parse().unwrap());
 
-    // 4. Einen Tracer für den Subscriber erstellen
-    let tracer = global::tracer("my-rust-service");
-
-    // 5. OpenTelemetry-Layer für tracing konfigurieren
-    let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
-    // 6. Tracing Subscriber zusammenbauen (OTel + Konsolen-Output)
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     Registry::default()
         .with(env_filter)
-        .with(telemetry_layer)
-        .with(tracing_subscriber::fmt::layer()) // Für lokales Debugging in stdout
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .with(OpenTelemetryTracingBridge::new(&logger_provider))
+        .with(tracing_subscriber::fmt::layer())
         .init();
-    /*tracing_subscriber::fmt()
-    .with_max_level(tracing::Level::DEBUG)
-    .init();*/
+
     info!("Loading environment variables...");
 
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -163,9 +170,11 @@ async fn main() {
 
     // Build the list of allowed CORS origins. Invalid values are logged and
     // skipped rather than panicking.
-    let mut allow_origins: Vec<HeaderValue> = vec![DEFAULT_ALLOW_ORIGIN
-        .parse()
-        .expect("DEFAULT_ALLOW_ORIGIN is a compile-time constant and must be valid")];
+    let mut allow_origins: Vec<HeaderValue> = vec![
+        DEFAULT_ALLOW_ORIGIN
+            .parse()
+            .expect("DEFAULT_ALLOW_ORIGIN is a compile-time constant and must be valid"),
+    ];
 
     if let Ok(extra_origin) = std::env::var("ALLOW_ORIGIN") {
         match extra_origin.parse::<HeaderValue>() {
@@ -222,6 +231,80 @@ async fn main() {
 
     let app_state = AppState { auth, db: database };
 
+    // --- Email worker (SMTP) -------------------------------------------------
+    match (
+        std::env::var("SMTP_HOST").ok(),
+        std::env::var("EMAIL_SENDER_ADDRESS").ok(),
+    ) {
+        (Some(smtp_host), Some(email_sender_address)) => {
+            let sender: lettre::message::Mailbox =
+                email_sender_address.parse().unwrap_or_else(|e| {
+                    error!(
+                        operation = "Parse EMAIL_SENDER_ADDRESS",
+                        "Invalid address '{}': {}", email_sender_address, e
+                    );
+                    panic!("EMAIL_SENDER_ADDRESS must be a valid email address");
+                });
+
+            let smtp_port: u16 = std::env::var("SMTP_PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(DEFAULT_SMTP_PORT);
+            let smtp_username = std::env::var("SMTP_USERNAME").ok();
+            let smtp_password = std::env::var("SMTP_PASSWORD").ok();
+
+            let mut transport_builder =
+                AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_host)
+                    .unwrap_or_else(|e| {
+                        error!(operation = "Configure SMTP transport", "Failed: {}", e);
+                        panic!("Cannot start with invalid SMTP_HOST");
+                    })
+                    .port(smtp_port);
+
+            if let (Some(username), Some(password)) = (smtp_username, smtp_password) {
+                transport_builder =
+                    transport_builder.credentials(Credentials::new(username, password));
+            }
+            /*
+            let email_worker_config = EmailWorkerConfig {
+                poll_interval: Duration::from_secs(
+                    std::env::var("EMAIL_WORKER_POLL_INTERVAL_SECONDS")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(DEFAULT_EMAIL_WORKER_POLL_INTERVAL_SECS),
+                ),
+                batch_size: std::env::var("EMAIL_WORKER_BATCH_SIZE")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(DEFAULT_EMAIL_WORKER_BATCH_SIZE),
+                lease_seconds: std::env::var("EMAIL_WORKER_LEASE_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(DEFAULT_EMAIL_WORKER_LEASE_SECONDS),
+                max_attempts: std::env::var("EMAIL_WORKER_MAX_ATTEMPTS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(DEFAULT_EMAIL_WORKER_MAX_ATTEMPTS),
+            };
+
+            info!("Starting email worker...");
+             email_worker::spawn(
+                app_state.db.clone(),
+                app_state.email_templates.clone(),
+                transport_builder.build(),
+                sender,
+                email_worker_config,
+            );*/
+        }
+        _ => {
+            warn!(
+                operation = "Loading environment variable",
+                "SMTP_HOST and/or EMAIL_SENDER_ADDRESS not set. Email worker disabled — \
+                 outbox entries will queue but never be sent until both are configured."
+            );
+        }
+    }
+
     // --- Rate limiter -------------------------------------------------------
     // Token-bucket per IP. Uses X-Forwarded-For / X-Real-IP when present so
     // the limiter works correctly behind a reverse proxy (nginx, Caddy, etc.).
@@ -274,9 +357,13 @@ async fn main() {
             Method::DELETE,
         ])
         .allow_origin(allow_origins)
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
+        .allow_headers([
+            AUTHORIZATION,
+            CONTENT_TYPE,
+            HeaderName::from_static(ACCESS_TOKEN_HEADER),
+        ]);
 
-    let app = rest::get_routes(app_state.clone())
+    let app = api::get_routes(app_state.clone())
         .layer(security_headers)
         .layer(cors_layer)
         //Reject bodies larger than MAX_BODY_BYTES before reading them.

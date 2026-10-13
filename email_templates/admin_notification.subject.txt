@@ -1,0 +1,1 @@
+Team "{{team_name}}" {{subject_middle}} – {{project_name}}

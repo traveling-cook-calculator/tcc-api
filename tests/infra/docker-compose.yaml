@@ -11,7 +11,8 @@ services:
     networks:
       - keycloak_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d keycloak_db"]
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d keycloak_db"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -53,7 +54,7 @@ services:
       TEST_USER_PASSWORD: ${TEST_USER_PASSWORD:-ChangeMe123!}
     ports:
       - "8081:8080"
-      - "9000:9000"  
+      - "9000:9000"
     volumes:
       - ./keycloak-realm.json:/opt/keycloak/data/import/realm.json:ro
     networks:
@@ -62,11 +63,98 @@ services:
       postgres-keycloak:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # SMTP catcher for the email-notification tests (tests/api/email/*).
+  # The app under test is configured (see ci-cd.yml / local env) to send
+  # via SMTP_HOST=localhost, SMTP_PORT=1025 — i.e. this service. Tests
+  # read delivered mail back out via Mailpit's HTTP API on 8025.
+  #
+  # No healthcheck here on purpose: Mailpit's image is a minimal static
+  # binary with no shell utilities (wget/curl) to probe with, unlike the
+  # postgres/keycloak checks above. It starts in well under a second with
+  # no dependencies, and the test helpers
+  # (tests/api/email/mod.rs::wait_for_message_to) already retry/poll, so
+  # `docker compose up --wait` not gating on it is not a problem in
+  # practice. Feel free to add one back if your Mailpit image does ship a
+  # usable HTTP probe tool.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: tcc-dev-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - keycloak_net
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    ports:
+      - 5050:80
+    networks:
+      - keycloak_net
+    environment:
+      # Required by pgAdmin
+      PGADMIN_DEFAULT_EMAIL: demo@example.com
+      PGADMIN_DEFAULT_PASSWORD: secret
+
+      # Don't require the user to login
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+
+      # Don't require a "master" password after logging in
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+
+  collector:
+    image: otel/opentelemetry-collector:latest
+    volumes:
+      - ./collector-config.yaml:/etc/otelcol/config.yaml
+    command: ["--config=/etc/otelcol/config.yaml"]
+    networks:
+      - keycloak_net
+    ports:
+      - "4317:4317" # OTLP
+      
+  loki:
+    image: grafana/loki:latest
+    container_name: tcc-dev-loki
+    ports:
+      - "3100:3100"
+    networks:
+      - keycloak_net
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tcc-dev-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks:
+      - keycloak_net
+  
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tcc-dev-grafana
+    ports:
+      - "5000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - keycloak_net
+    depends_on:
+      - loki
+      - tempo
 
 networks:
   keycloak_net:
@@ -75,3 +163,4 @@ networks:
 volumes:
   postgres_keycloak_data:
   postgres_api_data:
+  tempo_data:

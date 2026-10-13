@@ -5,39 +5,39 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    course::{get_test::execute_get, setup},
+    course::{get_test::get_course, setup},
     get_client,
 };
 
 #[test]
 fn test_patch_course() {
-    let (cook_and_run_id, course_id) = setup();
+    let (project_id, course_id) = setup();
     let (token, _) = get_user_1();
 
-    patch_course(&cook_and_run_id, &course_id, &token);
+    patch_course(&project_id, &course_id, &token);
 }
 
 #[test]
 fn test_patch_patched_course() {
-    let (cook_and_run_id, course_id) = setup();
+    let (project_id, course_id) = setup();
 
     let (token, _) = get_user_1();
-    patch_course(&cook_and_run_id, &course_id, &token); // First deletion
-    let res = execute_patch_course(&cook_and_run_id, &course_id, &token); // Second deletion
+    patch_course(&project_id, &course_id, &token); // First deletion
+    let res = execute_patch_course(&project_id, &course_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::OK, "Response: {:#?}", res);
 }
 
 #[test]
 fn test_patch_course_wrong_user() {
-    let (cook_and_run_id, course_id) = setup();
+    let (project_id, course_id) = setup();
 
     let (token, _) = get_user_2();
-    let res = execute_patch_course(&cook_and_run_id, &course_id, &token); // Second deletion
+    let res = execute_patch_course(&project_id, &course_id, &token); // Second deletion
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
 fn execute_patch_course(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     course_id: &Uuid,
     token: &str,
 ) -> reqwest::blocking::Response {
@@ -45,8 +45,8 @@ fn execute_patch_course(
     let (client, base_url) = get_client();
     client
         .patch(format!(
-            "{}/cook_and_run/{}/course/{}",
-            base_url, cook_and_run_id, course_id
+            "{}/project/{}/course/{}",
+            base_url, project_id, course_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -55,13 +55,13 @@ fn execute_patch_course(
         .expect("Failed to send request")
 }
 
-pub fn patch_course(cook_and_run_id: &Uuid, course_id: &Uuid, token: &str) {
-    let res = execute_patch_course(cook_and_run_id, course_id, token);
+pub fn patch_course(project_id: &Uuid, course_id: &Uuid, token: &str) {
+    let res = execute_patch_course(project_id, course_id, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 
-    let res = execute_get(cook_and_run_id, course_id, token);
-    assert!(res.status().is_success(), "Response: {:#?}", res);
-    assert_course_json(&res.json().expect("Failed to parse JSON"), course_id);
+    let course = get_course(project_id, course_id, token);
+    assert_eq!(course.is_some(), true, "Course does not exists");
+    assert_course_json(&course.expect("Expect course"), course_id);
 }
 
 pub fn get_course_patch_json() -> serde_json::Value {
@@ -87,11 +87,6 @@ fn assert_course_json(json: &serde_json::Value, expected_course_id: &Uuid) {
         .and_then(|v| v.as_str())
         .expect("Missing time");
 
-    let has_multiple_hosts = json
-        .get("has_multiple_hosts")
-        .and_then(|v| v.as_bool())
-        .expect("Missing has_multiple_hosts");
-
     assert_eq!(
         id,
         expected_course_id.to_string(),
@@ -108,6 +103,4 @@ fn assert_course_json(json: &serde_json::Value, expected_course_id: &Uuid) {
         "Time is not a valid NaiveTime: {}",
         time
     );
-
-    assert!(has_multiple_hosts, "has_multiple_hosts is not true");
 }

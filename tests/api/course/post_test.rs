@@ -4,42 +4,42 @@ use uuid::Uuid;
 
 use crate::{
     auth::{get_user_1, get_user_2},
-    create_cook_and_run, get_client,
+    create_project, get_client,
 };
 
 #[test]
 fn test_create_course() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let course_id = Uuid::new_v4();
 
     let (token, _) = get_user_1();
-    create_course(&cook_and_run_id, &course_id, &token);
+    create_course(&project_id, &course_id, &token);
 }
 
 #[test]
 fn test_create_created_course() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let course_id = Uuid::new_v4();
 
     let (token, _) = get_user_1();
-    create_course(&cook_and_run_id, &course_id, &token);
-    create_course(&cook_and_run_id, &course_id, &token);
+    create_course(&project_id, &course_id, &token);
+    create_course(&project_id, &course_id, &token);
 }
 
 #[test]
 fn test_create_course_wrong_user() {
-    let cook_and_run_id = create_cook_and_run();
+    let project_id = create_project();
     let course_id = Uuid::new_v4();
 
     let payload = get_course_create_json();
     let (token, _) = get_user_2();
-    let res = execute_create(&cook_and_run_id, &course_id, payload, &token);
+    let res = execute_create(&project_id, &course_id, payload, &token);
 
     assert_eq!(res.status(), StatusCode::NOT_FOUND, "Response: {:#?}", res);
 }
 
 fn execute_create(
-    cook_and_run_id: &Uuid,
+    project_id: &Uuid,
     course_id: &Uuid,
     payload: serde_json::Value,
     token: &str,
@@ -47,8 +47,8 @@ fn execute_create(
     let (client, base_url) = get_client();
     client
         .post(format!(
-            "{}/cook_and_run/{}/course/{}",
-            base_url, cook_and_run_id, course_id
+            "{}/project/{}/course/{}",
+            base_url, project_id, course_id
         ))
         .header("authorization", format!("Bearer {}", token))
         .json(&payload)
@@ -57,9 +57,9 @@ fn execute_create(
         .expect("Failed to send request")
 }
 
-pub fn create_course(cook_and_run_id: &Uuid, course_id: &Uuid, token: &str) {
+pub fn create_course(project_id: &Uuid, course_id: &Uuid, token: &str) {
     let payload = get_course_create_json();
-    let res = execute_create(cook_and_run_id, course_id, payload, token);
+    let res = execute_create(project_id, course_id, payload, token);
     assert!(res.status().is_success(), "Response: {:#?}", res);
 }
 
